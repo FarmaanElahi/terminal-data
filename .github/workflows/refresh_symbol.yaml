@@ -1,0 +1,40 @@
+name: Execute and Commit Jupyter Notebook
+
+on:
+  schedule:
+    # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
+    - cron: '0 4-12 * * 1-5'
+  workflow_dispatch: # Allow manual trigger of the workflow
+
+jobs:
+  run-notebook:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Download TALib
+        run: |
+          wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.3/ta-lib_0.6.3_amd64.deb -P /tmp
+          sudo dpkg -i /tmp/ta-lib_0.6.3_amd64.deb
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt --quiet
+
+      - name: Execute Notebook
+        env:
+          PG_CONNECTION: ${{ secrets.PG_CONNECTION }}
+        run: |
+          papermill notebook/download_symbols.ipynb \
+                    notebook/download_symbols_out.ipynb \
+                    --log-output \
+                    -p connection_string "$PG_CONNECTION" \
+                    -p install_ta_lib_binary False \
+                    -p install_deps False
