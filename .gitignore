@@ -1,1 +1,3 @@
 .venv
+.idea/codestream.xml
+.idea/git_toolbox_blame.xml
