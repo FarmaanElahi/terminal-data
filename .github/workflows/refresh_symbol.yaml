@@ -35,6 +35,5 @@ jobs:
           papermill notebook/download_symbols.ipynb \
                     notebook/download_symbols_out.ipynb \
                     --log-output \
-                    -p connection_string "$PG_CONNECTION" \
                     -p install_ta_lib_binary False \
                     -p install_deps False
