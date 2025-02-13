@@ -17,8 +17,10 @@ blosc2==3.0.0
 certifi==2024.12.14
 cffi==1.17.1
 charset-normalizer==3.4.1
+circuitbreaker==2.0.0
 click==8.1.8
 comm==0.2.2
+cryptography==44.0.1
 debugpy==1.8.12
 decorator==5.1.1
 defusedxml==0.7.1
@@ -27,6 +29,7 @@ executing==2.2.0
 fastjsonschema==2.21.1
 fqdn==1.5.1
 frozenlist==1.5.0
+fsspec==2025.2.0
 h11==0.14.0
 h5py==3.12.1
 httpcore==1.0.7
@@ -64,6 +67,7 @@ notebook==7.3.2
 notebook_shim==0.2.4
 numexpr==2.10.2
 numpy==1.26.4
+oci==2.144.1
 overrides==7.7.0
 packaging==24.2
 pandas==2.2.3
@@ -81,8 +85,10 @@ psycopg2-binary==2.9.10
 ptyprocess==0.7.0
 pure_eval==0.2.3
 py-cpuinfo==9.0.0
+pyarrow==19.0.0
 pycparser==2.22
 Pygments==2.19.1
+pyOpenSSL==24.3.0
 python-dateutil==2.9.0.post0
 python-json-logger==3.2.1
 pytz==2024.2
