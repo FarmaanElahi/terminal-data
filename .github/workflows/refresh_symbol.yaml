@@ -28,15 +28,15 @@ jobs:
       - name: Install Dependencies
         run: pip install -r requirements.txt --quiet
 
-#      - name: Execute Notebook
-#        env:
-#          PG_CONNECTION: ${{ secrets.PG_CONNECTION }}
-#          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
-#          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
-#          OCI_KEY: ${{ secrets.OCI_KEY }}
-#        run: |
-#          papermill notebook/download_symbols.ipynb \
-#                    notebook/download_symbols_out.ipynb \
-#                    --log-output \
-#                    -p install_ta_lib_binary False \
-#                    -p install_deps False
+      - name: Execute Notebook
+        env:
+          PG_CONNECTION: ${{ secrets.PG_CONNECTION }}
+          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
+          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+        run: |
+          papermill notebook/download_symbols.ipynb \
+                    notebook/download_symbols_out.ipynb \
+                    --log-output \
+                    -p install_ta_lib_binary False \
+                    -p install_deps False
