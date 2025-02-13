@@ -39,7 +39,4 @@ jobs:
 #                    notebook/download_symbols_out.ipynb \
 #                    --log-output \
 #                    -p install_ta_lib_binary False \
-#                    -p install_deps False \
-#                    -p oci_config ${OCI_CONFIG} \
-#                    -p oci_key_content ${OCI_KEY} \
-#                    -p oci_bucket ${OCI_BUCKET}
+#                    -p install_deps False
