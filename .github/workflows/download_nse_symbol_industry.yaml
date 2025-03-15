@@ -1,0 +1,34 @@
+name: Download NSE Symbol Industry
+
+on:
+  schedule:
+    # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch: # Allow manual trigger of the workflow
+
+jobs:
+  run-notebook:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt --quiet
+
+      - name: Execute Notebook
+        env:
+          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
+          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+        run: |
+          papermill notebook/download_nse_industry.ipynb \
+                    notebook/download_nse_industry_out.ipynb \
+                    --log-output
