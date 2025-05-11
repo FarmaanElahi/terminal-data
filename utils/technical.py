@@ -17,8 +17,10 @@ async def get_market_candles():
     return market_candles
 
 
-async def get_technicals(df: pd.DataFrame, market_candles: dict[str, pd.DataFrame], tickers: list[str]):
+async def get_technicals(df: pd.DataFrame, tickers: list[str]):
     technical_data = []
+    market_candles = await get_market_candles()
+
     async for ticker, d in TradingView.stream_candles(tickers):
         row = df.loc[ticker]
         market_d = market_candles[market_ticker[row.exchange]]
@@ -34,7 +36,6 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
     # Read the ticker data
     cols = {"ticker": ticker}
     shares_float = row.shares_float
-    exchange = row.exchange
     last_earning_date = row.earnings_release_trading_date_fq
 
     # Fix the missing volume

@@ -8,7 +8,7 @@ from utils.bucket import data_bucket, data_bucket_fs
 
 
 def get_fundamentals():
-    with data_bucket_fs.open(f'{data_bucket}@/fundamental.json', 'rb') as f:
+    with data_bucket_fs.open(f'{data_bucket}/fundamental.json', 'rb') as f:
         funda_json: list[dict[str, Any]] = json.loads(f.read())
         fundamental_metrics = []
         for row in funda_json:
