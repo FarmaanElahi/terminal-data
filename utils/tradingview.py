@@ -343,10 +343,21 @@ class TradingView:
         return all_quotes, all_bars
 
     @staticmethod
+    async def download_quotes(t: list[str]):
+        all_quotes = {}
+        async  for quotes, bars in fetch_bulk(t):
+            all_quotes.update(quotes)
+
+        return all_quotes
+
+    @staticmethod
     async def stream_quotes(t: list[str]):
         async  for quotes, bars in fetch_bulk(t, "quote"):
             for quote in quotes.values():
-                yield pd.DataFrame([quote])
+                df = pd.DataFrame([quote])
+                df['ticker'] = df.pro_name
+                df.set_index(["ticker"], inplace=True)
+                yield df
 
     @staticmethod
     async def stream_candles(t: list[str]):
@@ -365,7 +376,7 @@ class TradingView:
                 yield ticker, b_df
 
     @staticmethod
-    def get_base_symbols():
+    def get_base_symbols(limit: int | None = None):
         market = "india"
         url = f"https://scanner.tradingview.com/{market}/scan"
         payload = {
@@ -422,7 +433,8 @@ class TradingView:
         r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
         r.raise_for_status()
         # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
-        data = r.json()['data'][:100]
+        # Only 10 data in test mode
+        data = r.json()['data'][:limit] if limit else r.json()['data']
         base = pd.DataFrame([[i['s'], *i['d']] for i in data], columns=["ticker", *payload["columns"]])
         base.rename(
             columns={
@@ -455,3 +467,39 @@ class TradingView:
         base.earnings_release_trading_date_fq = to_datetime(base.earnings_release_trading_date_fq)
         base.earnings_release_next_trading_date_fq = to_datetime(base.earnings_release_next_trading_date_fq)
         return base
+
+    @staticmethod
+    async def get_index(default_columns: list[str]):
+        indexes = [
+            "NSE:NIFTY", "NSE:NIFTYJR", "NSE:CNX500", "NSE:BANKNIFTY", "NSE:CNXFINANCE", "NSE:CNXIT",
+            "NSE:CNXAUTO", "NSE:CNXPHARMA", "NSE:CNXPSUBANK", "NSE:CNXMETAL", "NSE:CNXFMCG", "NSE:CNXREALTY",
+            "NSE:CNXMEDIA", "NSE:CNXINFRA", "NSE:NIFTYPVTBANK", "NSE:NIFTY_OIL_AND_GAS", "NSE:NIFTY_HEALTHCARE",
+            "NSE:NIFTY_CONSR_DURBL", "NSE:CNX200", "NSE:NIFTY_MID_SELECT",
+            "NSE:CNXSMALLCAP", "NSE:CNXMIDCAP", "NSE:CNXENERGY", "NSE:NIFTYMIDCAP50", "NSE:NIFTYSMLCAP250",
+            "NSE:CNXPSE", "NSE:NIFTYMIDSML400", "NSE:NIFTYMIDCAP150", "NSE:CNXCONSUMPTION", "NSE:CNXCOMMODITIES",
+            "NSE:NIFTY_MICROCAP250", "NSE:CPSE", "NSE:CNXSERVICE", "NSE:CNXMNC", "NSE:CNX100", "NSE:NIFTYALPHA50",
+            "NSE:NIFTY_TOTAL_MKT", "NSE:NIFTY_INDIA_MFG",
+            "NSE:NIFTY_IND_DIGITAL", "NSE:NIFTY_LARGEMID250", "BSE:SENSEX",
+        ]
+        index_data = await TradingView.download_quotes(indexes)
+
+        q = pd.DataFrame(index_data.values())
+        q['ticker'] = q['pro_name']
+        q.set_index(["ticker"], inplace=True)
+
+        i_df = pd.DataFrame([], columns=default_columns)
+        i_df.name = q.short_name.astype(str)
+        i_df.type = q.type.astype('category')
+        i_df.description = q.description.astype(str)
+        i_df.logo = q.logoid.astype(str)
+        i_df.pricescale = q.pricescale
+        i_df.minmov = q.minmov
+        i_df.currency = q.currency_code.astype('category')
+        i_df.fundamental_currency = i_df.currency
+        i_df.market = 'india'
+        i_df.exchange = q.exchange
+        i_df.exchange = q.exchange
+        i_df.exchange_logo = q['source-logoid'].astype('category')
+        i_df.all_time_high = q.all_time_high
+        i_df.all_time_low = q.all_time_low
+        return i_df
