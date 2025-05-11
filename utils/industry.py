@@ -2,7 +2,7 @@ import pandas as pd
 from utils.bucket import storage_options, data_bucket
 
 
-def get_classification():
+def get_industry_classification():
     # Download the nse industry
     classification_df = pd.read_csv(f'oci://{data_bucket}/nse_industry_symbols.csv', storage_options=storage_options)
     classification_df['ticker'] = "NSE:" + classification_df["Symbol"]
