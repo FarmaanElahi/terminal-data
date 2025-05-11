@@ -132,7 +132,7 @@ def flatten_yearly(data, in_crores=True):
             result[f"{key}_ttm"] = None
 
         # For fiscal year metrics (up to 10 years back)
-        for i in range(1, max_loopback + 1):
+        for i in range(0, max_loopback):
             result[f"{key}_fy_{i}"] = None
 
     # If data is empty or has only headers, return initialized dictionary with None values
@@ -194,7 +194,7 @@ def flatten_yearly(data, in_crores=True):
         for metric, key in metrics_to_extract.items():
             if metric in metric_indices:
                 value = year_data[metric_indices[metric]]
-                result[f"{key}_fy_{i}"] = value
+                result[f"{key}_fy_{i - 1}"] = value
 
     return result
 
@@ -283,7 +283,7 @@ def flatten_quarterly(data, latest_quarter=None, in_crores=True):
         result[f"{key}_fq_latest"] = None
 
         # For quarterly metrics (up to 20 quarters back)
-        for i in range(1, max_loopback + 1):
+        for i in range(0, max_loopback):
             result[f"{key}_fq_{i}"] = None
 
     # If data is empty or has only headers, return initialized dictionary with None values
@@ -354,6 +354,6 @@ def flatten_quarterly(data, latest_quarter=None, in_crores=True):
         for metric, key in metrics.items():
             if metric in metric_indices:
                 idx = metric_indices[metric]
-                result[f"{key}_fq_{i}"] = quarter_data[idx]
+                result[f"{key}_fq_{i - 1}"] = quarter_data[idx]
 
     return result

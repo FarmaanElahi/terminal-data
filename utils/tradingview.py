@@ -447,6 +447,8 @@ class TradingView:
                 "High.All": "all_time_high",
                 "Low.All": "all_time_low",
                 "float_shares_outstanding_current": "shares_float",
+                "earnings_release_trading_date_fq":"earnings_release_date",
+                "earnings_release_next_trading_date_fq":"earnings_release_next_date"
             },
             inplace=True
         )
@@ -464,8 +466,8 @@ class TradingView:
         base.sector = base['sector'].astype('category')
         base.industry = base['industry'].astype('category')
         base.set_index(['ticker'], inplace=True)
-        base.earnings_release_trading_date_fq = to_datetime(base.earnings_release_trading_date_fq)
-        base.earnings_release_next_trading_date_fq = to_datetime(base.earnings_release_next_trading_date_fq)
+        base.earnings_release_trading_date_fq = to_datetime(base.earnings_release_date)
+        base.earnings_release_next_trading_date_fq = to_datetime(base.earnings_release_next_date)
         return base
 
     @staticmethod
