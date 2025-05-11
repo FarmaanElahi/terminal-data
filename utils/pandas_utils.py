@@ -47,3 +47,15 @@ def make_df_ready_for_serialization(df: pd.DataFrame):
     df = df.replace('nan', None)
     df = df.replace([np.inf, -np.inf], None)
     return df
+
+
+def get_latest(value, index: int = -1):
+    if value is None:
+        return np.nan
+    if isinstance(value, pd.Series):
+        if index < 0 and abs(index) > len(value):
+            return np.nan
+        if index >= 0 and index >= len(value):
+            return np.nan
+        return value.iloc[index]
+    return value

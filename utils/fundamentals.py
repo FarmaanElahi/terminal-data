@@ -1,14 +1,15 @@
 import json
+from datetime import datetime
+from typing import Any
 
 import pandas as pd
-from datetime import datetime
 
 from utils.bucket import data_bucket, data_bucket_fs
 
 
-def get_base_fundamentals():
+def get_fundamentals():
     with data_bucket_fs.open(f'{data_bucket}@/fundamental.json', 'rb') as f:
-        funda_json = json.loads(f.read())
+        funda_json: list[dict[str, Any]] = json.loads(f.read())
         fundamental_metrics = []
         for row in funda_json:
             row_data = row["data"]
