@@ -366,6 +366,12 @@ class TradingView:
                 "earnings_release_next_trading_date_fq",
                 # Index part
                 "indexes.tr",
+
+                # Some fundamental
+                "market_cap_basic",
+                "price_earnings_ttm",
+                "price_target_1y",
+                "float_shares_percent_current",
             ],
             "filter": [
                 {
@@ -392,6 +398,7 @@ class TradingView:
                 "fundamental_currency_code": "fundamental_currency",
                 "industry.tr": "industry",
                 "indexes.tr": "indexes",
+                "market_cap_basic": "mcap",
             },
             inplace=True
         )
