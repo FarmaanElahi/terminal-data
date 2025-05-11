@@ -36,7 +36,7 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
     # Read the ticker data
     cols = {"ticker": ticker}
     shares_float = row.shares_float
-    last_earning_date = row.earnings_release_trading_date_fq
+    last_earning_date = row.earnings_release_date
 
     # Fix the missing volume
     if d.volume.empty:
