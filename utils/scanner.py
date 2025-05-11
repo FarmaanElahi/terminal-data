@@ -13,7 +13,7 @@ from utils.tradingview import TradingView
 async def run_full_scanner_build():
     print("Running full scanner build")
 
-    df = TradingView.get_base_symbols(100)
+    df = TradingView.get_base_symbols()
     print("Base Symbols loaded")
 
     index_df = await  TradingView.get_index(df.columns)
