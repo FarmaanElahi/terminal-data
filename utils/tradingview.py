@@ -263,13 +263,16 @@ def to_bars_df(bars: dict[str, list[list]]):
     return v
 
 
-async def fetch_bulk(tickers: list[str]):
+async def fetch_bulk(tickers: list[str], mode: Literal["quote", "bar", "all"] = "all"):
+    # Currently tradingview only allow 5 active websocket connections, so we spit the entire list into 500
+    # Then to parallize the processing further, we split the request into 100 chunks of symbols again
     main_chunk = _chunk_list(tickers, 500)
     failed_chunks = []
     for idx, chunk in enumerate(main_chunk):
         print(f"Started: {idx + 1}/{len(main_chunk)}")
         sub_chunks = _chunk_list(chunk, 100)
-        tasks = [create_task(_fetch_data(chunked_symbols)) for chunked_symbols in sub_chunks]
+        # Starts a new connection and fetches data fot this chunk only and closes the connection
+        tasks = [create_task(_fetch_data(chunked_symbols, mode)) for chunked_symbols in sub_chunks]
         chunk_result = await gather(*tasks)
         for chunked_symbols, result in zip(sub_chunks, chunk_result):
             if result is None:
@@ -277,6 +280,7 @@ async def fetch_bulk(tickers: list[str]):
                 failed_chunks = failed_chunks + chunked_symbols
                 continue
 
+            # As soon as 100 symbol chunks are complete, it is yielded so that we can start processing it
             yield result
 
         print(f"Completed: {idx + 1}/{len(main_chunk)}")
@@ -314,6 +318,19 @@ def _chunk_list(lst: list[str], chunk_size: int):
 
 
 class TradingView:
+    indexes = {
+        "india": [
+            "NSE:NIFTY", "NSE:NIFTYJR", "NSE:CNX500", "NSE:BANKNIFTY", "NSE:CNXFINANCE", "NSE:CNXIT",
+            "NSE:CNXAUTO", "NSE:CNXPHARMA", "NSE:CNXPSUBANK", "NSE:CNXMETAL", "NSE:CNXFMCG", "NSE:CNXREALTY",
+            "NSE:CNXMEDIA", "NSE:CNXINFRA", "NSE:NIFTYPVTBANK", "NSE:NIFTY_OIL_AND_GAS", "NSE:NIFTY_HEALTHCARE",
+            "NSE:NIFTY_CONSR_DURBL", "NSE:CNX200", "NSE:NIFTY_MID_SELECT",
+            "NSE:CNXSMALLCAP", "NSE:CNXMIDCAP", "NSE:CNXENERGY", "NSE:NIFTYMIDCAP50", "NSE:NIFTYSMLCAP250",
+            "NSE:CNXPSE", "NSE:NIFTYMIDSML400", "NSE:NIFTYMIDCAP150", "NSE:CNXCONSUMPTION", "NSE:CNXCOMMODITIES",
+            "NSE:NIFTY_MICROCAP250", "NSE:CPSE", "NSE:CNXSERVICE", "NSE:CNXMNC", "NSE:CNX100", "NSE:NIFTYALPHA50",
+            "NSE:NIFTY_TOTAL_MKT", "NSE:NIFTY_INDIA_MFG",
+            "NSE:NIFTY_IND_DIGITAL", "NSE:NIFTY_LARGEMID250", "BSE:SENSEX",
+        ]
+    }
 
     @staticmethod
     async def download(t: list[str]):
@@ -326,22 +343,30 @@ class TradingView:
         return all_quotes, all_bars
 
     @staticmethod
+    async def stream_quotes(t: list[str]):
+        async  for quotes, bars in fetch_bulk(t, "quote"):
+            for quote in quotes.values():
+                yield pd.DataFrame([quote])
+
+    @staticmethod
+    async def stream_candles(t: list[str]):
+        required_columns = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+        async  for quotes, bars in fetch_bulk(t, "bar"):
+            for ticker, bar in bars.items():
+                b_df = pd.DataFrame(bar)
+                b_df.columns = required_columns[:b_df.shape[1]]
+                # Ensure all required columns are present
+                for col in required_columns:
+                    if col not in b_df.columns:
+                        b_df[col] = np.nan  # Fill missing columns with NaN
+                b_df['timestamp'] = pd.to_datetime(b_df['timestamp'], unit='s')
+                b_df['timestamp'] = b_df['timestamp'].dt.floor('D')
+                b_df.set_index(['timestamp'], inplace=True)
+                yield ticker, b_df
+
+    @staticmethod
     def get_base_symbols():
         market = "india"
-        indexes = {
-            "india": [
-                "NSE:NIFTY", "NSE:NIFTYJR", "NSE:CNX500", "NSE:BANKNIFTY", "NSE:CNXFINANCE", "NSE:CNXIT",
-                "NSE:CNXAUTO", "NSE:CNXPHARMA", "NSE:CNXPSUBANK", "NSE:CNXMETAL", "NSE:CNXFMCG", "NSE:CNXREALTY",
-                "NSE:CNXMEDIA", "NSE:CNXINFRA", "NSE:NIFTYPVTBANK", "NSE:NIFTY_OIL_AND_GAS", "NSE:NIFTY_HEALTHCARE",
-                "NSE:NIFTY_CONSR_DURBL", "NSE:CNX200", "NSE:NIFTY_MID_SELECT",
-                "NSE:CNXSMALLCAP", "NSE:CNXMIDCAP", "NSE:CNXENERGY", "NSE:NIFTYMIDCAP50", "NSE:NIFTYSMLCAP250",
-                "NSE:CNXPSE", "NSE:NIFTYMIDSML400", "NSE:NIFTYMIDCAP150", "NSE:CNXCONSUMPTION", "NSE:CNXCOMMODITIES",
-                "NSE:NIFTY_MICROCAP250", "NSE:CPSE", "NSE:CNXSERVICE", "NSE:CNXMNC", "NSE:CNX100", "NSE:NIFTYALPHA50",
-                "NSE:NIFTY_TOTAL_MKT", "NSE:NIFTY_INDIA_MFG",
-                "NSE:NIFTY_IND_DIGITAL", "NSE:NIFTY_LARGEMID250", "BSE:SENSEX",
-            ]
-        }
-
         url = f"https://scanner.tradingview.com/{market}/scan"
         payload = {
             "columns": [
@@ -364,14 +389,21 @@ class TradingView:
                 "earnings_release_trading_date_fq",
                 # Upcoming earnings
                 "earnings_release_next_trading_date_fq",
+                "float_shares_outstanding_current",
                 # Index part
                 "indexes.tr",
 
                 # Some fundamental
                 "market_cap_basic",
                 "price_earnings_ttm",
+                "price_earnings_growth_ttm",
                 "price_target_1y",
                 "float_shares_percent_current",
+                "High.All",
+                "Low.All",
+                "beta_1_year",
+                "beta_3_year",
+                "beta_5_year",
             ],
             "filter": [
                 {
@@ -389,7 +421,8 @@ class TradingView:
 
         r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
         r.raise_for_status()
-        data = r.json()['data']  # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        data = r.json()['data'][:100]
         base = pd.DataFrame([[i['s'], *i['d']] for i in data], columns=["ticker", *payload["columns"]])
         base.rename(
             columns={
@@ -399,6 +432,9 @@ class TradingView:
                 "industry.tr": "industry",
                 "indexes.tr": "indexes",
                 "market_cap_basic": "mcap",
+                "High.All": "all_time_high",
+                "Low.All": "all_time_low",
+                "float_shares_outstanding_current": "shares_float",
             },
             inplace=True
         )
