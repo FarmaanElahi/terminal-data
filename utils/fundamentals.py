@@ -56,7 +56,8 @@ async def download_fundamentals():
     all_data = []
     for idx, symbol in enumerate(symbols):
         data = fetch_symbol_fundamentals(symbol)
-        print(f"Completed {idx} of {len(symbols)}")
+        if idx % 10 == 0:
+            print(f"Completed {idx} of {len(symbols)}")
         if data is not None:
             all_data.append(data)
             time.sleep(DELAY_BETWEEN_REQUESTS)
