@@ -53,7 +53,7 @@ def fetch_symbol_fundamentals(symbol: str):
 
 async def download_fundamentals():
     symbols = TradingView.get_symbol_list()
-    all_data = [{"ds": "Ds"}]
+    all_data = []
     for idx, symbol in enumerate(symbols):
         data = fetch_symbol_fundamentals(symbol)
         print(f"Completed {idx} of {len(symbols)}")
