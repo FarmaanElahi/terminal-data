@@ -1,10 +1,69 @@
 import json
+import time
 from datetime import datetime
 from typing import Any
 
 import pandas as pd
 
 from utils.bucket import data_bucket, data_bucket_fs
+from utils.tradingview import TradingView
+
+RATE_LIMIT_WAIT_TIME = 120
+DELAY_BETWEEN_REQUESTS = 0.5
+
+
+def fetch_symbol_fundamentals(symbol: str):
+    url = f"https://www.stockscans.in/api/company/get-fundamentals/{symbol}/C"
+    try:
+        import requests
+        import json
+
+        headers = {
+            'accept': 'application/json',
+            'accept-language': 'en-IN,en;q=0.9',
+            'content-type': 'application/json',
+            'dnt': '1',
+            'priority': 'u=1, i',
+            'referer': 'https://www.stockscans.in/company/NSE:BAJFINANCE/consolidated',
+            'sec-ch-ua': '"Google Chrome";v="135", "Not-A.Brand";v="8", "Chromium";v="135"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"macOS"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+            'Version': '4.0'
+        }
+        response = requests.get(url, headers=headers)
+
+        try:
+            data = response.json()
+        except ValueError:
+            print(f"Invalid JSIN response from {url}")
+            return None
+        if response.status_code == 500 and 'message' in data and "Too many requests" in data['message']:
+            print(f"Rate Limit hit on {url} waitfing for {RATE_LIMIT_WAIT_TIME} seconds.")
+            time.sleep(RATE_LIMIT_WAIT_TIME)
+            return fetch_symbol_fundamentals(symbol)
+        return data
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data from {url}: {e}")
+        return None
+
+
+async def download_fundamentals():
+    symbols = TradingView.get_symbol_list()[:110]
+    all_data = [{"ds": "Ds"}]
+    for idx, symbol in enumerate(symbols):
+        data = fetch_symbol_fundamentals(symbol)
+        print(f"Completed {idx} of {len(symbols)}")
+        if data is not None:
+            all_data.append(data)
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+
+    with data_bucket_fs.open(f'{data_bucket}/fundamental.json', 'wb') as f:
+        f.write(json.dumps(all_data).encode('utf-8'))
+        print("Fundamentals downloaded")
 
 
 def get_fundamentals():

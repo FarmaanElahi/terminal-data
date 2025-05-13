@@ -6,3 +6,6 @@ notebook/base.ipynb
 notebook/config
 notebook/key.pem
 notebook/indicator_test.ipynb
+
+key.pem
+config

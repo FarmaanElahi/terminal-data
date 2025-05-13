@@ -1,9 +1,9 @@
-name: Build Scanner
+name: Download Fundamentals
 
 on:
   schedule:
     # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
-    - cron: '30 4-10 * * 1-5'
+    - cron: '0 17 * * 1-5'
   workflow_dispatch: # Allow manual trigger of the workflow
 
 jobs:
@@ -34,5 +34,5 @@ jobs:
           OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
           OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
           OCI_KEY: ${{ secrets.OCI_KEY }}
-        run: python -u main.py --mode scan
+        run: python -u main.py --mode download
 
