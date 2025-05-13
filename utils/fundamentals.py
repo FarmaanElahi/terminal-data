@@ -52,7 +52,7 @@ def fetch_symbol_fundamentals(symbol: str):
 
 
 async def download_fundamentals():
-    symbols = TradingView.get_symbol_list()[:110]
+    symbols = TradingView.get_symbol_list()
     all_data = [{"ds": "Ds"}]
     for idx, symbol in enumerate(symbols):
         data = fetch_symbol_fundamentals(symbol)
