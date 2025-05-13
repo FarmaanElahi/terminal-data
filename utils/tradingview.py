@@ -376,6 +376,32 @@ class TradingView:
                 yield ticker, b_df
 
     @staticmethod
+    def get_symbol_list():
+        market = "india"
+        url = f"https://scanner.tradingview.com/{market}/scan"
+        payload = {
+            "columns": [],
+            "filter": [
+                {
+                    "left": "exchange",
+                    "operation": "in_range",
+                    "right": ["NSE"]
+                }
+            ],
+            "sort": {
+                "sortBy": "market_cap_basic",
+                "sortOrder": "desc"
+            },
+        }
+        headers = {'Content-Type': 'text/plain'}
+
+        r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+        r.raise_for_status()
+        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        data = r.json()['data']
+        return [i['s'] for i in data]
+
+    @staticmethod
     def get_base_symbols(limit: int | None = None):
         market = "india"
         url = f"https://scanner.tradingview.com/{market}/scan"
@@ -447,8 +473,8 @@ class TradingView:
                 "High.All": "all_time_high",
                 "Low.All": "all_time_low",
                 "float_shares_outstanding_current": "shares_float",
-                "earnings_release_trading_date_fq":"earnings_release_date",
-                "earnings_release_next_trading_date_fq":"earnings_release_next_date"
+                "earnings_release_trading_date_fq": "earnings_release_date",
+                "earnings_release_next_trading_date_fq": "earnings_release_next_date"
             },
             inplace=True
         )
