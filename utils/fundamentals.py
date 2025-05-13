@@ -8,7 +8,7 @@ import pandas as pd
 from utils.bucket import data_bucket, data_bucket_fs
 from utils.tradingview import TradingView
 
-RATE_LIMIT_WAIT_TIME = 120
+RATE_LIMIT_WAIT_TIME = 300
 DELAY_BETWEEN_REQUESTS = 0.5
 
 
