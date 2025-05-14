@@ -71,8 +71,7 @@ def get_fundamentals():
     with data_bucket_fs.open(f'{data_bucket}/fundamental.json', 'rb') as f:
         funda_json: list[dict[str, Any]] = json.loads(f.read())
         fundamental_metrics = []
-        for row in funda_json:
-            row_data = row["data"]
+        for row_data in funda_json:
             ticker = row_data['companyId']
             quarterly = row_data["quarterly"]
             yearly = row_data["yearly"]
