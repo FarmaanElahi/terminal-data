@@ -20,7 +20,7 @@ def evaluate_alert(alert: Alert, update: ChangeUpdate) -> bool:
     """
     Evaluates whether the alert condition is satisfied for the current price and time.
     """
-    current_price = update.ltq
+    current_price = update.ltp
     current_time = update.ltt
     if alert.lhs_type != "last_price":
         print(f"Unsupported lhs_type: {alert.lhs_type}")

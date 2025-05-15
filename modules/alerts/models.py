@@ -12,7 +12,8 @@ class TrendlinePoint(BaseModel):
 class Alert(BaseModel):
     id: str
     created_at: datetime
-    updated_at: datetime
+    updated_at: datetime | None
+    deleted_at: datetime | None
     is_active: bool
     user_id: str
     symbol: str

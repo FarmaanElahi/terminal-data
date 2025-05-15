@@ -1,5 +1,6 @@
 import asyncio
 import argparse
+import logging
 
 from utils.scanner import run_full_scanner_build
 from utils.fundamentals import download_fundamentals
@@ -30,4 +31,9 @@ async def main():
 
 
 if __name__ == "__main__":
+    # Configure the root logger
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     asyncio.run(main())
