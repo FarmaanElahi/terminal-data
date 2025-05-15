@@ -2,7 +2,6 @@ from datetime import datetime
 from typing import Optional, Literal
 
 from pydantic import BaseModel
-from uuid import UUID
 
 
 class TrendlinePoint(BaseModel):
@@ -15,7 +14,7 @@ class Alert(BaseModel):
     created_at: datetime
     updated_at: datetime
     is_active: bool
-    user_id: UUID
+    user_id: str
     symbol: str
 
     type: Literal["simple"]  # Currently fixed to "simple"

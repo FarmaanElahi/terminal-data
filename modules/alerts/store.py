@@ -6,7 +6,7 @@ from typing import Callable, Coroutine
 
 from supabase import create_async_client, AsyncClient
 
-from models import Alert
+from modules.alerts.models import Alert
 
 SUPABASE_URL = os.environ["SUPABASE_URL"]
 SUPABASE_KEY = os.environ["SUPABASE_SERVICE_KEY"]  # Use service role key

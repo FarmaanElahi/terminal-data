@@ -1,7 +1,4 @@
-from typing import Callable, Dict, Optional
-from models import Alert
-
-# alert_manager.py
+from modules.alerts.models import Alert
 
 class AlertManager:
     def __init__(self):
