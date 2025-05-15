@@ -1,10 +1,11 @@
+import asyncio
 import logging
 
 from modules.alerts.alert_manager import AlertManager
 from modules.alerts.dispatcher_queue import NotificationDispatcher
 from modules.alerts.evaluator import evaluate_alert
 from modules.alerts.models import Alert, ChangeUpdate
-from modules.alerts.provider import TradingViewProvider,MockDataProvider
+from modules.alerts.provider import TradingViewProvider, MockDataProvider
 from modules.alerts.store import AlertStore
 
 logger = logging.getLogger(__name__)
@@ -14,11 +15,13 @@ class AlertEngine:
     def __init__(self):
         self.alert_manager = AlertManager()
         self.dispatcher = NotificationDispatcher()
+        self.dispatch_task = asyncio.create_task(self.dispatcher.dispatch_loop())
         self.store = AlertStore()
         self.data_provider = TradingViewProvider(self._on_price_tick)
 
     async def start(self):
         print("[Engine] Starting alert engine...")
+
         await self._sync_existing_alerts()
         await self._subscribe_to_alert_changes()
         await self.data_provider.start()

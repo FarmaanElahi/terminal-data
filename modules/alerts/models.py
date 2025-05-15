@@ -14,20 +14,16 @@ class Alert(BaseModel):
     created_at: datetime
     updated_at: datetime | None
     deleted_at: datetime | None
+    notes: str | None
     is_active: bool
     user_id: str
     symbol: str
-
     type: Literal["simple"]  # Currently fixed to "simple"
-
     lhs_type: Literal["last_price"]
     lhs_attr: dict | None  # Reserved for future flexibility
-
     operator: Literal["<", "<=", ">", ">=", "==", "!="]
-
     rhs_type: Literal["constant", "trend_line"]
     rhs_attr: dict  # We'll parse this further depending on rhs_type
-
     last_triggered_at: datetime | None = None
 
     def is_trendline(self) -> bool:
