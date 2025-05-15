@@ -2,7 +2,7 @@
 
 from typing import Callable
 from datetime import datetime
-from models import Alert, ChangeUpdate
+from modules.alerts.models import Alert, ChangeUpdate
 import operator
 
 # Operator mapping for safe evaluation

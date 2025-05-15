@@ -1,6 +1,6 @@
 import asyncio
 from typing import Callable, Awaitable
-from models import Alert
+from modules.alerts.models import Alert
 
 
 class NotificationDispatcher:

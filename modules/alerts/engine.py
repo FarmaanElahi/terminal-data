@@ -1,9 +1,9 @@
-from alert_manager import AlertManager
-from dispatcher_queue import NotificationDispatcher
-from evaluator import evaluate_alert
-from models import Alert, ChangeUpdate
-from store import AlertStore
-from provider import MockDataProvider
+from modules.alerts.alert_manager import AlertManager
+from modules.alerts.dispatcher_queue import NotificationDispatcher
+from modules.alerts.evaluator import evaluate_alert
+from modules.alerts.models import Alert, ChangeUpdate
+from modules.alerts.store import AlertStore
+from modules.alerts.provider import MockDataProvider
 
 
 class AlertEngine:

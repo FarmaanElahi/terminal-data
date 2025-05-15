@@ -3,6 +3,7 @@ import argparse
 
 from utils.scanner import run_full_scanner_build
 from utils.fundamentals import download_fundamentals
+from modules.alerts.worker import run_alerts_worker
 
 
 async def main():
@@ -11,7 +12,7 @@ async def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["download", "scan"],
+        choices=["download", "scan", "alerts"],
         required=True,
         help="Choose 'download' to fetch fundamentals or 'scan' to run the scanner."
     )
@@ -22,6 +23,8 @@ async def main():
         return await download_fundamentals()
     if args.mode == "scan":
         return await run_full_scanner_build()
+    if args.mode == "alerts":
+        return await run_alerts_worker()
 
     print("[ERROR] Invalid mode. Use 'download' or 'scan'.")
 
