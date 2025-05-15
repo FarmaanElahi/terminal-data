@@ -3,13 +3,12 @@ import json
 import logging
 import random
 import string
-import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable, AsyncGenerator, Tuple
+from typing import Dict, List, Any, Optional, AsyncGenerator, Tuple
+
 from websockets import Origin, ConnectionClosed
 from websockets.asyncio.client import connect
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("TradingViewStreamer")
 
 
@@ -150,7 +149,6 @@ class TradingViewQuoteStreamer:
                                 yield QuoteStreamEvent.QUOTE_COMPLETED, ticker, self._quotes.get(ticker, {})
                             elif m == "qsd":
                                 result = await self._process_quote_update(event)
-                                print(f"Update {result}")
                                 if result:
                                     ticker, data = result
                                     if ticker in self._quote_completed_tickers:

@@ -2,10 +2,10 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Set, Optional, Any, AsyncGenerator, Tuple
-from provider.tradingview.quote_streamer import TradingViewQuoteStreamer, QuoteStreamEvent
+
+from modules.core.provider.tradingview.quote_streamer import TradingViewQuoteStreamer, QuoteStreamEvent
 
 # Configure logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("TradingViewScaler")
 
 
@@ -18,10 +18,10 @@ class StreamingNode:
 
 class TradingViewScaler:
     def __init__(
-        self,
-        quote_fields: List[str],
-        max_connections: int = 4,
-        max_tickers_per_connection: int = 1000,
+            self,
+            quote_fields: List[str],
+            max_connections: int = 4,
+            max_tickers_per_connection: int = 1000,
     ):
         self.quote_fields = tuple(quote_fields)
         self.max_connections = max_connections

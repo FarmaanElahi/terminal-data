@@ -1,9 +1,13 @@
+import logging
+
 from modules.alerts.alert_manager import AlertManager
 from modules.alerts.dispatcher_queue import NotificationDispatcher
 from modules.alerts.evaluator import evaluate_alert
 from modules.alerts.models import Alert, ChangeUpdate
+from modules.alerts.provider import TradingViewProvider,MockDataProvider
 from modules.alerts.store import AlertStore
-from modules.alerts.provider import MockDataProvider
+
+logger = logging.getLogger(__name__)
 
 
 class AlertEngine:
@@ -11,7 +15,7 @@ class AlertEngine:
         self.alert_manager = AlertManager()
         self.dispatcher = NotificationDispatcher()
         self.store = AlertStore()
-        self.data_provider = MockDataProvider()
+        self.data_provider = TradingViewProvider(self._on_price_tick)
 
     async def start(self):
         print("[Engine] Starting alert engine...")
@@ -24,7 +28,7 @@ class AlertEngine:
         alerts = await self.store.fetch_active_alerts()
         for alert in alerts:
             self.alert_manager.add_alert(alert)
-            await self.data_provider.subscribe(alert.symbol, self._on_price_tick)
+            await self.data_provider.subscribe(alert.symbol)
 
     async def _subscribe_to_alert_changes(self):
         print("[Engine] Subscribing to Supabase Realtime...")
@@ -51,17 +55,17 @@ class AlertEngine:
             await self.data_provider.unsubscribe(update.symbol)
 
     async def _handle_insert(self, alert: Alert):
-        print(f"[Insert] Alert {alert.id}")
+        logger.debug(f"Insert Alert {alert.id}")
         self.alert_manager.add_alert(alert)
         await self.data_provider.subscribe(alert.symbol)
 
     async def _handle_update(self, alert: Alert):
-        print(f"[Update] Alert {alert.id}")
+        logger.debug(f"Update Alert {alert.id}")
         self.alert_manager.update_alert(alert)
         await self.data_provider.subscribe(alert.symbol)
 
-    async def _handle_delete(self, alert_id: str):
-        print(f"[Delete] Alert {alert_id}")
-        removed = self.alert_manager.remove_alert_by_id(alert_id)
+    async def _handle_delete(self, alert: Alert):
+        print(f"Delete Alert {alert}")
+        removed = self.alert_manager.remove_alert_by_id(alert.id)
         if removed and not self.alert_manager.has_alerts_for_symbol(removed.symbol):
             await self.data_provider.unsubscribe(removed.symbol)
