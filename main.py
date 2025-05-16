@@ -2,6 +2,11 @@ import argparse
 import asyncio
 import logging
 
+from dotenv import load_dotenv
+
+# Load environment variables asap
+load_dotenv()
+
 from modules.alerts.worker import run_alerts_worker
 from utils.fundamentals import download_fundamentals
 from utils.scanner import run_full_scanner_build
