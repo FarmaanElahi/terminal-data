@@ -30,10 +30,11 @@ class AlertStore:
         res = await self.client.table(self.tbl).select("*").eq("is_active", True).execute()
         return [Alert.model_validate(row) for row in res.data]
 
-    async def mark_alert_triggered(self, alert_id: str):
+    async def mark_alert_triggered(self, alert_id: str, price: float):
         await self.client.table("alerts").update({
             "is_active": False,
             "last_triggered_at": "now()",
+            "last_triggered_price": price,
             "updated_at": "now()",
         }).eq("id", alert_id).execute()
 
