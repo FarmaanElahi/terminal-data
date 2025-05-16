@@ -1,13 +1,18 @@
-import asyncio
 import argparse
+import asyncio
 import logging
 
-from utils.scanner import run_full_scanner_build
-from utils.fundamentals import download_fundamentals
+from dotenv import load_dotenv
+
+# Load environment variables asap
+load_dotenv()
+
 from modules.alerts.worker import run_alerts_worker
+from utils.fundamentals import download_fundamentals
+from utils.scanner import run_full_scanner_build
 
 
-async def main():
+async def run():
     parser = argparse.ArgumentParser(
         description="CLI tool for downloading fundamentals or running scanner."
     )
@@ -26,14 +31,18 @@ async def main():
         return await run_full_scanner_build()
     if args.mode == "alerts":
         return await run_alerts_worker()
-
     print("[ERROR] Invalid mode. Use 'download' or 'scan'.")
+    return None
 
 
-if __name__ == "__main__":
+def main():
     # Configure the root logger
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    asyncio.run(main())
+    asyncio.run(run())
+
+
+if __name__ == "__main__":
+    main()
