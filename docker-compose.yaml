@@ -1,0 +1,9 @@
+services:
+  alert_engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: [ "--mode", "alerts" ]
+    env_file:
+      - .env
+    restart: unless-stopped
