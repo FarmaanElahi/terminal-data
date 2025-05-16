@@ -7,10 +7,6 @@ from dotenv import load_dotenv
 # Load environment variables asap
 load_dotenv()
 
-from modules.alerts.worker import run_alerts_worker
-from utils.fundamentals import download_fundamentals
-from utils.scanner import run_full_scanner_build
-
 
 async def run():
     parser = argparse.ArgumentParser(
@@ -26,10 +22,13 @@ async def run():
     args = parser.parse_args()
 
     if args.mode == "download":
+        from utils.fundamentals import download_fundamentals
         return await download_fundamentals()
     if args.mode == "scan":
+        from utils.scanner import run_full_scanner_build
         return await run_full_scanner_build()
     if args.mode == "alerts":
+        from modules.alerts.worker import run_alerts_worker
         return await run_alerts_worker()
     print("[ERROR] Invalid mode. Use 'download' or 'scan'.")
     return None
