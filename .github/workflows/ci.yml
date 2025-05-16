@@ -22,6 +22,8 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             devfarmaan/terminal:latest-arm64
             devfarmaan/terminal:${{ github.sha }}-arm64
@@ -42,6 +44,8 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             devfarmaan/terminal:latest-amd64
             devfarmaan/terminal:${{ github.sha }}-amd64
