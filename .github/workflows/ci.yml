@@ -22,7 +22,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          platforms: linux/arm64
           tags: |
             devfarmaan/terminal:latest-arm64
             devfarmaan/terminal:${{ github.sha }}-arm64
@@ -43,7 +42,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          platforms: linux/amd64
           tags: |
             devfarmaan/terminal:latest-amd64
             devfarmaan/terminal:${{ github.sha }}-amd64
