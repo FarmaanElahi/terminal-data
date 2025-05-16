@@ -2,10 +2,6 @@
 .idea/codestream.xml
 .idea/git_toolbox_blame.xml
 
-notebook/base.ipynb
-notebook/config
-notebook/key.pem
-notebook/indicator_test.ipynb
-
+.env
 key.pem
 config
