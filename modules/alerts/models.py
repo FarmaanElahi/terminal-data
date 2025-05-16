@@ -25,6 +25,7 @@ class Alert(BaseModel):
     rhs_type: Literal["constant", "trend_line"]
     rhs_attr: dict  # We'll parse this further depending on rhs_type
     last_triggered_at: datetime | None = None
+    last_triggered_price: float | None = None
 
     def is_trendline(self) -> bool:
         return self.rhs_type == "trend_line"
