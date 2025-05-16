@@ -35,6 +35,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v3
         with:
+          push: true
           platforms: linux/arm64
           tags: |
             devfarmaan/terminal:latest-arm64
@@ -69,6 +70,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v3
         with:
+          push: true
           platforms: linux/amd64
           tags: |
             devfarmaan/terminal:latest-arm64
