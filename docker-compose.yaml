@@ -1,8 +1,6 @@
 services:
   alert_engine:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: devfarmaan/terminal:latest
     command: [ "--mode", "alerts" ]
     env_file:
       - .env
