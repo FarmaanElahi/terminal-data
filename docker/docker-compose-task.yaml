@@ -1,0 +1,7 @@
+services:
+  build_scanner:
+    image: devfarmaan/terminal:latest
+    command: [ "--mode", "scan" ]
+    env_file:
+      - .env
+    restart: no

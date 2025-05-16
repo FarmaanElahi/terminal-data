@@ -1,0 +1,9 @@
+config
+key.pem
+.venv
+.github
+modules/alerts/config
+modules/alerts/key.pem
+notebook
+scripts
+test.ipynb
