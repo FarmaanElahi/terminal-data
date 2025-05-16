@@ -73,7 +73,7 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            devfarmaan/terminal:latest-arm64
+            devfarmaan/terminal:latest-amd64
             devfarmaan/terminal:${{ github.sha }}-amd64
 
 
