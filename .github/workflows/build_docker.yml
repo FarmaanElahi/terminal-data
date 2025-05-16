@@ -24,7 +24,7 @@ jobs:
         with:
           push: true
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/terminal:latest
-            ${{ secrets.DOCKER_USERNAME }}/terminal:${{steps.vars.outputs.short_commit_id}}
+            devfarmaan/terminal:latest
+            devfarmaan/terminal:${{steps.vars.outputs.short_commit_id}}
           cache-from: type=gha
           cache-to: type=gha,mode=max
