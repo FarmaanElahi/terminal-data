@@ -33,12 +33,13 @@ class AlertStore:
 
     async def mark_alert_triggered(self, alert_id: str, price: float):
         now = datetime.now().isoformat()
-        await self.client.table("alerts").update({
+        alert = await self.client.table("alerts").update({
             "is_active": False,
             "last_triggered_at": now,
             "last_triggered_price": price,
             "updated_at": now,
         }).eq("id", alert_id).execute()
+        return Alert(**alert.data[0])
 
     async def subscribe_to_changes(
             self,
