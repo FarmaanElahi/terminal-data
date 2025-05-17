@@ -1,8 +1,8 @@
 # evaluator.py
 
 from typing import Callable
-from datetime import datetime
-from modules.alerts.models import Alert, ChangeUpdate
+from datetime import datetime, timedelta
+from modules.alerts.models import Alert, ChangeUpdate, Point
 import operator
 
 # Operator mapping for safe evaluation
@@ -57,27 +57,19 @@ def evaluate_alert(alert: Alert, update: ChangeUpdate) -> bool:
     return op_func(lhs_value, rhs_value)
 
 
-def interpolate_trendline(p1, p2, now: datetime) -> float | None:
+def interpolate_trendline(point1: Point, point2: Point, ltt: datetime) -> float | None:
     """
     Linearly interpolates between two (timestamp, price) points to get the price at `now`.
     Handles out-of-order time inputs.
     Returns None if `now` is outside the range.
     """
-    now_ts = now.timestamp()
 
-    # Ensure p1 is the earlier point
-    if p1.time > p2.time:
-        p1, p2 = p2, p1
+    new, old = (point2, point1) if point2.time > point1.time else (point1, point2)
 
-    if p1.time > now_ts > p2.time:
-        return None
+    if new.time == old.time:
+        return new.price
 
-    total_seconds = p2.time - p1.time
-    elapsed_seconds = now_ts - p1.time
+    m = (new.price - old.price) / (new.time.timestamp() - old.time.timestamp())
+    p_now = old.price + m * (ltt.timestamp() - old.time.timestamp())
 
-    if total_seconds == 0:
-        return p1.price  # Avoid division by zero
-
-    slope = (p2.price - p1.price) / total_seconds
-    interpolated_price = p1.price + slope * elapsed_seconds
-    return interpolated_price
+    return p_now
