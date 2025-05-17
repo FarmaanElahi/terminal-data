@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 
 class TrendlinePoint(BaseModel):
-    timestamp: datetime
+    time: int
     price: float
 
 
@@ -40,7 +40,8 @@ class Alert(BaseModel):
             try:
                 points = self.rhs_attr.get("trend_line", [])
                 return [TrendlinePoint(**p) for p in points]
-            except Exception:
+            except Exception as e:
+                print(e)
                 return None
         return None
 
