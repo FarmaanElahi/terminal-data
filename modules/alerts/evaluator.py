@@ -59,14 +59,21 @@ def evaluate_alert(alert: Alert, update: ChangeUpdate) -> bool:
 
 def interpolate_trendline(p1, p2, now: datetime) -> float | None:
     """
-    Linearly interpolates between two (timestamp, price) points to get RHS value at `now`.
-    Returns None if `now` is outside the bounds of the trendline.
+    Linearly interpolates between two (timestamp, price) points to get the price at `now`.
+    Handles out-of-order time inputs.
+    Returns None if `now` is outside the range.
     """
-    if now < p1.timestamp or now > p2.timestamp:
+    now_ts = now.timestamp()
+
+    # Ensure p1 is the earlier point
+    if p1.time > p2.time:
+        p1, p2 = p2, p1
+
+    if p1.time > now_ts > p2.time:
         return None
 
-    total_seconds = (p2.timestamp - p1.timestamp).total_seconds()
-    elapsed_seconds = (now - p1.timestamp).total_seconds()
+    total_seconds = p2.time - p1.time
+    elapsed_seconds = now_ts - p1.time
 
     if total_seconds == 0:
         return p1.price  # Avoid division by zero
