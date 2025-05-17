@@ -1,12 +1,22 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
-class TrendlinePoint(BaseModel):
-    time: int
+class Point(BaseModel):
+    time: datetime
     price: float
+
+    @classmethod
+    @field_validator('time', mode='before')
+    def parse_timestamp_seconds(cls, value):
+        return datetime.fromtimestamp(value, tz=timezone.utc) if isinstance(value, (int, float)) else value
+
+
+class RHSAttr(BaseModel):
+    constant: int | float | None = None
+    trend_line: list[Point] | None = None
 
 
 class Alert(BaseModel):
@@ -23,7 +33,7 @@ class Alert(BaseModel):
     lhs_attr: dict | None  # Reserved for future flexibility
     operator: Literal["<", "<=", ">", ">=", "==", "!="]
     rhs_type: Literal["constant", "trend_line"]
-    rhs_attr: dict  # We'll parse this further depending on rhs_type
+    rhs_attr: RHSAttr
     last_triggered_at: datetime | None = None
     last_triggered_price: float | None = None
 
@@ -35,15 +45,8 @@ class Alert(BaseModel):
             return self.rhs_attr.get("constant")
         return None
 
-    def get_trendline_points(self) -> Optional[list[TrendlinePoint]]:
-        if self.rhs_type == "trend_line":
-            try:
-                points = self.rhs_attr.get("trend_line", [])
-                return [TrendlinePoint(**p) for p in points]
-            except Exception as e:
-                print(e)
-                return None
-        return None
+    def get_trendline_points(self) -> Optional[list[Point]]:
+        return self.rhs_attr.trend_line
 
 
 class ChangeUpdate(BaseModel):

@@ -38,7 +38,10 @@ class AlertStore:
             "last_triggered_at": now,
             "last_triggered_price": price,
             "updated_at": now,
-        }).eq("id", alert_id).execute()
+        }).eq("id", alert_id).eq("is_active", True).execute()
+        if len(alert.data) == 0:
+            return None
+
         return Alert(**alert.data[0])
 
     async def subscribe_to_changes(
