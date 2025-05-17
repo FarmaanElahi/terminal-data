@@ -5,6 +5,7 @@ import os
 from typing import Callable, Coroutine, Any
 import logging
 from supabase import create_async_client, AsyncClient
+from datetime import datetime
 
 from modules.alerts.models import Alert
 
@@ -31,11 +32,12 @@ class AlertStore:
         return [Alert.model_validate(row) for row in res.data]
 
     async def mark_alert_triggered(self, alert_id: str, price: float):
+        now = datetime.now().isoformat()
         await self.client.table("alerts").update({
             "is_active": False,
-            "last_triggered_at": "now()",
+            "last_triggered_at": now,
             "last_triggered_price": price,
-            "updated_at": "now()",
+            "updated_at": now,
         }).eq("id", alert_id).execute()
 
     async def subscribe_to_changes(
