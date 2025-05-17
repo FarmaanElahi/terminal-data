@@ -49,8 +49,8 @@ class AlertEngine:
         for alert in list(alerts):  # Safe to mutate original list during iteration
             if evaluate_alert(alert, update):
                 print(f"[Trigger] {update.symbol} @ {update.ltt} | Alert {alert.id}")
-                await self.dispatcher.enqueue(alert)
-                await self.store.mark_alert_triggered(alert.id, update.ltp)
+                triggered_alert = await self.store.mark_alert_triggered(alert.id, update.ltp)
+                await self.dispatcher.enqueue(triggered_alert)
                 self.alert_manager.remove_alert(alert)
 
         # Cleanup if no more alerts for the symbol
