@@ -42,7 +42,7 @@ class Alert(BaseModel):
 
     def get_constant_value(self) -> Optional[float]:
         if self.rhs_type == "constant":
-            return self.rhs_attr.get("constant")
+            return self.rhs_attr.constant
         return None
 
     def get_trendline_points(self) -> Optional[list[Point]]:

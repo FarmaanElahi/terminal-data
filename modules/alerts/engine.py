@@ -47,11 +47,14 @@ class AlertEngine:
             return
 
         for alert in list(alerts):  # Safe to mutate original list during iteration
-            if evaluate_alert(alert, update):
-                print(f"[Trigger] {update.symbol} @ {update.ltt} | Alert {alert.id}")
-                triggered_alert = await self.store.mark_alert_triggered(alert.id, update.ltp)
-                await self.dispatcher.enqueue(triggered_alert)
-                self.alert_manager.remove_alert(alert)
+            try:
+                if evaluate_alert(alert, update):
+                    print(f"[Trigger] {update.symbol} @ {update.ltt} | Alert {alert.id}")
+                    triggered_alert = await self.store.mark_alert_triggered(alert.id, update.ltp)
+                    await self.dispatcher.enqueue(triggered_alert)
+                    self.alert_manager.remove_alert(alert)
+            except Exception as e:
+                logger.error(f"[Alert Engine] Error in alert evaluation: {e}")
 
         # Cleanup if no more alerts for the symbol
         if not self.alert_manager.has_alerts_for_symbol(update.symbol):
