@@ -63,6 +63,9 @@ async def download_fundamentals():
             time.sleep(DELAY_BETWEEN_REQUESTS)
 
     with data_bucket_fs.open(f'{data_bucket}/fundamental.json', 'wb') as f:
+        if len(all_data) == 0:
+            print("No data downloaded")
+            return
         f.write(json.dumps(all_data).encode('utf-8'))
         print("Fundamentals downloaded")
 
