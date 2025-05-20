@@ -99,6 +99,7 @@ def get_fundamentals_cached():
     prefixes = [
         'revenue', 'opm', 'npm', 'pat', 'latest_available_quarter',
         'eps', 'operating_profit', 'roe', 'roce', 'gpm', 'debt_to_equity', 'current_ratio',
+        "quarterly","yearly"
     ]
 
     return df[[col for col in df.columns if any(col.startswith(prefix) for prefix in prefixes)]].copy()
