@@ -7,3 +7,4 @@ modules/alerts/key.pem
 notebook
 scripts
 test.ipynb
+.env
