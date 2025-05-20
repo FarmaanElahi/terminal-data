@@ -2,7 +2,7 @@ import json
 import time
 from datetime import datetime
 from typing import Any
-
+import os
 import pandas as pd
 
 from utils.bucket import data_bucket, data_bucket_fs
@@ -13,7 +13,11 @@ DELAY_BETWEEN_REQUESTS = 0.5
 
 
 def fetch_symbol_fundamentals(symbol: str):
-    url = f"https://www.stockscans.in/api/company/get-fundamentals/{symbol}/C"
+    base_url = os.environ.get('STOCK_FUNDAMENTAL_BASE_URL')
+    if base_url is None:
+        raise ValueError("STOCK_FUNDAMENTAL_BASE_URL is not set")
+
+    url = f"{base_url}/{symbol}/C"
     try:
         import requests
         import json
