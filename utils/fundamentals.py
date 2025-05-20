@@ -5,7 +5,7 @@ from typing import Any
 import os
 import pandas as pd
 
-from utils.bucket import data_bucket, data_bucket_fs
+from utils.bucket import data_bucket, data_bucket_fs, storage_options
 from utils.tradingview import TradingView
 
 RATE_LIMIT_WAIT_TIME = 300
@@ -92,6 +92,16 @@ def get_fundamentals():
         funda.quarterly = funda.quarterly.apply(json.dumps)
         funda.yearly = funda.yearly.apply(json.dumps)
         return funda
+
+
+def get_fundamentals_cached():
+    df = pd.read_parquet(f'oci://{data_bucket}/symbols-full-v2.parquet', storage_options=storage_options)
+    prefixes = [
+        'revenue', 'opm', 'npm', 'pat', 'latest_available_quarter',
+        'eps', 'operating_profit', 'roe', 'roce', 'gpm', 'debt_to_equity', 'current_ratio',
+    ]
+
+    return df[[col for col in df.columns if any(col.startswith(prefix) for prefix in prefixes)]].copy()
 
 
 def extract_quarterly_result(data: list, columns: list[str]):

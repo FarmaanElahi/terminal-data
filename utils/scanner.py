@@ -1,7 +1,7 @@
 import pandas as pd
 
 from utils.bucket import storage_options, data_bucket
-from utils.fundamentals import get_fundamentals
+from utils.fundamentals import get_fundamentals,get_fundamentals_cached
 from utils.industry import get_industry_classification
 from utils.pandas_utils import make_df_ready_for_serialization
 from utils.pandas_utils import merge_df_safely
@@ -25,7 +25,7 @@ async def run_full_scanner_build():
     df = merge_df_safely(df, get_industry_classification())
     print("Industry classification updated")
 
-    df = merge_df_safely(df, get_fundamentals())
+    df = merge_df_safely(df, get_fundamentals_cached())
     print("Fundamentals updated")
 
     df = merge_df_safely(df, await get_technicals(df, df.index.to_list()))
