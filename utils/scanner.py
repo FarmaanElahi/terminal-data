@@ -25,7 +25,7 @@ async def run_full_scanner_build():
     df = merge_df_safely(df, get_industry_classification())
     print("Industry classification updated")
 
-    df = merge_df_safely(df, get_fundamentals_cached())
+    df = merge_df_safely(df, get_fundamentals())
     print("Fundamentals updated")
 
     df = merge_df_safely(df, await get_technicals(df, df.index.to_list()))
