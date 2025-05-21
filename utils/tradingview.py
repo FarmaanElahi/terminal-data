@@ -447,6 +447,12 @@ class TradingView:
                     "left": "exchange",
                     "operation": "in_range",
                     "right": ["NSE"]
+                },
+                {
+                    # Above 100CR only
+                    "left": "market_cap_basic",
+                    "operation": "egreater",
+                    "right": 1000000000
                 }
             ],
             "sort": {
