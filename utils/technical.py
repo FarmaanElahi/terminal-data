@@ -80,7 +80,7 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
     # ADR
     cols = cols | atr(d)
 
-    #RMV
+    # RMV
     cols = cols | rmv(d)
     #
     # Comparative
@@ -398,10 +398,15 @@ def rmv(d: pd.DataFrame):
         d (pd.DataFrame): Must contain 'high', 'low', 'close'
     """
 
-    period = [1, 2, 5, 10, 14, 20]
+    period = [5, 10, 15, 20]
     cols = {}
 
     for loopback in period:
+
+        if len(d) < loopback:
+            cols[f'RMV_{loopback}D'] = None
+            continue
+
         # Calculate ATR using pandas-ta
         df_atr = ta.atr(high=d['high'], low=d['low'], close=d['close'], length=loopback)
 
