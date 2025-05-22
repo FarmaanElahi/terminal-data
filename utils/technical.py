@@ -79,6 +79,9 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
     cols = cols | adr(d)
     # ADR
     cols = cols | atr(d)
+
+    #RMV
+    cols = cols | rmv(d)
     #
     # Comparative
     market_d = market_d[~market_d.index.duplicated(keep='first')]
@@ -385,3 +388,29 @@ def safe_call_cdl_pattern(d: pd.DataFrame, name: str, bearish=False) -> pd.Serie
     if bearish:
         return series < 0
     return series > 0
+
+
+def rmv(d: pd.DataFrame):
+    """
+    Compute relative ATR (0–100 scale) using pandas-ta.
+
+    Parameters:
+        d (pd.DataFrame): Must contain 'high', 'low', 'close'
+    """
+
+    period = [1, 2, 5, 10, 14, 20]
+    cols = {}
+
+    for loopback in period:
+        # Calculate ATR using pandas-ta
+        df_atr = ta.atr(high=d['high'], low=d['low'], close=d['close'], length=loopback)
+
+        # Rolling min and max of ATR over the loopback window
+        min_atr = df_atr.rolling(window=loopback).min()
+        max_atr = df_atr.rolling(window=loopback).max()
+
+        # Relative ATR (0 to 100)
+        value = 100 * (df_atr - min_atr) / (max_atr - min_atr)
+        cols[f'RMV_{loopback}D'] = value
+
+    return cols
