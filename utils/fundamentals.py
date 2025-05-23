@@ -9,7 +9,7 @@ from utils.bucket import data_bucket, data_bucket_fs, storage_options
 from utils.tradingview import TradingView
 
 RATE_LIMIT_WAIT_TIME = 600
-DELAY_BETWEEN_REQUESTS = 2
+DELAY_BETWEEN_REQUESTS = 0.5
 
 
 def fetch_symbol_fundamentals(symbol: str):
