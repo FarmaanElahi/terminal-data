@@ -1,7 +1,14 @@
 services:
   alert_engine:
-    image: devfarmaan/terminal:latest
+    image: devfarmaan/terminal:latest-arm64
     command: [ "--mode", "alerts" ]
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  scanner:
+    image: devfarmaan/terminal:latest-arm64
+    command: [ "--mode", "scanner" ]
     env_file:
       - .env
     restart: unless-stopped
