@@ -49,6 +49,7 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     - Top-N per group:
         - sector: 50
         - industry: 20
+        - industry_2: 20
         - sub_industry: 10
     - Rankings are assigned only if:
         - symbol is of type 'stock'
@@ -73,7 +74,8 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     group_top_n = {
         'sector': 50,
         'industry': 20,
-        'sub_industry': 10
+        'sub_industry': 10,
+        'industry_2': 20
     }
 
     def compute_group_rankings_by_timeframe(df_all, group_col, top_n):
@@ -131,11 +133,11 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
         return df_merged
 
     df_ranked = df.copy()
-    for group_col in ['sector', 'industry', 'sub_industry']:
+    for group_col in ['sector', 'industry', 'sub_industry','industry_2']:
         df_ranked = merge_group_data(df_ranked, group_col, group_top_n[group_col])
 
     # Fill missing values
-    for group_col in ['sector', 'industry', 'sub_industry']:
+    for group_col in ['sector', 'industry', 'sub_industry','industry_2']:
         for col in df_ranked.columns:
             if col.startswith(f"{group_col}_return_"):
                 df_ranked[col] = df_ranked[col].fillna(-9999)
