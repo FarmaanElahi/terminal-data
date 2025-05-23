@@ -8,8 +8,8 @@ import pandas as pd
 from utils.bucket import data_bucket, data_bucket_fs, storage_options
 from utils.tradingview import TradingView
 
-RATE_LIMIT_WAIT_TIME = 300
-DELAY_BETWEEN_REQUESTS = 0.5
+RATE_LIMIT_WAIT_TIME = 600
+DELAY_BETWEEN_REQUESTS = 2
 
 
 def fetch_symbol_fundamentals(symbol: str):
@@ -20,7 +20,6 @@ def fetch_symbol_fundamentals(symbol: str):
     url = f"{base_url}/{symbol}/C"
     try:
         import requests
-        import json
 
         headers = {
             'accept': 'application/json',
@@ -84,7 +83,8 @@ def get_fundamentals():
             yearly = row_data["yearly"]
             fq = flatten_quarterly(quarterly)
             fy = flatten_yearly(yearly)
-            fundamental_metrics.append({"ticker": ticker, "quarterly": quarterly, "yearly": yearly, **fq, **fy})
+            industry_2 = row_data.get('metaRatios', {}).get('Industry', None)
+            fundamental_metrics.append({"ticker": ticker, "quarterly": quarterly, "yearly": yearly, **fq, **fy, "industry_2": industry_2})
 
         funda = pd.DataFrame(fundamental_metrics)
         funda.latest_available_quarter = funda['latest_available_quarter'].astype('category')
