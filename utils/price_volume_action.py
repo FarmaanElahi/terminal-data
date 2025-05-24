@@ -109,7 +109,7 @@ def volume_action(
     }
 
     # SMA
-    daily_periods = [5, 10, 20, 30, 40, 50, 100, 200]
+    daily_periods = [5, 10, 20, 21, 30, 40, 50, 63, 100, 126, 189, 200, 252]
     weekly_periods = [10, 20, 30, 40, 50]
     cols = cols | sma(d.volume, daily_periods, 'vol', 'D', compare=True, relative=True, run_rate=True)
     cols = cols | sma(w.volume, weekly_periods, 'vol', 'W', compare=True, relative=True, run_rate=True)

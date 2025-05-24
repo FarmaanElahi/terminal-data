@@ -42,106 +42,79 @@ def rs_rating(df: pd.DataFrame):
 
 def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Computes group strength rankings using top-N performers per timeframe in each group.
+    Computes group strength rankings based on median returns for valid symbols.
 
-    - For each timeframe (e.g. 3M), selects top-N symbols within each group
-      by that timeframe's return, and computes median group return.
-    - Top-N per group:
-        - sector: 50
-        - industry: 20
-        - industry_2: 20
-        - sub_industry: 10
-    - Rankings are assigned only if:
-        - symbol is of type 'stock'
-        - mcap >= 100 Cr
-        - group has ≥ 2 valid symbols
-    - Returns are computed for all symbols in all groups.
-    - Adds momentum column (e.g. sector_momentum) with values:
-        - 'strengthening', 'weakening', 'stable'
+    - For each timeframe (e.g. 3M), filters symbols with price_volume over 1 Cr
+    - Excludes type == 'stock'
+    - Requires groups with ≥ 2 valid symbols
+    - Adds ranking and return columns for each group (sector, industry, etc.)
 
     Returns:
-        pd.DataFrame with *_ranking_<timeframe>, *_return_<timeframe>,
-        and *_momentum columns.
+        pd.DataFrame with *_ranking_<timeframe>, *_return_<timeframe> columns.
     """
     df = df.copy()
-    min_mcap = 100 * 10 ** 8  # 1000 Cr
+    min_liquidity = 1 * 10 ** 7  # 1 Cr
 
     perf_cols = [
         "price_perf_1D", "price_perf_1W", "price_perf_1M",
         "price_perf_3M", "price_perf_6M", "price_perf_9M", "price_perf_12M"
     ]
 
-    group_top_n = {
-        'sector': 50,
-        'industry': 20,
-        'sub_industry': 10,
-        'industry_2': 20
+    volume_map = {
+        "1D": "price_volume",
+        "1W": "price_volume_sma_5D",
+        "1M": "price_volume_sma_21D",
+        "3M": "price_volume_sma_63D",
+        "6M": "price_volume_sma_126D",
+        "9M": "price_volume_sma_189D",
+        "12M": "price_volume_sma_252D"
     }
 
-    def compute_group_rankings_by_timeframe(df_all, group_col, top_n):
-        df_ranking_base = df_all[
-            (df_all["mcap"] >= min_mcap) &
-            (df_all["type"].str.lower() == "stock")
+    def compute_group_rankings(df_all, group_col):
+        result_dict = {}
+
+        for perf_col in perf_cols:
+            timeframe = perf_col.split('_')[-1]
+            volume_col = volume_map.get(timeframe)
+            if volume_col not in df_all.columns:
+                continue
+
+            valid_df = df_all[
+                (df_all["type"].str.lower() == "stock") &
+                (df_all[volume_col] > min_liquidity)
             ].copy()
 
-        group_counts = df_ranking_base[group_col].value_counts()
-        valid_groups = group_counts[group_counts > 1].index
-        df_ranking_base = df_ranking_base[df_ranking_base[group_col].isin(valid_groups)]
+            group_counts = valid_df[group_col].value_counts()
+            valid_groups = group_counts[group_counts >= 2].index
+            valid_df = valid_df[valid_df[group_col].isin(valid_groups)]
 
-        group_ranks = {}
-
-        for col in perf_cols:
-            timeframe = col.split('_')[-1]
             return_col = f"{group_col}_return_{timeframe}"
             rank_col = f"{group_col}_ranking_{timeframe}"
 
-            df_top_n = (
-                df_ranking_base.sort_values(col, ascending=False)
-                .groupby(group_col)
-                .head(top_n)
-            )
-
-            group_median = df_top_n.groupby(group_col)[col].median().rename(return_col)
+            group_median = valid_df.groupby(group_col)[perf_col].median().rename(return_col)
             group_rank = group_median.rank(method='min', ascending=False).astype(pd.Int64Dtype()).rename(rank_col)
 
-            group_ranks[return_col] = group_median
-            group_ranks[rank_col] = group_rank
+            result_dict[return_col] = group_median
+            result_dict[rank_col] = group_rank
 
-        return pd.concat(group_ranks.values(), axis=1)
+        return pd.concat(result_dict.values(), axis=1)
 
-    def compute_group_returns_all(df_all, group_col):
-        group_returns = {}
-
-        for col in perf_cols:
-            timeframe = col.split('_')[-1]
-            return_col = f"{group_col}_return_{timeframe}"
-
-            group_median = df_all.groupby(group_col)[col].median().rename(return_col)
-            group_returns[return_col] = group_median
-
-        return pd.concat(group_returns.values(), axis=1)
-
-    def merge_group_data(df_base, group_col, top_n):
-        ranking_df = compute_group_rankings_by_timeframe(df_base, group_col, top_n)
-        df_merged = df_base.merge(ranking_df, how='left', left_on=group_col, right_index=True)
-
-        return_df = compute_group_returns_all(df_base, group_col)
-        overlapping = [col for col in return_df.columns if col in df_merged.columns]
-        df_merged = df_merged.drop(columns=overlapping, errors='ignore')
-        df_merged = df_merged.merge(return_df, how='left', left_on=group_col, right_index=True)
-
+    def merge_group_info(df_base, group_col):
+        group_metrics = compute_group_rankings(df_base, group_col)
+        df_merged = df_base.merge(group_metrics, how='left', left_on=group_col, right_index=True)
         return df_merged
 
-    df_ranked = df.copy()
-    for group_col in ['sector', 'industry', 'sub_industry','industry_2']:
-        df_ranked = merge_group_data(df_ranked, group_col, group_top_n[group_col])
+    # Apply to each group level
+    df_result = df.copy()
+    for group_col in ['sector', 'industry', 'sub_industry', 'industry_2']:
+        df_result = merge_group_info(df_result, group_col)
 
     # Fill missing values
-    for group_col in ['sector', 'industry', 'sub_industry','industry_2']:
-        for col in df_ranked.columns:
+    for group_col in ['sector', 'industry', 'sub_industry', 'industry_2']:
+        for col in df_result.columns:
             if col.startswith(f"{group_col}_return_"):
-                df_ranked[col] = df_ranked[col].fillna(-9999)
+                df_result[col] = df_result[col].fillna(-9999)
             elif col.startswith(f"{group_col}_ranking_"):
-                df_ranked[col] = df_ranked[col].fillna(9999).astype(pd.Int64Dtype())
+                df_result[col] = df_result[col].fillna(9999).astype(pd.Int64Dtype())
 
-    return df_ranked
+    return df_result
