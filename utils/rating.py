@@ -40,29 +40,34 @@ def rs_rating(df: pd.DataFrame):
     return df
 
 
+import pandas as pd
+
+
 def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     """
     Computes group strength rankings based on median returns for valid symbols.
 
     - For each timeframe (e.g. 3M), filters symbols with price_volume over 1 Cr
-    - Excludes type == 'stock'
-    - Requires groups with ≥ 2 valid symbols
-    - Adds ranking and return columns for each group (sector, industry, etc.)
+    - Excludes type != 'stock'
+    - Requires groups with ≥ 2 valid symbols for ranking
+    - Computes return for all groups, but ranks only valid ones
 
     Returns:
         pd.DataFrame with *_ranking_<timeframe>, *_return_<timeframe> columns.
     """
     df = df.copy()
+    min_mcap = 1 * 10 ** 10  # 1000 Cr
     min_liquidity = 1 * 10 ** 7  # 1 Cr
 
     perf_cols = [
-        "price_perf_1D", "price_perf_1W", "price_perf_1M",
+        "price_perf_1D", "price_perf_1W", "price_perf_2W", "price_perf_1M",
         "price_perf_3M", "price_perf_6M", "price_perf_9M", "price_perf_12M"
     ]
 
     volume_map = {
         "1D": "price_volume",
         "1W": "price_volume_sma_5D",
+        "2W": "price_volume_sma_10D",
         "1M": "price_volume_sma_21D",
         "3M": "price_volume_sma_63D",
         "6M": "price_volume_sma_126D",
@@ -79,23 +84,33 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
             if volume_col not in df_all.columns:
                 continue
 
+            # Compute return for all groups
+            return_col = f"{group_col}_return_{timeframe}"
+            all_group_median = df_all.groupby(group_col)[perf_col].median().rename(return_col)
+
+            # Filter valid rows for ranking
             valid_df = df_all[
+                (df_all["mcap"] >= min_mcap) &
                 (df_all["type"].str.lower() == "stock") &
                 (df_all[volume_col] > min_liquidity)
-            ].copy()
+                ].copy()
 
+            # Get valid groups with at least 2 symbols
             group_counts = valid_df[group_col].value_counts()
             valid_groups = group_counts[group_counts >= 2].index
             valid_df = valid_df[valid_df[group_col].isin(valid_groups)]
 
-            return_col = f"{group_col}_return_{timeframe}"
-            rank_col = f"{group_col}_ranking_{timeframe}"
+            # Compute ranking only for valid groups
+            valid_group_median = valid_df.groupby(group_col)[perf_col].median()
+            group_rank = valid_group_median.rank(method='min', ascending=False).astype(pd.Int64Dtype())
 
-            group_median = valid_df.groupby(group_col)[perf_col].median().rename(return_col)
-            group_rank = group_median.rank(method='min', ascending=False).astype(pd.Int64Dtype()).rename(rank_col)
+            # Fill in missing ranks for other groups with max rank + 1
+            max_rank = group_rank.max()
+            all_ranks = pd.Series(max_rank + 1, index=all_group_median.index, name=f"{group_col}_ranking_{timeframe}")
+            all_ranks.update(group_rank)
 
-            result_dict[return_col] = group_median
-            result_dict[rank_col] = group_rank
+            result_dict[return_col] = all_group_median
+            result_dict[all_ranks.name] = all_ranks.astype(pd.Int64Dtype())
 
         return pd.concat(result_dict.values(), axis=1)
 
@@ -108,13 +123,5 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     df_result = df.copy()
     for group_col in ['sector', 'industry', 'sub_industry', 'industry_2']:
         df_result = merge_group_info(df_result, group_col)
-
-    # Fill missing values
-    for group_col in ['sector', 'industry', 'sub_industry', 'industry_2']:
-        for col in df_result.columns:
-            if col.startswith(f"{group_col}_return_"):
-                df_result[col] = df_result[col].fillna(-9999)
-            elif col.startswith(f"{group_col}_ranking_"):
-                df_result[col] = df_result[col].fillna(9999).astype(pd.Int64Dtype())
 
     return df_result
