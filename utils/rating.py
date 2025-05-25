@@ -57,7 +57,7 @@ def sector_industry_strength_rating(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
     min_mcap = 1 * 10 ** 10  # 1000 Cr
-    min_liquidity = 1 * 10 ** 7  # 1 Cr
+    min_liquidity = 25 * 10 ** 7  # 1 Cr
 
     perf_cols = [
         "price_perf_1D", "price_perf_1W", "price_perf_2W", "price_perf_1M",
