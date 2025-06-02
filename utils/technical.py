@@ -390,6 +390,48 @@ def safe_call_cdl_pattern(d: pd.DataFrame, name: str, bearish=False) -> pd.Serie
     return series > 0
 
 
+def compute_rmv(df: pd.DataFrame, loopback: int) -> pd.Series:
+    """
+    Compute RMV indicator from a DataFrame with columns: 'high', 'low', 'close'.
+    Returns a Pandas Series containing the RMV values.
+    """
+
+    high = df.high
+    low = df.low
+    close = df.close
+
+    # 2-period calculations
+    high2 = high.rolling(2).max()
+    low_of_high2 = high.rolling(2).min()
+    close2 = close.rolling(2).max()
+    low_close2 = close.rolling(2).min()
+    high_of_low2 = low.rolling(2).max()
+    low2 = low.rolling(2).min()
+
+    term1_2p = ((high2 - low_of_high2) / low_close2) * 100
+    term2_2p = ((close2 - low_close2) / low_close2) * 100
+    term3_2p = ((high_of_low2 - low2) / low2) * 100
+    avg_2p = (term1_2p + 1.5 * term2_2p + term3_2p) / 3
+
+    # 3-period calculations
+    high3 = high.rolling(3).max()
+    low_of_high3 = high.rolling(3).min()
+    close3 = close.rolling(3).max()
+    low_close3 = close.rolling(3).min()
+
+    term1_3p = ((high3 - low_of_high3) / low_close3) * 100
+    term2_3p = 1.5 * ((close3 - low_close3) / low_close3) * 100
+    avg_3p = (term1_3p + term2_3p) / 2
+
+    combined_avg = (3 * avg_2p + avg_3p) / 4
+
+    # Normalize RMV over loopback
+    highest_combined = combined_avg.rolling(loopback).max()
+    lowest_combined = combined_avg.rolling(loopback).min()
+
+    return ((combined_avg - lowest_combined) / (highest_combined - lowest_combined)) * 100
+
+
 def rmv(d: pd.DataFrame):
     """
     Compute relative ATR (0–100 scale) using pandas-ta.
@@ -407,15 +449,6 @@ def rmv(d: pd.DataFrame):
             cols[f'RMV_{loopback}D'] = None
             continue
 
-        # Calculate ATR using pandas-ta
-        df_atr = ta.atr(high=d['high'], low=d['low'], close=d['close'], length=loopback)
-
-        # Rolling min and max of ATR over the loopback window
-        min_atr = df_atr.rolling(window=loopback).min()
-        max_atr = df_atr.rolling(window=loopback).max()
-
-        # Relative ATR (0 to 100)
-        value = 100 * (df_atr - min_atr) / (max_atr - min_atr)
-        cols[f'RMV_{loopback}D'] = value
+        cols[f'RMV_{loopback}D'] = compute_rmv(d, loopback)
 
     return cols
