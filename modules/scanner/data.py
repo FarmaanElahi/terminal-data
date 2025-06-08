@@ -38,6 +38,7 @@ def query_symbols(
         sort_fields: list[dict[str, str]] = None,
         limit: int | None = None,
         offset: int | None = None,
+        universe: list[str] | None = None
 ):
     con = get_con()
     query = build_sql(
@@ -47,7 +48,8 @@ def query_symbols(
         sort_fields=sort_fields,
         limit=limit,
         offset=offset,
-        table_name="symbols"
+        table_name="symbols",
+        universe=universe
     )
     return con.execute(query).fetchdf()
 
@@ -64,7 +66,8 @@ def build_sql(
         filter_merge: Literal["OR", "AND"] = "AND",
         sort_fields: list[dict[str, str]] = None,
         limit: int | None = None,
-        offset: int | None = None
+        offset: int | None = None,
+        universe: list[str] | None = None
 ) -> str:
     """
     Build complete SQL query
@@ -77,6 +80,7 @@ def build_sql(
         sort_fields: List of sort dictionaries with 'field' and 'direction' keys
         limit: Maximum number of rows to return
         offset: Number of rows to skip
+        universe: Universe of symbols to query (defaults to all symbols) -
 
     Returns:
         Complete SQL query string
@@ -88,7 +92,7 @@ def build_sql(
     from_clause = f" FROM {table_name}"
 
     # WHERE clause
-    where_clause = where_sql_multiple(filters, filter_merge)
+    where_clause = where_sql_multiple(filters, filter_merge, universe)
 
     # ORDER BY clause
     order_clause = order_by_sql(sort_fields)
@@ -110,27 +114,46 @@ def select_sql(columns: list[str] = None) -> str:
 
 
 def where_sql_multiple(filters: list[dict[str, Any]] = None,
-                       filter_merge: str = "AND") -> str:
+                       filter_merge: str = "AND",
+                       universe: list[str] | None = None
+                       ) -> str:
     """Generate WHERE clause from multiple filters"""
-    if not filters:
+
+    where_conditions = []
+
+    # Handle universe filter
+    if universe is not None:
+        if len(universe) == 0:
+            # Empty universe - return no results
+            return " WHERE 1=2"
+        else:
+            # Add universe filter
+            universe_list = "', '".join(universe)
+            where_conditions.append(f"ticker IN ('{universe_list}')")
+
+    # Handle other filters
+    if filters:
+        filter_clauses = []
+        for filter_dict in filters:
+            clause = where_sql(filter_dict)
+            if clause:
+                # Remove the " WHERE " prefix if it exists
+                clause = clause.replace(" WHERE ", "")
+                filter_clauses.append(clause)
+
+        if filter_clauses:
+            # Combine filter clauses with the specified merge operator
+            if len(filter_clauses) == 1:
+                where_conditions.append(filter_clauses[0])
+            else:
+                combined_filters = f" {filter_merge} ".join(filter_clauses)
+                where_conditions.append(f"({combined_filters})")
+
+    if not where_conditions:
         return ""
 
-    clauses = []
-    for filter_dict in filters:
-        clause = where_sql(filter_dict)
-        if clause:
-            # Remove the " WHERE " prefix if it exists
-            clause = clause.replace(" WHERE ", "")
-            clauses.append(clause)
-
-    if not clauses:
-        return ""
-
-    if len(clauses) == 1:
-        return f" WHERE {clauses[0]}"
-
-    combined = f" {filter_merge} ".join(clauses)
-    return f" WHERE ({combined})"
+    # Always join multiple conditions with AND
+    return f" WHERE {' AND '.join(where_conditions)}"
 
 
 def where_sql(filter: dict[str, Any]) -> str:
