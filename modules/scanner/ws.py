@@ -20,6 +20,15 @@ class ScreenerSubscribeRequest(BaseModel):
     sort: list[dict[str, Any]] = []
     columns: list[str] = []
     range: list[int] = []
+    # When universe is not provided, it will be treated as all symbols(screener) and when it is provided, it will be treated as a watchlist
+    universe: list[str] | None = None
+
+
+class ScreenerSetUniverseRequest(BaseModel):
+    t: Literal["SCREENER_SET_UNIVERSE"]
+    session_id: str
+    # When universe is not provided, it will be treated as all symbols(screener) and when it is provided, it will be treated as a watchlist
+    universe: list[str] | None
 
 
 class ScreenerUnSubscribeRequest(BaseModel):
@@ -74,7 +83,7 @@ class ErrorResponse(BaseModel):
 
 
 WSSessionRequest = Annotated[
-    Union[AuthenticationRequest, ScreenerSubscribeRequest, ScreenerPatchRequest, ScreenerUnSubscribeRequest],
+    Union[AuthenticationRequest, ScreenerSubscribeRequest, ScreenerPatchRequest, ScreenerUnSubscribeRequest, ScreenerSetUniverseRequest],
     Field(discriminator="t")
 ]
 
@@ -90,6 +99,7 @@ class ScreenerSession:
     ws: WebSocket
     token: str | None
     session_id: str
+    universe: list[str] = []
     filters: list[dict[str, Any]] = []
     sort: list[dict[str, Any]] = []
     columns: list[str] = ["ticker", "name", "logo", "day_close"]
@@ -106,6 +116,7 @@ class ScreenerSession:
         pass
 
     async def subscribe(self, t: ScreenerSubscribeRequest):
+        self.universe = t.universe
         self.columns = ["ticker", "name", "logo", "day_close"] if len(t.columns) == 0 else t.columns
         self.range = (0, -1) if len(t.range) < 2 else t.range
         self.filters = t.filters
@@ -144,11 +155,17 @@ class ScreenerSession:
             await self.dispatch_full_response()
             await self.prefetch_live_symbols()
 
+    async def set_universe(self, t: ScreenerSetUniverseRequest):
+        self.universe = t.universe
+        await self.dispatch_full_response()
+        await self.prefetch_live_symbols()
+
     async def prefetch_live_symbols(self):
         self.live_symbols = query_symbols(
             ["ticker", "name", "isin", "type", "exchange"],
             filters=self.filters, filter_merge="OR",
             sort_fields=self.sort,
+            universe=self.universe,
         ).to_dict(orient="records")
 
     async def dispatch_realtime(self):
@@ -167,7 +184,7 @@ class ScreenerSession:
         offset = start
         limit = end - start
 
-        total_result = query_symbols(columns=["ticker"], filter_merge="OR", filters=self.filters)
+        total_result = query_symbols(columns=["ticker"], filter_merge="OR", filters=self.filters, universe=self.universe)
         total = len(total_result)
 
         result = query_symbols(
@@ -177,6 +194,7 @@ class ScreenerSession:
             filter_merge="OR",
             offset=offset,
             limit=limit,
+            universe=self.universe,
         )
         c = result.columns.tolist()
         d = json.loads(result.to_json(orient="values"))
@@ -221,6 +239,8 @@ class WSSession:
             return await self.on_screener_unsubscribe(event)
         if isinstance(event, ScreenerPatchRequest):
             return await self.on_screener_patch(event)
+        if isinstance(event, ScreenerSetUniverseRequest):
+            return await  self.on_screener_set_universe(event)
         else:
             return await self.ws.send_json({"error": "Unknown event type"})
 
@@ -244,3 +264,7 @@ class WSSession:
     async def on_screener_patch(self, event: ScreenerPatchRequest):
         if event.session_id in self.ss:
             await self.ss[event.session_id].patch(event)
+
+    async def on_screener_set_universe(self, event: ScreenerSetUniverseRequest):
+        if event.session_id in self.ss:
+            await self.ss[event.session_id].set_universe(event)
