@@ -1,9 +1,16 @@
+import asyncio
 import json
 from typing import Literal, Annotated, Union, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, TypeAdapter
 from modules.scanner.data import query_symbols
+from modules.core.provider.upstox.quotes import fetch_quotes
+
+
+class AuthenticationRequest(BaseModel):
+    t: Literal["AUTH"]
+    token: str | Literal["no_auth"] = "no_auth"
 
 
 class ScreenerSubscribeRequest(BaseModel):
@@ -50,6 +57,12 @@ class ScreenerFullResponse(BaseModel):
     total: int
 
 
+class ScreenerPartialResponse(BaseModel):
+    t: Literal["SCREENER_PARTIAL_RESPONSE"]
+    session_id: str
+    d: list[dict[str, Any]]
+
+
 class DuplicateScreenerResponse(BaseModel):
     t: Literal["SCREENER_DUPLICATE"]
     session_id: str
@@ -61,7 +74,7 @@ class ErrorResponse(BaseModel):
 
 
 WSSessionRequest = Annotated[
-    Union[ScreenerSubscribeRequest, ScreenerPatchRequest, ScreenerUnSubscribeRequest],
+    Union[AuthenticationRequest, ScreenerSubscribeRequest, ScreenerPatchRequest, ScreenerUnSubscribeRequest],
     Field(discriminator="t")
 ]
 
@@ -75,15 +88,19 @@ adapter = TypeAdapter(WSSessionRequest)
 
 class ScreenerSession:
     ws: WebSocket
+    token: str | None
     session_id: str
     filters: list[dict[str, Any]] = []
     sort: list[dict[str, Any]] = []
     columns: list[str] = ["ticker", "name", "logo", "day_close"]
     range: (int, int) = (0, -1)
+    live_symbols: list[dict[str, Any]] = []
+    realtime_dispatcher_task: asyncio.Task | None = None
 
-    def __init__(self, ws: WebSocket, session_id: str):
+    def __init__(self, ws: WebSocket, session_id: str, token: str | None):
         self.ws = ws
         self.session_id = session_id
+        self.token = token
 
     def on_event(self, event):
         pass
@@ -92,11 +109,15 @@ class ScreenerSession:
         self.columns = ["ticker", "name", "logo", "day_close"] if len(t.columns) == 0 else t.columns
         self.range = (0, -1) if len(t.range) < 2 else t.range
         self.filters = t.filters
-        self.sort = t.sort
+        # Additional name ensures that pagination is consistent in case of the same value in multiple row
+        self.sort = [*t.sort, {"colId": "name", "sort": "ASC"}]
+        await self.prefetch_live_symbols()
         await self.ws.send_json(ScreenerSubscribedResponse(t="SCREENER_SUBSCRIBED", session_id=t.session_id).model_dump())
+        self.realtime_dispatcher_task = asyncio.create_task(self.dispatch_realtime())
 
     async def unsubscribe(self, t: ScreenerUnSubscribeRequest):
-        pass
+        if self.realtime_dispatcher_task is not None:
+            self.realtime_dispatcher_task.cancel()
 
     async def patch(self, t: ScreenerPatchRequest):
         is_patched = False
@@ -115,11 +136,28 @@ class ScreenerSession:
 
         if t.sort is not None:
             is_patched = True
-            self.sort = t.sort
+            # Additional name ensures that pagination is consistent in case of the same value in multiple row
+            self.sort = [*t.sort, {"colId": "name", "sort": "ASC"}]
 
         if is_patched:
             await self.ws.send_json(ScreenerPatchedResponse(t="SCREENER_PATCHED", session_id=self.session_id).model_dump())
             await self.dispatch_full_response()
+            await self.prefetch_live_symbols()
+
+    async def prefetch_live_symbols(self):
+        self.live_symbols = query_symbols(
+            ["ticker", "name", "isin", "type", "exchange"],
+            filters=self.filters, filter_merge="OR",
+            sort_fields=self.sort,
+        ).to_dict(orient="records")
+
+    async def dispatch_realtime(self):
+        while True:
+            if self.token is not None and len(self.live_symbols) != 0:
+                async for quotes in fetch_quotes(self.live_symbols, token=self.token):
+                    updates = [{"day_close": q.get("lp"), "ticker": q.get("ticker")} for q in quotes]
+                    await self.ws.send_json(ScreenerPartialResponse(t="SCREENER_PARTIAL_RESPONSE", session_id=self.session_id, d=updates).model_dump())
+            await asyncio.sleep(5)
 
     async def dispatch_full_response(self):
         (start, end) = self.range
@@ -153,6 +191,8 @@ class ScreenerSession:
 
 
 class WSSession:
+    token: str | None = None
+
     def __init__(self, ws: WebSocket):
         self.ws = ws
         self.ss: dict[str, ScreenerSession] = {}
@@ -173,6 +213,8 @@ class WSSession:
         print("Client disconnected")
 
     async def on_data(self, event: WSSessionRequest):
+        if isinstance(event, AuthenticationRequest):
+            return await self.on_auth(event)
         if isinstance(event, ScreenerSubscribeRequest):
             return await self.on_screener_subscribe(event)
         if isinstance(event, ScreenerUnSubscribeRequest):
@@ -182,11 +224,15 @@ class WSSession:
         else:
             return await self.ws.send_json({"error": "Unknown event type"})
 
+    async def on_auth(self, event: AuthenticationRequest):
+        if event.token != "no_auth":
+            self.token = event.token
+
     async def on_screener_subscribe(self, event: ScreenerSubscribeRequest):
         if event.session_id in self.ss:
             return self.ws.send_json(DuplicateScreenerResponse(t="SCREENER_DUPLICATE", session_id=event.session_id).model_dump())
 
-        screener_ss = ScreenerSession(self.ws, session_id=event.session_id)
+        screener_ss = ScreenerSession(self.ws, session_id=event.session_id, token=self.token)
         self.ss[event.session_id] = screener_ss
         return await screener_ss.subscribe(event)
 
