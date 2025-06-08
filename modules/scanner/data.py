@@ -225,37 +225,11 @@ def limit_offset_sql(limit: int | None = None, offset: int | None = None) -> str
     """Generate LIMIT and OFFSET clause"""
     parts = []
 
-    if limit is not None and limit > 0:
-        parts.append(f"LIMIT {limit}")
-
-    if offset is not None and offset > 0:
+    if offset is not None:
         parts.append(f"OFFSET {offset}")
 
-    return f" {' '.join(parts)}" if parts else ""
-
-
-def escape_value(value: Any) -> str:
-    """Escape SQL values"""
-    if isinstance(value, str):
-        # Escape single quotes by doubling them
-        escaped = value.replace("'", "''")
-        return f"'{escaped}'"
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
-    return str(value)
-
-
-def limit_offset_sql(limit: int | None = None, offset: int | None = None) -> str:
-    """Generate LIMIT and OFFSET clause"""
-    parts = []
-
-    if limit is not None and limit > 0:
+    if limit is not None:
         parts.append(f"LIMIT {limit}")
-
-    if offset is not None and offset > 0:
-        parts.append(f"OFFSET {offset}")
 
     return f" {' '.join(parts)}" if parts else ""
 
