@@ -1,12 +1,14 @@
+import os
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from modules.scanner.models import ScreenerQuery
+from modules.scanner.ws import WSSession
 
 load_dotenv()
 
@@ -45,6 +47,14 @@ async def query_data(q: ScreenerQuery):
     return Response(content=result.to_json(orient="records"), media_type="application/json")
 
 
+@app.websocket("/ws")
+async def websocket_connect(websocket: WebSocket):
+    await websocket.accept()
+    session = WSSession(websocket)
+    await session.listen()
+
+
 def run():
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+
