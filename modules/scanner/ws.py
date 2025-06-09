@@ -172,7 +172,7 @@ class ScreenerSession:
         while True:
             if self.token is not None and len(self.live_symbols) != 0:
                 async for quotes in fetch_quotes(self.live_symbols, token=self.token):
-                    updates = [{"day_close": q.get("lp"), "ticker": q.get("ticker")} for q in quotes]
+                    updates = quotes
                     await self.ws.send_json(ScreenerPartialResponse(t="SCREENER_PARTIAL_RESPONSE", session_id=self.session_id, d=updates).model_dump())
             await asyncio.sleep(5)
 

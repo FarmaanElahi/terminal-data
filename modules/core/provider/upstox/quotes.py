@@ -28,12 +28,34 @@ async def fetch_ohlc_data(symbols: list[dict[str, Any]], interval: Literal["1d"]
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         data = result.get("data", {})
-        r = [
-            {
-                "ticker": from_upstox_instrument_key(v.get("instrument_token")),
-                "prev_ohlc": v.get("prev_ohlc"),
-                "live_ohlc": v.get("live_ohlc"),
-                "lp": v.get("last_price")
-            } for v in data.values()
-        ]
+        r = [extrac_quote(v) for v in data.values()]
         return r
+
+
+def extrac_quote(quote: dict[str, Any]):
+    o = quote.get("live_ohlc", {}).get("open")
+    h = quote.get("live_ohlc", {}).get("high")
+    l = quote.get("live_ohlc", {}).get("low")
+    c = quote.get("live_ohlc", {}).get("close")
+    v = quote.get("live_ohlc", {}).get("volume")
+    pc = None
+    if quote.get("prev_ohlc") is not None:
+        pc = quote.get("prev_ohlc").get("close")
+
+    quote = dict(
+        ticker=from_upstox_instrument_key(quote.get("instrument_token")),
+    )
+    if o is not None:
+        quote["day_open"] = o
+    if h is not None:
+        quote["day_high"] = h
+    if l is not None:
+        quote["day_low"] = l
+    if c is not None:
+        quote["day_close"] = c
+    if c is not None and pc is not None:
+        quote["price_change_today_pct"] = (c - pc) / pc * 100
+    if o is not None and h is not None and l is not None and c is not None:
+        quote["dcr"] = (c - l) / (h - l) * 100
+
+    return quote
