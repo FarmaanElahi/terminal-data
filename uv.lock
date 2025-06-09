@@ -1198,13 +1198,13 @@ wheels = [
 
 [[package]]
 name = "ta-lib"
-version = "0.6.4"
+version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "setuptools" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ba/97/a49816dd468a18ee080cf3a04640772a9f6321790d4049cece2490c4b7ad/ta_lib-0.6.4.tar.gz", hash = "sha256:08f55bc5771a6d1ceb1a2b713aad7b05f04eb0061e980c9113571c532d32e9cb", size = 381774 }
+sdist = { url = "https://files.pythonhosted.org/packages/35/dc/e7fab66315fdd2e2eeb2e3dbb9d23ea615bafc1e9174a8965d310e40a3c2/ta_lib-0.6.3.tar.gz", hash = "sha256:0c628db09b3fab6e5c26979e608b674e7aecc10359c82ba8d53f729767a856ac", size = 376798 }
 
 [[package]]
 name = "terminal-data"
@@ -1248,7 +1248,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=20.0.0" },
     { name = "pydantic", specifier = ">=2.11.4" },
     { name = "supabase", specifier = ">=2.15.1" },
-    { name = "ta-lib", specifier = ">=0.6.3" },
+    { name = "ta-lib", specifier = "==0.6.3" },
     { name = "websockets", specifier = ">=14.2" },
     { name = "yfinance", specifier = ">=0.2.61" },
 ]
