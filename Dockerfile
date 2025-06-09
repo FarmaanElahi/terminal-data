@@ -11,8 +11,8 @@ ENV PATH="/root/.cargo/bin:$PATH"
 RUN ARCH=$(dpkg --print-architecture) && \
     echo "Detected architecture: $ARCH" && \
     case "$ARCH" in \
-        amd64) TA_URL="https://github.com/ta-lib/ta-lib/releases/download/v0.6.3/ta-lib_0.6.3_amd64.deb" ;; \
-        arm64) TA_URL="https://github.com/ta-lib/ta-lib/releases/download/v0.6.3/ta-lib_0.6.3_arm64.deb" ;; \
+        amd64) TA_URL="https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_amd64.deb" ;; \
+        arm64) TA_URL="https://github.com/ta-lib/ta-lib/releases/download/v0.6.4/ta-lib_0.6.4_arm64.deb" ;; \
         *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
     esac && \
     wget "$TA_URL" -O /tmp/ta-lib.deb && \
