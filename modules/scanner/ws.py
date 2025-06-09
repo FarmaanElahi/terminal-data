@@ -99,7 +99,7 @@ class ScreenerSession:
     ws: WebSocket
     token: str | None
     session_id: str
-    universe: list[str] = []
+    universe: list[str] | None = None
     filters: list[dict[str, Any]] = []
     sort: list[dict[str, Any]] = []
     columns: list[str] = ["ticker", "name", "logo", "day_close"]
