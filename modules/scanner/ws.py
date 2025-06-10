@@ -126,7 +126,7 @@ class ScreenerSession:
         await self.ws.send_json(ScreenerSubscribedResponse(t="SCREENER_SUBSCRIBED", session_id=t.session_id).model_dump())
         self.realtime_dispatcher_task = asyncio.create_task(self.dispatch_realtime())
 
-    async def unsubscribe(self, t: ScreenerUnSubscribeRequest):
+    async def unsubscribe(self):
         if self.realtime_dispatcher_task is not None:
             self.realtime_dispatcher_task.cancel()
 
@@ -229,6 +229,9 @@ class WSSession:
 
     async def on_disconnect(self):
         print("Client disconnected")
+        for ss in self.ss.values():
+            await ss.unsubscribe()
+        self.ss.clear()
 
     async def on_data(self, event: WSSessionRequest):
         if isinstance(event, AuthenticationRequest):
@@ -258,7 +261,7 @@ class WSSession:
 
     async def on_screener_unsubscribe(self, event: ScreenerUnSubscribeRequest):
         if event.session_id in self.ss:
-            await self.ss[event.session_id].unsubscribe(event)
+            await self.ss[event.session_id].unsubscribe()
             self.ss.pop(event.session_id)
 
     async def on_screener_patch(self, event: ScreenerPatchRequest):
