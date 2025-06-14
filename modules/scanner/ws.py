@@ -17,6 +17,7 @@ class ScreenerSubscribeRequest(BaseModel):
     t: Literal["SCREENER_SUBSCRIBE"]
     session_id: str
     filters: list[dict[str, Any]] = []
+    filter_merge: Literal["AND", "OR"] = "OR"
     sort: list[dict[str, Any]] = []
     columns: list[str] = []
     range: list[int] = []
@@ -40,6 +41,7 @@ class ScreenerPatchRequest(BaseModel):
     t: Literal["SCREENER_PATCH"]
     session_id: str
     filters: list[dict[str, Any]] | None = None
+    filter_merge: Literal["AND", "OR"] | None = None
     sort: list[dict[str, Any]] | None = None
     columns: list[str] | None = None
     range: tuple[int, int] | None = None
@@ -101,6 +103,7 @@ class ScreenerSession:
     session_id: str
     universe: list[str] | None = None
     filters: list[dict[str, Any]] = []
+    filter_merge: Literal["AND", "OR"] = "OR"
     sort: list[dict[str, Any]] = []
     columns: list[str] = ["ticker", "name", "logo", "day_close"]
     range: (int, int) = (0, -1)
@@ -120,6 +123,7 @@ class ScreenerSession:
         self.columns = ["ticker", "name", "logo", "day_close"] if len(t.columns) == 0 else t.columns
         self.range = (0, -1) if len(t.range) < 2 else t.range
         self.filters = t.filters
+        self.filter_merge = t.filter_merge
         # Additional name ensures that pagination is consistent in case of the same value in multiple row
         self.sort = [*t.sort, {"colId": "name", "sort": "ASC"}]
         await self.prefetch_live_symbols()
@@ -132,6 +136,10 @@ class ScreenerSession:
 
     async def patch(self, t: ScreenerPatchRequest):
         is_patched = False
+
+        if t.filter_merge is not None:
+            is_patched = True
+            self.filter_merge = t.filter_merge
 
         if t.columns is not None:
             is_patched = True
@@ -163,7 +171,7 @@ class ScreenerSession:
     async def prefetch_live_symbols(self):
         self.live_symbols = query_symbols(
             ["ticker", "name", "isin", "type", "exchange"],
-            filters=self.filters, filter_merge="OR",
+            filters=self.filters, filter_merge=self.filter_merge,
             sort_fields=self.sort,
             universe=self.universe,
         ).to_dict(orient="records")
@@ -184,14 +192,14 @@ class ScreenerSession:
         offset = start
         limit = end - start
 
-        total_result = query_symbols(columns=["ticker"], filter_merge="OR", filters=self.filters, universe=self.universe)
+        total_result = query_symbols(columns=["ticker"], filter_merge=self.filter_merge, filters=self.filters, universe=self.universe)
         total = len(total_result)
 
         result = query_symbols(
             columns=self.columns,
             filters=self.filters,
             sort_fields=self.sort,
-            filter_merge="OR",
+            filter_merge=self.filter_merge,
             offset=offset,
             limit=limit,
             universe=self.universe,

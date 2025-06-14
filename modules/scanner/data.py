@@ -146,14 +146,14 @@ def where_sql_multiple(filters: list[dict[str, Any]] = None,
             if len(filter_clauses) == 1:
                 where_conditions.append(filter_clauses[0])
             else:
-                combined_filters = f" {filter_merge} ".join(filter_clauses)
+                combined_filters = f" OR ".join(filter_clauses)
                 where_conditions.append(f"({combined_filters})")
 
     if not where_conditions:
         return ""
 
     # Always join multiple conditions with AND
-    return f" WHERE {' AND '.join(where_conditions)}"
+    return f" WHERE {f' {filter_merge} '.join(where_conditions)}"
 
 
 def where_sql(filter: dict[str, Any]) -> str:
