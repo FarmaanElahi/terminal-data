@@ -10,7 +10,7 @@ async def fetch_quotes(symbols: list[dict[str, Any]], token: str):
 
 
 async def fetch_ohlc_data(symbols: list[dict[str, Any]], interval: Literal["1d"], token: str):
-    url = "https://api.upstox.com/v3/market-quote/ohlc"
+    url = "https://api.upstox.com/v2/market-quote/quotes"
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -20,7 +20,6 @@ async def fetch_ohlc_data(symbols: list[dict[str, Any]], interval: Literal["1d"]
     instrument_keys = [to_upstox_instrument_key(s) for s in symbols if to_upstox_instrument_key(s) is not None]
     params = {
         "instrument_key": ",".join(instrument_keys),
-        "interval": interval
     }
 
     async with httpx.AsyncClient() as client:
@@ -33,14 +32,14 @@ async def fetch_ohlc_data(symbols: list[dict[str, Any]], interval: Literal["1d"]
 
 
 def extrac_quote(quote: dict[str, Any]):
-    o = quote.get("live_ohlc", {}).get("open")
-    h = quote.get("live_ohlc", {}).get("high")
-    l = quote.get("live_ohlc", {}).get("low")
-    c = quote.get("live_ohlc", {}).get("close")
-    v = quote.get("live_ohlc", {}).get("volume")
-    pc = None
-    if quote.get("prev_ohlc") is not None:
-        pc = quote.get("prev_ohlc").get("close")
+    o = quote.get("ohlc", {}).get("open")
+    h = quote.get("ohlc", {}).get("high")
+    l = quote.get("ohlc", {}).get("low")
+    c = quote.get("ohlc", {}).get("close")
+    v = quote.get("volume")
+    ch = quote.get('net_change')
+    lp = quote.get('last_price')
+    pc = lp - ch
 
     quote = dict(
         ticker=from_upstox_instrument_key(quote.get("instrument_token")),
