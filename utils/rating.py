@@ -5,6 +5,7 @@ def get_ratings(df: pd.DataFrame):
     df = as_rating(df)
     df = rs_rating(df)
     df = sector_industry_strength_rating(df)
+    df = momentum_rating(df)
     return df
 
 
@@ -14,6 +15,13 @@ def compute_rating(series: pd.Series):
     asr = percentile * 98 + 1  # Scale to 1-99
     return asr.fillna(1).round().astype(int)  # Round to integer
 
+def momentum_rating(df: pd.DataFrame):
+    df = df.copy()
+    df['momentum_rating'] = compute_rating(df['momentum'])
+    # momentum_acc_{period}D
+    for period in [5,10,15,20,21]:
+        df[f'momentum_acc_{period}D_rating'] = compute_rating(df[f'momentum_acc_{period}D'])
+    return df
 
 def as_rating(df: pd.DataFrame):
     df = df.copy()

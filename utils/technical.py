@@ -82,6 +82,10 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
 
     # RMV
     cols = cols | rmv(d)
+
+    # Momentum
+    cols = cols | momentum(d)
+
     #
     # Comparative
     market_d = market_d[~market_d.index.duplicated(keep='first')]
@@ -452,3 +456,42 @@ def rmv(d: pd.DataFrame):
         cols[f'RMV_{loopback}D'] = compute_rmv(d, loopback)
 
     return cols
+
+
+def momentum(d: pd.DataFrame, short_period=20, long_period=50, accel_periods=(5, 10, 15, 20, 21)):
+    """
+    Calculate momentum and momentum acceleration for multiple periods.
+
+    Args:
+        d (pd.DataFrame): DataFrame with price data
+        short_period (int): Short period for momentum calculation
+        long_period (int): Long period for momentum calculation
+        accel_periods (list): List of periods to calculate acceleration for
+
+    Returns:
+        dict: Dictionary containing momentum and acceleration values for each period
+    """
+    # Get the actual length of close data
+    close_length = len(d.close)
+
+    # Calculate base momentum as before
+    effective_short_period = min(short_period, close_length)
+    effective_long_period = min(long_period, close_length)
+
+    mom_short = (d.close - d.close.shift(effective_short_period)) * 100 / d.close.shift(effective_short_period) / effective_short_period
+    mom_long = (d.close - d.close.shift(effective_long_period)) * 100 / d.close.shift(effective_long_period) / effective_long_period
+    moma = mom_short + mom_long
+
+    # Dictionary to store results
+    results = {
+        'momentum': moma
+    }
+
+    # Calculate acceleration for different periods
+    for period in accel_periods:
+        effective_accel_period = min(period, close_length)
+        # Calculate momentum acceleration for this period
+        momentum_acceleration = (moma - moma.shift(effective_accel_period)) / effective_accel_period
+        results[f'momentum_acc_{period}D'] = momentum_acceleration
+
+    return results
