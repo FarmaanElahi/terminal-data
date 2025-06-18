@@ -7,6 +7,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from modules.core.provider.marketsmith.client import MarketSmithClient
 from modules.scanner.models import ScreenerQuery
 from modules.scanner.ws import WSSession
 
@@ -54,7 +55,18 @@ async def websocket_connect(websocket: WebSocket):
     await session.listen()
 
 
+@app.get("/symbols/{symbol}")
+async def symbol_detail(symbol: str):
+    client = MarketSmithClient()
+    await client.init_session()
+    parts = symbol.split(':')
+    if len(parts):
+        name = parts[-1].strip()
+    else:
+        name = symbol.strip()
+    return await client.all(name)
+
+
 def run():
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
-
