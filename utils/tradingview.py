@@ -486,7 +486,8 @@ class TradingView:
                 "Low.All": "all_time_low",
                 "float_shares_outstanding_current": "shares_float",
                 "earnings_release_trading_date_fq": "earnings_release_date",
-                "earnings_release_next_trading_date_fq": "earnings_release_next_date"
+                "earnings_release_next_trading_date_fq": "earnings_release_next_date",
+                "first_bar_time": "ipo"
             },
             inplace=True
         )
@@ -506,6 +507,7 @@ class TradingView:
         base.set_index(['ticker'], inplace=True)
         base.earnings_release_date = to_datetime(base.earnings_release_date)
         base.earnings_release_next_date = to_datetime(base.earnings_release_next_date)
+        base.ipo = to_datetime(base.ipo)
         return base
 
     @staticmethod
