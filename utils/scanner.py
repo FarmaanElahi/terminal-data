@@ -8,7 +8,7 @@ from utils.pandas_utils import merge_df_safely
 from utils.rating import get_ratings
 from utils.technical import get_technicals
 from utils.tradingview import TradingView
-
+from utils.compliant import shariah_compliant_symbols
 
 async def run_full_scanner_build():
     print("Running full scanner build")
@@ -21,6 +21,10 @@ async def run_full_scanner_build():
 
     df = pd.concat([df, index_df])
     print("Final symbols generated")
+
+    shariah_compliant = shariah_compliant_symbols()
+    df = merge_df_safely(df, shariah_compliant)
+    print("Shariah compliant updated")
 
     df = merge_df_safely(df, get_industry_classification())
     print("Industry classification updated")
