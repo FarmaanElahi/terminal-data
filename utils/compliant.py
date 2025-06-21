@@ -64,8 +64,10 @@ def refresh_compliant():
     df = pd.DataFrame(data, columns=['bse_symbol', 'nse_symbol', 'shariah_compliant'])
     df = df[df['nse_symbol'].notna() & (df['nse_symbol'].str.strip() != '')]
     df.set_index('nse_symbol', inplace=True)
+    df = df[~df.index.duplicated(keep='first')]
     df.to_parquet(f'oci://{data_bucket}/shariah-compliant.parquet', compression='zstd', storage_options=storage_options)
 
 
 def shariah_compliant_symbols():
-    return pd.read_parquet(f'oci://{data_bucket}/shariah-compliant.parquet', storage_options=storage_options)
+    df = pd.read_parquet(f'oci://{data_bucket}/shariah-compliant.parquet', storage_options=storage_options)
+    return df[['shariah_compliant']]
