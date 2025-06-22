@@ -56,5 +56,14 @@ def extrac_quote(quote: dict[str, Any]):
         quote["price_change_today_pct"] = (c - pc) / pc * 100
     if o is not None and h is not None and l is not None and c is not None:
         quote["dcr"] = (c - l) / (h - l) * 100
+    if o is not None and c is not None:
+        quote['price_change_from_open_abs'] = c - o
+        quote['price_change_from_open_pct'] = (c - o) / o * 100
+    if h is not None and c is not None:
+        quote['price_change_from_high_abs'] = h - c
+        quote['price_change_from_high_pct'] = (h - c) / h * 100
+    if o is not None and pc is not None:
+        quote['gap_dollar_D'] = o - pc
+        quote['gap_pct_D'] = (o - pc) / pc * 100
 
     return quote
