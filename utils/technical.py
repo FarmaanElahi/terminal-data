@@ -2,34 +2,43 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 
+from modules.core.provider.base.candles import CandleProvider
+from modules.core.provider.upstox.candles import UpstoxCandleProvider
 from utils.comparitive import alpha, relative_strength
 from utils.pandas_utils import get_latest
 from utils.price_volume_action import volume_action, price_action
-from utils.tradingview import TradingView
 
-market_ticker = {"NSE": "NSE:NIFTY", "BSE": "NSE:CNX500"}
+market_ticker = {"NSE": "NSE:NIFTY", "BSE": "BSE:SENSEX"}
 
 
-async def get_market_candles():
+async def get_market_candles(candle_provider: CandleProvider):
     market_candles = {}
-    async for ticker, d in TradingView.stream_candles(list(market_ticker.values())):
-        market_candles[ticker] = d
+    async for ticker, df, error in candle_provider.stream(list(market_ticker.values())):
+        if not error:
+            market_candles[ticker] = df
     return market_candles
 
 
 async def get_technicals(df: pd.DataFrame, tickers: list[str]):
-    technical_data = []
-    market_candles = await get_market_candles()
+    candle_provider = UpstoxCandleProvider()
+    await  candle_provider.prepare()
 
-    async for ticker, d in TradingView.stream_candles(tickers):
-        row = df.loc[ticker]
-        market_d = market_candles[market_ticker[row.exchange]]
-        technical = get_technical(ticker, row, d, market_d)
-        technical_data.append(technical)
+    technical_data = []
+    market_candles = await get_market_candles(candle_provider)
+
+    missing_tickers = []
+    async for ticker, d, error in candle_provider.stream(tickers, concurrency=50):
+        if not error and not d.empty:
+            row = df.loc[ticker]
+            market_d = market_candles[market_ticker[row.exchange]]
+            technical = get_technical(ticker, row, d, market_d)
+            technical_data.append(technical)
+        else:
+            missing_tickers.append(ticker)
 
     technical = pd.DataFrame(technical_data)
     technical = technical.set_index(["ticker"])
-    return technical
+    return missing_tickers, technical
 
 
 def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.DataFrame):

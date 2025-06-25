@@ -345,7 +345,7 @@ class TradingView:
     @staticmethod
     async def download_quotes(t: list[str]):
         all_quotes = {}
-        async  for quotes, bars in fetch_bulk(t):
+        async  for quotes, bars in fetch_bulk(t, "quote"):
             all_quotes.update(quotes)
 
         return all_quotes

@@ -1,7 +1,7 @@
 import pandas as pd
 
 from utils.bucket import storage_options, data_bucket
-from utils.fundamentals import get_fundamentals,get_fundamentals_cached
+from utils.fundamentals import get_fundamentals, get_fundamentals_cached
 from utils.industry import get_industry_classification
 from utils.pandas_utils import make_df_ready_for_serialization
 from utils.pandas_utils import merge_df_safely
@@ -32,7 +32,12 @@ async def run_full_scanner_build():
     df = merge_df_safely(df, get_fundamentals())
     print("Fundamentals updated")
 
-    df = merge_df_safely(df, await get_technicals(df, df.index.to_list()))
+    missing_ticker, technical_df = await get_technicals(df, df.index.to_list())
+    if len(missing_ticker) > 0:
+        df.drop(missing_ticker, inplace=True)
+        print(f"Removed missing tickers because of no candle: {len(missing_ticker)}")
+
+    df = merge_df_safely(df, technical_df)
     print("Technicals updated")
 
     df = merge_df_safely(df, get_ratings(df))
@@ -43,3 +48,5 @@ async def run_full_scanner_build():
 
     df.to_parquet(f'oci://{data_bucket}/symbols-full-v2.parquet', compression='zstd', storage_options=storage_options)
     print("Scanner build complete")
+
+    return df
