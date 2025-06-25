@@ -27,7 +27,7 @@ async def get_technicals(df: pd.DataFrame, tickers: list[str]):
     market_candles = await get_market_candles(candle_provider)
 
     missing_tickers = []
-    async for ticker, d, error in candle_provider.stream(tickers, concurrency=50):
+    async for ticker, d, error in candle_provider.stream(tickers):
         if not error and not d.empty:
             row = df.loc[ticker]
             market_d = market_candles[market_ticker[row.exchange]]
