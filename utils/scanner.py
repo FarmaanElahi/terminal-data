@@ -35,7 +35,7 @@ async def run_full_scanner_build():
     missing_ticker, technical_df = await get_technicals(df, df.index.to_list())
     if len(missing_ticker) > 0:
         df.drop(missing_ticker, inplace=True)
-        print(f"Removed missing tickers because of no candle: {len(missing_ticker)}")
+        print(f"Removed {len(missing_ticker)} missing tickers: {missing_ticker}")
 
     df = merge_df_safely(df, technical_df)
     print("Technicals updated")

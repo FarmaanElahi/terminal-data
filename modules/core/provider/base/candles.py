@@ -34,6 +34,7 @@ class CandleProvider(ABC):
                     )
                     return symbol, df, None
                 except Exception as e:
+                    print(f"Candle downloading failed {symbol}: {e}")
                     return symbol, None, e
 
         tasks = [fetch(symbol) for symbol in ticker]
