@@ -10,9 +10,10 @@ from modules.core.provider.base.candles import CandleProvider
 # Provided index mappings
 MAPPINGS = {
     "NSE:BAJAJ_AUTO": "NSE_EQ|INE917I01010",
+    "NSE:ELECTCAST": "NSE_EQ|INE086A01029",
     "BSE:SENSEX": "BSE_INDEX|SENSEX",
     "NSE:CNXENERGY": "NSE_INDEX|Nifty Energy",
-    "NSE:NIFTY_INDIA_MFG": "NSE_INDEX|Nifty India Mfg",
+    "NSE:NIFTY_INDIA_MFG": "NSE_INDEX|NIFTY INDIA MFG",
     "NSE:CNXINFRA": "NSE_INDEX|Nifty Infra",
     "NSE:CNXFMCG": "NSE_INDEX|Nifty FMCG",
     "NSE:CNXAUTO": "NSE_INDEX|Nifty Auto",
@@ -22,7 +23,7 @@ MAPPINGS = {
     "NSE:CNX500": "NSE_INDEX|Nifty 500",
     "NSE:NIFTY": "NSE_INDEX|Nifty 50",
     "NSE:NIFTY_LARGEMID250": "NSE_INDEX|NIFTY LARGEMID250",
-    "NSE:NIFTY_IND_DIGITAL": "NSE_INDEX|",
+    "NSE:NIFTY_IND_DIGITAL": "NSE_INDEX|NIFTY IND DIGITAL",
     "NSE:CNXMNC": "NSE_INDEX|Nifty MNC",
     "NSE:CNXSERVICE": "NSE_INDEX|",
     "NSE:NIFTY_TOTAL_MKT": "NSE_INDEX|NIFTY TOTAL MKT",
@@ -105,11 +106,7 @@ class UpstoxCandleProvider(CandleProvider):
         try:
             instrument_key = self.get_instrument_key(ticker)
         except ValueError:
-            print(f"Error getting instrument key  for {ticker}")
-            empty_df = pd.DataFrame([], columns=["timestamp", "open", "high", "low", "close", "volume"])
-            empty_df["timestamp"] = pd.to_datetime(empty_df["timestamp"])
-            empty_df.set_index("timestamp", inplace=True)
-            return empty_df
+            raise RuntimeError(f"Error getting instrument key  for {ticker}")
 
         from_date_str = (to_date - duration).strftime("%Y-%m-%d")
         to_date_str = to_date.strftime("%Y-%m-%d")
@@ -138,7 +135,14 @@ class UpstoxCandleProvider(CandleProvider):
 
         df_hist = pd.DataFrame(hist_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
         df_intra = pd.DataFrame(intraday_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
-        df_combined = pd.concat([df for df in [df_hist, df_intra] if not df.empty])
+
+        if not df_intra.empty and not df_intra.empty:
+            df_combined = pd.concat([df_hist, df_intra])
+        elif not df_hist.empty:
+            df_combined = df_hist
+        else:
+            df_combined = df_intra
+
         df_combined = df_combined[~df_combined.index.duplicated(keep="last")]
 
         if unit in ['days', 'weeks', 'months']:
