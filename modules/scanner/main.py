@@ -74,7 +74,7 @@ async def symbol_detail(symbol: str):
 @app.get("/ideas/global/{feed}")
 async def get_global_feed(
         feed: Literal["trending", "suggested", "popular"],
-        limit: int = Query(10, ge=1, le=30),
+        limit: int = Query(10, ge=1, le=100),
 ):
     param = GlobalFeedParam(feed=feed, limit=limit)
     return await client.fetch(param)
@@ -85,7 +85,7 @@ async def get_global_feed(
 async def get_symbol_feed(
         symbol: str,
         feed: Literal["trending", "popular"],
-        limit: int = Query(10, ge=1, le=30),
+        limit: int = Query(10, ge=1, le=100),
 ):
     param = SymbolFeedParam(feed="symbol", filter=feed, symbol=symbol, limit=limit)
     return await client.fetch(param)
