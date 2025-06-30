@@ -136,7 +136,7 @@ class UpstoxCandleProvider(CandleProvider):
         df_hist = pd.DataFrame(hist_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
         df_intra = pd.DataFrame(intraday_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
 
-        if not df_intra.empty and not df_intra.empty:
+        if not df_intra.empty and not df_hist.empty:
             df_combined = pd.concat([df_hist, df_intra])
         elif not df_hist.empty:
             df_combined = df_hist
