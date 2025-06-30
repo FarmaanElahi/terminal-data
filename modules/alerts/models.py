@@ -26,7 +26,7 @@ class Alert(BaseModel):
     deleted_at: datetime | None
     notes: str | None
     is_active: bool
-    user_id: str
+    user_id: str | None
     symbol: str
     type: Literal["simple"]  # Currently fixed to "simple"
     lhs_type: Literal["last_price"]
