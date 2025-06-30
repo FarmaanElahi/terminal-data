@@ -134,6 +134,7 @@ class UpstoxCandleProvider(CandleProvider):
         hist_candles, intraday_candles = await asyncio.gather(fetch_hist(), fetch_intraday())
 
         df_hist = pd.DataFrame(hist_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
+        df_hist.sort_values("timestamp", inplace=True,ascending=True)
         df_intra = pd.DataFrame(intraday_candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"])
 
         if not df_intra.empty and not df_hist.empty:
@@ -142,8 +143,6 @@ class UpstoxCandleProvider(CandleProvider):
             df_combined = df_hist
         else:
             df_combined = df_intra
-
-        df_combined = df_combined[~df_combined.index.duplicated(keep="last")]
 
         if unit in ['days', 'weeks', 'months']:
             df_combined["timestamp"] = pd.to_datetime(df_combined["timestamp"]).dt.tz_localize(None)
