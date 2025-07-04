@@ -50,10 +50,71 @@ class MarketSmithClient:
         self.current_symbol: Optional[str] = None
         self.current_instrument_id: Optional[str] = None
 
+        # Common headers for API requests
+        self.common_headers = {
+            "Accept": "*/*",
+            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
+            "Cache-Control": "no-cache",
+            "DNT": "1",
+            "Pragma": "no-cache",
+            "Priority": "u=1, i",
+            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
+            "Sec-CH-UA-Mobile": "?0",
+            "Sec-CH-UA-Platform": '"macOS"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+
+    def _convert_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert parameters by replacing spaces with + in string values"""
+        converted_params = {}
+        for key, value in params.items():
+            if isinstance(value, str) and ' ' in value:
+                converted_params[key] = '+'.join(value.split(' '))
+            else:
+                converted_params[key] = value
+        return converted_params
+
+    def _get_headers_with_referer(self) -> Dict[str, str]:
+        """Get common headers with symbol-specific referer"""
+        headers = self.common_headers.copy()
+        if self.current_symbol:
+            headers["Referer"] = f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp"
+        return headers
+
+    async def _make_request(self, method: str, url: str, params: Optional[Dict[str, Any]] = None,
+                            headers: Optional[Dict[str, str]] = None, **kwargs) -> httpx.Response:
+        """Make HTTP request with error handling and logging"""
+        try:
+            if params:
+                converted_params = self._convert_params(params)
+            else:
+                converted_params = {}
+
+            if method.upper() == "GET":
+                resp = await self.client.get(url, params=converted_params, headers=headers, **kwargs)
+            elif method.upper() == "POST":
+                resp = await self.client.post(url, params=converted_params, headers=headers, **kwargs)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            resp.raise_for_status()
+            return resp
+
+        except Exception as e:
+            print(f"HTTP Request Failed:")
+            print(f"Method: {method.upper()}")
+            print(f"URL: {url}")
+            print(f"Params: {params}")
+            print(f"Error: {str(e)}")
+            raise
+
     async def init_session(self):
         """Initialize the client session and handle cookie authentication"""
         self.client = httpx.AsyncClient(
-            transport=self.transport,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -110,6 +171,7 @@ class MarketSmithClient:
         print(f"Session initialized successfully. MS Session ID: {self.ms_session_id}")
 
     async def set_symbol(self, symbol: str):
+        symbol = symbol.replace("_", "-")
         """Set the current symbol for all future symbol-specific API calls"""
         if not self.client:
             raise SessionNotInitializedError("Session not initialized. Call init_session() first.")
@@ -120,9 +182,8 @@ class MarketSmithClient:
             "lang": "en",
             "ver": "2"
         }
-        search_resp = await self.client.get(self.SEARCH_URL, params=params)
-        search_resp.raise_for_status()
 
+        search_resp = await self._make_request("GET", self.SEARCH_URL, params=params)
         results = search_resp.json().get("response", {}).get("results", [])
         match = next(
             (r for r in results if r.get("symbol", "").upper() == symbol.upper()),
@@ -205,29 +266,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
-
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get("headerDetails", {})
 
@@ -279,29 +319,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
-
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get("response", {})
 
@@ -334,29 +353,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
-
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         return resp.json()
 
     async def broker_estimates(self) -> Dict[str, Any]:
@@ -378,29 +376,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(self.BROKER_ESTIMATES_URL, params=params, headers=headers)
-        resp.raise_for_status()
-
+        resp = await self._make_request("GET", self.BROKER_ESTIMATES_URL, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get('response', {}).get('results', {})
 
@@ -429,28 +406,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get('response', {}).get('results', {})
 
@@ -479,28 +436,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get('response', {}).get('results', {})
 
@@ -538,28 +475,8 @@ class MarketSmithClient:
             "ms-auth": self.ms_session_id
         }
 
-        # Update headers with symbol-specific referer
-        headers = {
-            "Accept": "*/*",
-            "Accept-Language": "en-IN,en;q=0.9,ar-EG;q=0.8,ar;q=0.7,en-US;q=0.6,ar-XB;q=0.5,en-GB;q=0.4",
-            "Cache-Control": "no-cache",
-            "DNT": "1",
-            "Pragma": "no-cache",
-            "Priority": "u=1, i",
-            "Referer": f"{self.BASE_URL}/mstool/eval/{self.current_symbol.lower()}/evaluation.jsp",
-            "Sec-CH-UA": '"Google Chrome";v="137", "Chromium";v="137", "Not/A)Brand";v="24"',
-            "Sec-CH-UA-Mobile": "?0",
-            "Sec-CH-UA-Platform": '"macOS"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-            "X-Requested-With": "XMLHttpRequest"
-        }
-
         # Make the request
-        resp = await self.client.get(url, params=params, headers=headers)
-        resp.raise_for_status()
+        resp = await self._make_request("GET", url, params=params, headers=self._get_headers_with_referer())
         response_data = resp.json()
         return response_data.get('response', {}).get('results', {})
 
@@ -588,8 +505,7 @@ class MarketSmithClient:
             self.finance_details(is_consolidated=False),
             self.broker_estimates(),
             self.red_flags(),
-            self.bulk_block_deals(),
-            self.wisdom()
+            self.bulk_block_deals()
         ]
 
         try:
@@ -604,8 +520,7 @@ class MarketSmithClient:
                 "standalone_finance_details": results[3],
                 "broker_estimates": results[4],
                 "red_flags": results[5],
-                "bulk_block_deals": results[6],
-                "wisdom": results[7]
+                "bulk_block_deals": results[6]
             }
 
         except Exception as e:
