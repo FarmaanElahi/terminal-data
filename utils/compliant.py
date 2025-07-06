@@ -66,6 +66,7 @@ def refresh_compliant():
     df.set_index('nse_symbol', inplace=True)
     df = df[~df.index.duplicated(keep='first')]
     df.to_parquet(f'oci://{data_bucket}/shariah-compliant.parquet', compression='zstd', storage_options=storage_options)
+    print("Compliant updated.")
 
 
 def shariah_compliant_symbols():
