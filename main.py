@@ -4,6 +4,8 @@ import logging
 
 from dotenv import load_dotenv
 
+from utils.tradingview import TradingView
+
 # Load environment variables asap
 load_dotenv()
 
@@ -14,16 +16,24 @@ def run():
     )
     parser.add_argument(
         "--mode",
-        choices=["download", "scan", "alerts", "scanner"],
+        choices=["download-fundamental", "download-ms","download-compliance", "scan", "alerts", "scanner"],
         required=True,
         help="Choose 'download' to fetch fundamentals or 'scan' to run the scanner."
     )
 
     args = parser.parse_args()
 
-    if args.mode == "download":
+    if args.mode == "download-fundamental":
         from utils.fundamentals import download_fundamentals
         return asyncio.run(download_fundamentals())
+    if args.mode == "download-ms":
+        from modules.core.provider.marketsmith.downloader import MarketSmithDownloader
+        downloader = MarketSmithDownloader()
+        symbols = TradingView.get_base_symbols()
+        return asyncio.run(downloader.download_all(symbols))
+    if args.mode == "download-compliance":
+        from utils.compliant import refresh_compliant
+        return asyncio.run(refresh_compliant())
     if args.mode == "scan":
         from utils.scanner import run_full_scanner_build
         return asyncio.run(run_full_scanner_build())

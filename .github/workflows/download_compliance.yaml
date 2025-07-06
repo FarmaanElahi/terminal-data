@@ -1,9 +1,9 @@
-name: Build Scanner
+name: Download Fundamentals
 
 on:
   schedule:
     # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
-    - cron: '30 16 * * *'
+    - cron: '0 16 * * *'
   workflow_dispatch: # Allow manual trigger of the workflow
 
 jobs:
@@ -13,11 +13,6 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
-
-      - name: Download TALib
-        run: |
-          wget https://github.com/ta-lib/ta-lib/releases/download/v0.6.3/ta-lib_0.6.3_amd64.deb -P /tmp
-          sudo dpkg -i /tmp/ta-lib_0.6.3_amd64.deb
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -39,5 +34,6 @@ jobs:
           OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
           OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
           OCI_KEY: ${{ secrets.OCI_KEY }}
-        run: .venv/bin/python3 -u main.py --mode scan
+          STOCK_FUNDAMENTAL_BASE_URL: ${{ secrets.STOCK_FUNDAMENTAL_BASE_URL }}
+        run: .venv/bin/python3 -u main.py --mode download-fundamental
 
