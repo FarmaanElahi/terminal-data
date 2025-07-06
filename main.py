@@ -16,7 +16,7 @@ def run():
     )
     parser.add_argument(
         "--mode",
-        choices=["download-fundamental", "download-ms","download-compliance", "scan", "alerts", "scanner"],
+        choices=["download-fundamental", "download-ms", "download-compliance", "scan", "alerts", "scanner"],
         required=True,
         help="Choose 'download' to fetch fundamentals or 'scan' to run the scanner."
     )
@@ -33,7 +33,7 @@ def run():
         return asyncio.run(downloader.download_all(symbols))
     if args.mode == "download-compliance":
         from utils.compliant import refresh_compliant
-        return asyncio.run(refresh_compliant())
+        return refresh_compliant()
     if args.mode == "scan":
         from utils.scanner import run_full_scanner_build
         return asyncio.run(run_full_scanner_build())
