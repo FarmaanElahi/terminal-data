@@ -9,6 +9,7 @@ from utils.rating import get_ratings
 from utils.technical import get_technicals
 from utils.tradingview import TradingView
 from utils.compliant import shariah_compliant_symbols
+from modules.core.provider.marketsmith.downloader import MarketSmithDownloader
 
 async def run_full_scanner_build():
     print("Running full scanner build")
@@ -42,6 +43,10 @@ async def run_full_scanner_build():
 
     df = merge_df_safely(df, get_ratings(df))
     print("Rating updated")
+
+    ms_data = MarketSmithDownloader.get_extracted()
+    df = merge_df_safely(df, ms_data)
+    print("Marketsmith updated")
 
     df = make_df_ready_for_serialization(df)
     print("Prepare for serialization")
