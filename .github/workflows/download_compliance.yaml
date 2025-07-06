@@ -35,5 +35,5 @@ jobs:
           OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
           OCI_KEY: ${{ secrets.OCI_KEY }}
           STOCK_FUNDAMENTAL_BASE_URL: ${{ secrets.STOCK_FUNDAMENTAL_BASE_URL }}
-        run: .venv/bin/python3 -u main.py --mode download-fundamental
+        run: .venv/bin/python3 -u main.py --mode download-compliance
 
