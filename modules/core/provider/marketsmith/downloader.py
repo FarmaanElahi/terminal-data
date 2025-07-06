@@ -63,6 +63,8 @@ class MarketSmithDownloader:
         df = pd.DataFrame(self.results)
         df.set_index('ticker', inplace=True)
         df.to_parquet(f'oci://{data_bucket}/ms_india_data.parquet', compression='zstd', storage_options=storage_options)
+
+        print(f"Marketsmith data downloaded: {len(df)}")
         return df
 
     @staticmethod
