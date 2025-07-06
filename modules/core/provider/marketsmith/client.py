@@ -131,7 +131,7 @@ class MarketSmithClient:
                 "Sec-Fetch-Mode": "cors",
                 "Sec-Fetch-Site": "same-origin",
             },
-            timeout=10.0,
+            timeout=20.0,
             follow_redirects=True
         )
 
