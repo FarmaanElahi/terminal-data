@@ -3,7 +3,7 @@ name: Download Fundamentals
 on:
   schedule:
     # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
-    - cron: '0 17 * * 1-5'
+    - cron: '0 16 * * *'
   workflow_dispatch: # Allow manual trigger of the workflow
 
 jobs:
@@ -35,5 +35,5 @@ jobs:
           OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
           OCI_KEY: ${{ secrets.OCI_KEY }}
           STOCK_FUNDAMENTAL_BASE_URL: ${{ secrets.STOCK_FUNDAMENTAL_BASE_URL }}
-        run: .venv/bin/python3 -u main.py --mode download
+        run: .venv/bin/python3 -u main.py --mode download-compliance
 
