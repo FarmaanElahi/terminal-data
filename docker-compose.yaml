@@ -18,6 +18,10 @@ services:
     command: [ "--mode", "scanner" ]
     expose:
       - 8000
+    ports:
+      - 8001:8000
+    env_file:
+      - .env
     environment:
       - OCI_BUCKET=${OCI_BUCKET}
       - OCI_CONFIG=${OCI_CONFIG}
