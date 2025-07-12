@@ -3,7 +3,7 @@ name: Download NSE Symbol Industry
 on:
   schedule:
     # Runs at the top of every hour from 4:00 AM to 12:00 PM UTC, Monday to Friday
-    - cron: '0 9 * * 1-5'
+    - cron: '40 10 * * *'
   workflow_dispatch: # Allow manual trigger of the workflow
 
 jobs:
