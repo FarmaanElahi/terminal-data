@@ -1,7 +1,7 @@
 import pandas as pd
 
 
-def generate_watchlist(df: pd.DataFrame, group_by: str):
+def generate_group_watchlist(df: pd.DataFrame, group_by: str):
     filtered_df = df[df['mcap'] > 3e9].copy()
 
     # Group by industry_2, get top 10 by mcap, and create the formatted string with count
@@ -48,3 +48,10 @@ def generate_watchlist(df: pd.DataFrame, group_by: str):
 
     # Return chunks as a list of strings
     return [','.join(chunk) for chunk in chunks]
+
+
+def generate_ipo_watchlist(r: pd.DataFrame):
+    from datetime import datetime, timedelta
+    one_year_ago = datetime.now() - timedelta(days=365)
+    recent_ipos = r[(r['ipo'] >= one_year_ago) & (r.mcap > 3e9)]
+    return ",".join(recent_ipos.index.astype(str))
