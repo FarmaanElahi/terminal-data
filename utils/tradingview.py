@@ -509,6 +509,7 @@ class TradingView:
         base.earnings_release_date = to_datetime(base.earnings_release_date)
         base.earnings_release_next_date = to_datetime(base.earnings_release_next_date)
         base.ipo = to_datetime(base.ipo)
+        base['days_since_ipo'] = (pd.Timestamp.now() - base['ipo']).dt.days
         return base
 
     @staticmethod
