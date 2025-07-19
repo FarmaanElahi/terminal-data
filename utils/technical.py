@@ -511,6 +511,7 @@ def momentum(d: pd.DataFrame, short_period=20, long_period=50, accel_periods=(5,
 def stockbee(d: pd.DataFrame):
     return {
         # M20
+        "c/minc5": d.close / d.close.rolling(5).min(),
         "c_by_min_c_7": d.close / d.close.rolling(7).min(),
         "c/minc7": d.close / d.close.rolling(7).min(),
         "c_by_min_c_10": d.close / d.close.rolling(10).min(),
@@ -518,6 +519,7 @@ def stockbee(d: pd.DataFrame):
         "c_by_min_c_14": d.close / d.close.rolling(14).min(),
         "c/minc14": d.close / d.close.rolling(14).min(),
         "c_by_min_c_21": d.close / d.close.rolling(21).min(),
+        "c/minc20": d.close / d.close.rolling(20).min(),
         "c/minc21": d.close / d.close.rolling(21).min(),
         "c_by_min_c_30": d.close / d.close.rolling(30).min(),
         "c/minc30": d.close / d.close.rolling(30).min(),
