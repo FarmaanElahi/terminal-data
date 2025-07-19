@@ -104,6 +104,8 @@ def get_technical(ticker: str, row: pd.Series, d: pd.DataFrame, market_d: pd.Dat
 
     cols = cols | relative_strength(d, market_close)
 
+    cols = cols | stockbee(d)
+
     return {k: get_latest(v) for k, v in cols.items()}
 
 
@@ -504,3 +506,14 @@ def momentum(d: pd.DataFrame, short_period=20, long_period=50, accel_periods=(5,
         results[f'momentum_acc_{period}D'] = momentum_acceleration
 
     return results
+
+
+def stockbee(d: pd.DataFrame):
+    return {
+        "c_by_min_c_7": d.close / d.close.rolling(7).min(),
+        "c_by_min_c_10": d.close / d.close.rolling(10).min(),
+        "c_by_min_c_14": d.close / d.close.rolling(14).min(),
+        "c_by_min_c_21": d.close / d.close.rolling(21).min(),
+        "c_by_min_c_30": d.close / d.close.rolling(30).min(),
+        "avgc7_by_avgc65": d.close.rolling(7).mean() / d.close.rolling(65).mean()
+    }
