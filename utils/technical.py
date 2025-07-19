@@ -529,6 +529,6 @@ def stockbee(d: pd.DataFrame):
         #MDT
         "c/avgc126": d.close / d.close.rolling(126).mean(),
         #MDT25
-        "c/avgc126.25": (d.close / d.close.rolling(126).mean()).shift(25),
-        "c/avgc126.50": (d.close / d.close.rolling(126).mean()).shift(25),
+        "c25/avgc126.25": (d.close / d.close.rolling(126).mean()).shift(25),
+        "c50/avgc126.50": (d.close / d.close.rolling(126).mean()).shift(50),
     }
