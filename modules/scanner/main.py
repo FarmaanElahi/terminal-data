@@ -49,7 +49,7 @@ app.add_middleware(
 async def query_data(q: ScreenerQuery):
     conn = get_con()
     result = conn.execute(q.query).fetchdf()
-    return Response(content=result.to_json(orient="records"), media_type="application/json")
+    return Response(content=result.to_json(orient="records", date_format="iso"), media_type="application/json")
 
 
 @app.websocket("/ws")
