@@ -529,9 +529,9 @@ def stockbee(d: pd.DataFrame):
         # MDT
         "c/avgc126": d.close / d.close.rolling(126).mean(),
         # MDT25
-        "c25/avgc126_25D_ago": (d.close / d.close.rolling(126).mean()).shift(25),
+        "c25/avgc126__25": (d.close / d.close.rolling(126).mean()).shift(25),
         # MDT50
-        "c50/avgc126_50D_ago": (d.close / d.close.rolling(126).mean()).shift(50),
+        "c50/avgc126__50": (d.close / d.close.rolling(126).mean()).shift(50),
 
         "buyout_10": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).astype(int).rolling(10).sum(),
         "buyout_20": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).astype(int).rolling(20).sum(),
