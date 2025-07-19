@@ -205,7 +205,7 @@ class ScreenerSession:
             universe=self.universe,
         )
         c = result.columns.tolist()
-        d = json.loads(result.to_json(orient="values"))
+        d = json.loads(result.to_json(orient="values", date_format="iso"))
         await self.ws.send_json(ScreenerFullResponse(
             session_id=self.session_id,
             c=c,
