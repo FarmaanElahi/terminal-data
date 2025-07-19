@@ -533,9 +533,9 @@ def stockbee(d: pd.DataFrame):
         # MDT50
         "c50/avgc126.50": (d.close / d.close.rolling(126).mean()).shift(50),
 
-        "buyout_10": (d.close.pct_change() > 0.15 & ((d.high - d.low) < 0.04 * d.close)).rolling(10).count(),
-        "buyout_20": (d.close.pct_change() > 0.15 & ((d.high - d.low) < 0.04 * d.close)).rolling(20).count(),
-        "buyout_30": (d.close.pct_change() > 0.15 & ((d.high - d.low) < 0.04 * d.close)).rolling(30).count(),
-        "buyout_50": (d.close.pct_change() > 0.15 & ((d.high - d.low) < 0.04 * d.close)).rolling(50).count(),
-        "buyout_100": (d.close.pct_change() > 0.15 & ((d.high - d.low) < 0.04 * d.close)).rolling(100).count(),
+        "buyout_10": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).rolling(10).count(),
+        "buyout_20": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).rolling(20).count(),
+        "buyout_30": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).rolling(30).count(),
+        "buyout_50": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).rolling(50).count(),
+        "buyout_100": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).rolling(100).count(),
     }
