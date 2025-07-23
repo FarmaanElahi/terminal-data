@@ -1,16 +1,16 @@
 import httpx
 from typing import Literal, Union
 from pydantic import BaseModel
+from cloudscraper import CloudScraper, create_scraper
+from urllib.parse import urlencode
 
 # --- Constants ---
 DEFAULT_HEADERS = {
     "accept": "application/json",
-    "origin": "https://stocktwits.com",
-    "referer": "https://stocktwits.com/",
-    "user-agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-    ),
+    "accept-encoding": "gzip, deflate, br",
+    "host": "api.stocktwits.com",
+    "user-agent": "PostmanRuntime/7.44.1",
+    "cache-control": "no-cache"
 }
 
 
@@ -32,12 +32,16 @@ Param = Union[GlobalFeedParam, SymbolFeedParam]
 
 # --- StockTwits Client Class ---
 class StockTwitsClient:
+    client: CloudScraper
+
     def __init__(self):
-        self.client = httpx.AsyncClient(headers=DEFAULT_HEADERS)
+        self.client = create_scraper()
 
     async def fetch(self, params: Param) -> dict:
         url, query = self._to_request_param(params)
-        response = await self.client.get(url, params=query)
+        query_string = urlencode(query)
+        full_url = f"{url}?{query_string}"
+        response = self.client.get(full_url)
         response.raise_for_status()
         return response.json()
 
