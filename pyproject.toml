@@ -24,4 +24,5 @@ dependencies = [
     "ta-lib==0.6.4",
     "websockets>=14.2",
     "yfinance>=0.2.61",
+    "cloudscraper>=1.2.71",
 ]
