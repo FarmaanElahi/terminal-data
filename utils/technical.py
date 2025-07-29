@@ -540,4 +540,12 @@ def stockbee(d: pd.DataFrame):
         "buyout_30": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).astype(int).rolling(30).sum(),
         "buyout_50": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).astype(int).rolling(50).sum(),
         "buyout_100": ((d.close.pct_change() > 0.15) & ((d.high - d.low) < 0.04 * d.close)).astype(int).rolling(100).sum(),
+
+        # ROC,
+        "c/c5": d.close / d.close.shift(5),
+        "c/c10": d.close / d.close.shift(10),
+        "c/c14": d.close / d.close.shift(14),
+        "c/c20": d.close / d.close.shift(20),
+        "c/c21" : d.close / d.close.shift(21),
+        "c/c30" : d.close / d.close.shift(30),
     }
