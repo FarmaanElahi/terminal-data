@@ -8,7 +8,7 @@ from utils.comparitive import alpha, relative_strength
 from utils.pandas_utils import get_latest
 from utils.price_volume_action import volume_action, price_action
 
-market_ticker = {"NSE": "NSE:NIFTY", "BSE": "BSE:SENSEX"}
+market_ticker = {"NSE": "NSE:NIFTYMIDSML400", "BSE": "BSE:SENSEX"}
 
 
 async def get_market_candles(candle_provider: CandleProvider):
