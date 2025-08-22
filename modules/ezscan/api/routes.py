@@ -50,7 +50,7 @@ def create_scanner_routes(scanner_engine: ScannerEngine) -> APIRouter:
                 conditions=request.conditions,
                 columns=request.columns,
                 logic=request.logic,
-                sort_by=request.sort_by
+                sort_columns=request.sort_columns
             )
             return result
         except Exception as e:
