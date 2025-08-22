@@ -1,5 +1,18 @@
 from typing import List, Optional, Literal
+
 from pydantic import BaseModel, validator
+
+
+class SortColumn(BaseModel):
+    """
+    Defines a column to sort by with direction.
+
+    Attributes:
+        column: Column name to sort by
+        direction: Sort direction ('asc' or 'desc')
+    """
+    column: str
+    direction: Literal["asc", "desc"] = "desc"
 
 
 class Condition(BaseModel):
@@ -51,11 +64,22 @@ class ScanRequest(BaseModel):
         conditions: List of technical conditions
         columns: List of output column definitions
         logic: How to combine conditions ('and' or 'or')
-        sort_by: Column name to sort results by
-        version: API version
+        sort_columns: List of columns to sort by with direction (new)
     """
     conditions: List[Condition]
     columns: List[ColumnDef]
     logic: Literal["and", "or"] = "and"
-    sort_by: Optional[str] = None
-    version: Literal["v1"] = "v1"
+    sort_columns: Optional[List[SortColumn]] = None  # New multi-column sort
+
+    def validate_sort_columns(cls, v, values):
+        """Ensure either sort_by or sort_columns is used, not both."""
+        sort_by = values.get("sort_by")
+
+        if sort_by is not None and v is not None:
+            raise ValueError("Cannot use both 'sort_by' and 'sort_columns'. Use 'sort_columns' for new implementations.")
+
+        # Convert legacy sort_by to sort_columns format
+        if sort_by is not None and v is None:
+            v = [SortColumn(column=sort_by, direction="desc")]
+
+        return v

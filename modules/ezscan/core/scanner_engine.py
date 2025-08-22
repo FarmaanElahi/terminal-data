@@ -7,14 +7,13 @@ of data sources.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Any, Tuple
 import pandas as pd
 
 from modules.ezscan.interfaces.candle_provider import CandleProvider
 from modules.ezscan.interfaces.stock_metadata_provider import StockMetadataProvider
 from modules.ezscan.core.expression_evaluator import ExpressionEvaluator
-from modules.ezscan.models.requests import Condition, ColumnDef
+from modules.ezscan.models.requests import Condition, ColumnDef, SortColumn
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,8 @@ class ScannerEngine:
             self,
             candle_provider: CandleProvider,
             metadata_provider: StockMetadataProvider,
-            max_workers: int = 32
+            max_workers: int = 32,
+            cache_enabled: bool = True
     ):
         """
         Initialize scanner engine with data providers.
@@ -40,22 +40,23 @@ class ScannerEngine:
             candle_provider: Provider for OHLCV candle data
             metadata_provider: Provider for stock metadata
             max_workers: Maximum number of parallel workers
+            cache_enabled: Whether to enable expression caching
         """
         self.candle_provider = candle_provider
         self.metadata_provider = metadata_provider
-        self.expression_evaluator = ExpressionEvaluator(cache_enabled=False)
+        self.expression_evaluator = ExpressionEvaluator(cache_enabled=cache_enabled)
         self.max_workers = max_workers
 
         # Load initial data
         self.symbol_data = self.candle_provider.load_data()
-        logger.info(f"Scanner initialized with {len(self.symbol_data)} symbols")
+        logger.info(f"Scanner initialized with {len(self.symbol_data)} symbols, cache enabled: {cache_enabled}")
 
     def scan(
             self,
             conditions: List[Condition],
             columns: List[ColumnDef],
             logic: str = "and",
-            sort_by: str = None
+            sort_columns: List[SortColumn] = None
     ) -> Dict[str, Any]:
         """
         Execute technical scan with given conditions and columns.
@@ -64,7 +65,8 @@ class ScannerEngine:
             conditions: List of technical conditions to evaluate
             columns: List of column definitions for output
             logic: Logic operator for combining conditions ('and' or 'or')
-            sort_by: Column name to sort results by
+            sort_by: Single column name to sort by (legacy, deprecated)
+            sort_columns: List of columns to sort by with direction
 
         Returns:
             Dict containing scan results with columns and data
@@ -74,29 +76,29 @@ class ScannerEngine:
 
         start_time = pd.Timestamp.now()
 
-        # Step 1: Parallel condition evaluation
-        selected_symbols = self._evaluate_conditions_parallel(conditions, logic)
+        # Step 1: Synchronous condition evaluation
+        selected_symbols = self._evaluate_conditions_sync(conditions, logic)
 
         conditions_time = pd.Timestamp.now() - start_time
 
         if not selected_symbols:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
 
-        # Step 2: Parallel column evaluation
+        # Step 2: Synchronous column evaluation
         columns_start = pd.Timestamp.now()
-        rows = self._evaluate_columns_parallel(selected_symbols, columns)
+        rows = self._evaluate_columns_sync(selected_symbols, columns)
         columns_time = pd.Timestamp.now() - columns_start
 
         if not rows:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
 
         # Step 3: Process and sort results
-        df_result = self._process_results(rows, columns, sort_by)
+        df_result = self._process_results(rows, columns, sort_columns)
 
         total_time = pd.Timestamp.now() - start_time
 
         logger.info(
-            f"Scan completed: {len(selected_symbols)}/{len(self.symbol_data)} symbols, "
+            f"Synchronous scan completed: {len(selected_symbols)}/{len(self.symbol_data)} symbols, "
             f"conditions: {conditions_time.total_seconds():.3f}s, "
             f"columns: {columns_time.total_seconds():.3f}s, "
             f"total: {total_time.total_seconds():.3f}s"
@@ -107,9 +109,9 @@ class ScannerEngine:
             "data": df_result.values.tolist()
         }
 
-    def _evaluate_conditions_parallel(self, conditions: List[Condition], logic: str) -> List[str]:
+    def _evaluate_conditions_sync(self, conditions: List[Condition], logic: str) -> List[str]:
         """
-        Evaluate conditions in parallel across all symbols.
+        Evaluate conditions synchronously across all symbols.
 
         Args:
             conditions: List of conditions to evaluate
@@ -118,18 +120,13 @@ class ScannerEngine:
         Returns:
             List[str]: Symbols that pass all conditions
         """
-        condition_args = [
-            (symbol, conditions, logic)
-            for symbol in self.symbol_data.keys()
-        ]
-
         selected_symbols = []
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(self._process_symbol_conditions, condition_args))
 
-            for symbol, passes in results:
-                if passes:
-                    selected_symbols.append(symbol)
+        for symbol in self.symbol_data.keys():
+            args = (symbol, conditions, logic)
+            symbol, passes = self._process_symbol_conditions(args)
+            if passes:
+                selected_symbols.append(symbol)
 
         return selected_symbols
 
@@ -175,9 +172,9 @@ class ScannerEngine:
 
         return symbol, passes
 
-    def _evaluate_columns_parallel(self, symbols: List[str], columns: List[ColumnDef]) -> List[Dict[str, Any]]:
+    def _evaluate_columns_sync(self, symbols: List[str], columns: List[ColumnDef]) -> List[Dict[str, Any]]:
         """
-        Evaluate columns in parallel for selected symbols.
+        Evaluate columns synchronously for selected symbols.
 
         Args:
             symbols: List of symbols to process
@@ -186,15 +183,13 @@ class ScannerEngine:
         Returns:
             List[Dict]: List of row dictionaries
         """
-        column_args = [(symbol, columns) for symbol in symbols]
-
         rows = []
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            results = list(executor.map(self._process_symbol_columns, column_args))
 
-            for symbol, row in results:
-                if row is not None:
-                    rows.append(row)
+        for symbol in symbols:
+            args = (symbol, columns)
+            symbol, row = self._process_symbol_columns(args)
+            if row is not None:
+                rows.append(row)
 
         return rows
 
@@ -214,7 +209,7 @@ class ScannerEngine:
             return symbol, None
 
         df = self.symbol_data[symbol]
-        row: Dict[str, Any] = {"symbol": symbol}
+        row = {"symbol": symbol}
 
         for column in columns:
             if column.type == "evaluated":
@@ -228,9 +223,9 @@ class ScannerEngine:
                         row[column.name] = value
                     except Exception as e:
                         logger.debug(f"Column evaluation failed for {symbol}.{column.name}: {e}")
-                        row[column.name] = None  # Use None instead of pd.NA
+                        row[column.name] = None
                 else:
-                    row[column.name] = None  # Use None instead of pd.NA
+                    row[column.name] = None
 
             elif column.type == "fixed":
                 # Stock metadata
@@ -243,14 +238,19 @@ class ScannerEngine:
 
         return symbol, row
 
-    def _process_results(self, rows: List[Dict[str, Any]], columns: List[ColumnDef], sort_by: str) -> pd.DataFrame:
+    def _process_results(
+            self,
+            rows: List[Dict[str, Any]],
+            columns: List[ColumnDef],
+            sort_columns: List[SortColumn] = None
+    ) -> pd.DataFrame:
         """
-        Process and sort scan results.
+        Process and sort scan results with multi-column sorting support.
 
         Args:
             rows: List of row dictionaries
             columns: Column definitions
-            sort_by: Column to sort by
+            sort_columns: List of columns to sort by with direction
 
         Returns:
             pd.DataFrame: Processed results
@@ -262,11 +262,36 @@ class ScannerEngine:
         if evaluated_cols:
             df_result = df_result.dropna(subset=evaluated_cols, how='all')
 
-        # Sort results if requested
-        if sort_by and sort_by in df_result.columns:
-            df_result = df_result.dropna(subset=[sort_by]).sort_values(
-                by=sort_by, ascending=False, kind='mergesort'
-            )
+        # Multi-column sorting
+        if sort_columns:
+            # Validate that all sort columns exist in the DataFrame
+            available_columns = set(df_result.columns)
+            valid_sort_columns = []
+
+            for sort_col in sort_columns:
+                if sort_col.column in available_columns:
+                    valid_sort_columns.append(sort_col)
+                else:
+                    logger.warning(f"Sort column '{sort_col.column}' not found in results")
+
+            if valid_sort_columns:
+                # Prepare sorting parameters
+                sort_column_names = [sc.column for sc in valid_sort_columns]
+                sort_ascending = [sc.direction == "asc" for sc in valid_sort_columns]
+
+                # Drop rows where any sort column has NaN values
+                df_result = df_result.dropna(subset=sort_column_names)
+
+                # Perform multi-column sort
+                if not df_result.empty:
+                    df_result = df_result.sort_values(
+                        by=sort_column_names,
+                        ascending=sort_ascending,
+                        kind='mergesort',
+                        na_position='last'
+                    )
+
+                    logger.info(f"Sorted by columns: {[(sc.column, sc.direction) for sc in valid_sort_columns]}")
 
         return df_result
 
@@ -309,6 +334,18 @@ class ScannerEngine:
         self.symbol_data = self.candle_provider.load_data()
         self.expression_evaluator.clear_cache()
         logger.info(f"Scanner refreshed with {len(self.symbol_data)} symbols")
+
+    def enable_cache(self) -> None:
+        """Enable expression caching."""
+        self.expression_evaluator.enable_cache()
+
+    def disable_cache(self) -> None:
+        """Disable expression caching."""
+        self.expression_evaluator.disable_cache()
+
+    def is_cache_enabled(self) -> bool:
+        """Check if caching is enabled."""
+        return self.expression_evaluator.is_cache_enabled()
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache performance statistics."""
