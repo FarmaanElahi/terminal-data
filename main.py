@@ -16,7 +16,7 @@ def run():
     )
     parser.add_argument(
         "--mode",
-        choices=["download-fundamental", "download-ms", "download-compliance", "scan", "alerts", "scanner"],
+        choices=["download-fundamental", "download-ms", "download-compliance", "scan", "alerts", "scanner", "api"],
         required=True,
         help="Choose 'download' to fetch fundamentals or 'scan' to run the scanner."
     )
@@ -42,6 +42,9 @@ def run():
         return asyncio.run(run_alerts_worker())
     if args.mode == "scanner":
         from modules.scanner.main import run
+        return run()
+    if args.mode == "api":
+        from modules.api.main import run
         return run()
     print("[ERROR] Invalid mode. Use 'download' or 'scan'.")
     return None

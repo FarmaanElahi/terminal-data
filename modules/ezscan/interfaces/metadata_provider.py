@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 
 
-class StockMetadataProvider(ABC):
+class MetadataProvider(ABC):
     """
     Abstract base class for providing stock-specific metadata.
 

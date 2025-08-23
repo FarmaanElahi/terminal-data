@@ -4,7 +4,7 @@ from typing import Literal, Annotated, Union, Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, TypeAdapter
-from modules.scanner.data import query_symbols
+from modules.api.data import query_symbols
 from modules.core.provider.upstox.quotes import fetch_quotes
 
 
