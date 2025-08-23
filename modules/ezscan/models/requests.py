@@ -20,17 +20,17 @@ class Condition(BaseModel):
     Represents a technical analysis condition.
 
     Attributes:
-        condition: Technical expression (e.g., 'c > sma(c, 20)' or 'opm > 15')
+        expression: Technical expression (e.g., 'c > sma(c, 20)' or 'opm > 15')
         evaluation_period: When to evaluate ('now', 'x_bar_ago', 'within_last', 'in_row') - only for computed conditions
         value: Period value for time-based evaluations - only for computed conditions
         condition_type: Type of condition ('computed' or 'static')
     """
-    condition: str
-    evaluation_period: Literal["now", "x_bar_ago", "within_last", "in_row"] | None = None
+    expression: str
+    evaluation_period: Optional[Literal["now", "x_bar_ago", "within_last", "in_row"]] = None
     value: Optional[int] = None
-    condition_type: Literal["computed", "static"]
+    condition_type: Literal["computed", "static"] = "computed"
 
-    # @validator("evaluation_period", always=True)
+    # #@validator("evaluation_period", always=True)
     def check_evaluation_period(cls, v, values):
         condition_type = values.get("condition_type")
 
@@ -43,7 +43,7 @@ class Condition(BaseModel):
 
         return v
 
-    # @validator("value", always=True)
+    # #@validator("value", always=True)
     def check_value(cls, v, values):
         condition_type = values.get("condition_type")
         ep = values.get("evaluation_period")
@@ -67,15 +67,45 @@ class ColumnDef(BaseModel):
     Defines an output column for scan results.
 
     Attributes:
+        id: Unique identifier for the column
         name: Column name in output
-        type: Column type ('evaluated' for technical expressions, 'fixed' for metadata)
-        value: Technical expression for evaluated columns
-        prop: Metadata property name for fixed columns
+        type: Column type ('static', 'computed', 'condition')
+        property_name: Metadata property name for static columns
+        expression: Expression for computed columns
+        conditions: List of Condition objects for condition columns
+        logic: Logic operator for multiple conditions in condition columns ('and' or 'or')
     """
+    id: str
     name: str
-    type: Literal["evaluated", "fixed"]
-    value: Optional[str] = None  # For evaluated columns
-    prop: Optional[str] = None  # For fixed columns
+    type: Literal["static", "computed", "condition"]
+
+    # For static columns
+    property_name: Optional[str] = None
+
+    # For computed columns
+    expression: Optional[str] = None
+
+    # For condition columns
+    conditions: Optional[List[Condition]] = None
+    logic: Optional[Literal["and", "or"]] = "and"
+
+    #@validator("property_name", always=True)
+    def check_static_column(cls, v, values):
+        if values.get("type") == "static" and not v:
+            raise ValueError("property_name is required for static columns")
+        return v
+
+    #@validator("expression", always=True)
+    def check_computed_column(cls, v, values):
+        if values.get("type") == "computed" and not v:
+            raise ValueError("expression is required for computed columns")
+        return v
+
+    #@validator("conditions", always=True)
+    def check_condition_column(cls, v, values):
+        if values.get("type") == "condition" and (not v or len(v) == 0):
+            raise ValueError("conditions list is required for condition columns")
+        return v
 
 
 class ScanRequest(BaseModel):
@@ -86,22 +116,17 @@ class ScanRequest(BaseModel):
         conditions: List of technical conditions
         columns: List of output column definitions
         logic: How to combine conditions ('and' or 'or')
-        sort_columns: List of columns to sort by with direction (new)
+        sort_columns: List of columns to sort by with direction
     """
     conditions: List[Condition]
     columns: List[ColumnDef]
     logic: Literal["and", "or"] = "and"
-    sort_columns: Optional[List[SortColumn]] = None  # New multi-column sort
+    sort_columns: Optional[List[SortColumn]] = None
 
-    def validate_sort_columns(cls, v, values):
-        """Ensure either sort_by or sort_columns is used, not both."""
-        sort_by = values.get("sort_by")
-
-        if sort_by is not None and v is not None:
-            raise ValueError("Cannot use both 'sort_by' and 'sort_columns'. Use 'sort_columns' for new implementations.")
-
-        # Convert legacy sort_by to sort_columns format
-        if sort_by is not None and v is None:
-            v = [SortColumn(column=sort_by, direction="desc")]
-
+    #@validator("columns")
+    def check_unique_column_ids(cls, v):
+        """Ensure column IDs are unique."""
+        ids = [col.id for col in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Column IDs must be unique")
         return v
