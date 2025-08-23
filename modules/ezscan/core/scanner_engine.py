@@ -410,7 +410,7 @@ class ScannerEngine:
         Args:
             rows: List of row dictionaries
             columns: Column definitions
-            sort_columns: List of columns to sort by with direction
+            sort_columns: List of columns to sort by with direction (references column IDs)
 
         Returns:
             pd.DataFrame: Processed results
@@ -423,21 +423,38 @@ class ScannerEngine:
             # Only drop rows where ALL non-static columns are NaN
             df_result = df_result.dropna(subset=non_static_cols, how='all')
 
-        # Multi-column sorting
+        # Multi-column sorting using column IDs
         if sort_columns:
-            # Validate that all sort columns exist in the DataFrame
+            # Create mapping from column ID to column name
+            id_to_name_map = {col.id: col.name for col in columns}
+            # Add symbol column mapping
+            id_to_name_map["symbol"] = "symbol"
+
+            # Convert sort column IDs to actual column names
             available_columns = set(df_result.columns)
             valid_sort_columns = []
+            sort_column_names = []
 
             for sort_col in sort_columns:
-                if sort_col.column in available_columns:
-                    valid_sort_columns.append(sort_col)
+                # Check if sort_col.column is a column ID
+                if sort_col.column in id_to_name_map:
+                    actual_column_name = id_to_name_map[sort_col.column]
+                    if actual_column_name in available_columns:
+                        valid_sort_columns.append(sort_col)
+                        sort_column_names.append(actual_column_name)
+                    else:
+                        logger.warning(f"Sort column with ID '{sort_col.column}' maps to '{actual_column_name}' but not found in results")
                 else:
-                    logger.warning(f"Sort column '{sort_col.column}' not found in results")
+                    # Fallback: check if sort_col.column is directly a column name (for backward compatibility)
+                    if sort_col.column in available_columns:
+                        valid_sort_columns.append(sort_col)
+                        sort_column_names.append(sort_col.column)
+                        logger.info(f"Using column name directly for sorting: '{sort_col.column}'")
+                    else:
+                        logger.warning(f"Sort column ID/name '{sort_col.column}' not found in results")
 
             if valid_sort_columns:
                 # Prepare sorting parameters
-                sort_column_names = [sc.column for sc in valid_sort_columns]
                 sort_ascending = [sc.direction == "asc" for sc in valid_sort_columns]
 
                 # Drop rows where any sort column has NaN values
@@ -452,7 +469,9 @@ class ScannerEngine:
                         na_position='last'
                     )
 
-                    logger.info(f"Sorted by columns: {[(sc.column, sc.direction) for sc in valid_sort_columns]}")
+                    # Log with both IDs and names for clarity
+                    sort_info = [(sc.column, id_to_name_map.get(sc.column, sc.column), sc.direction) for sc in valid_sort_columns]
+                    logger.info(f"Sorted by columns: {sort_info}")
 
         return df_result
 
