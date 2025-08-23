@@ -12,7 +12,7 @@ from typing import Dict, List, Any, Tuple
 import pandas as pd
 
 from modules.ezscan.interfaces.candle_provider import CandleProvider
-from modules.ezscan.interfaces.stock_metadata_provider import StockMetadataProvider
+from modules.ezscan.interfaces.metadata_provider import MetadataProvider
 from modules.ezscan.core.expression_evaluator import ExpressionEvaluator
 from modules.ezscan.models.requests import Condition, ColumnDef, SortColumn
 
@@ -30,7 +30,7 @@ class ScannerEngine:
     def __init__(
             self,
             candle_provider: CandleProvider,
-            metadata_provider: StockMetadataProvider,
+            metadata_provider: MetadataProvider,
             max_workers: int = 32,
             cache_enabled: bool = True
     ):

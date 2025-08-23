@@ -13,7 +13,7 @@ from modules.ezscan.core.technical_indicators import (
     sma_single, ema_single, prv_single, min_single, max_single,
     count_single, count_true_single
 )
-from modules.ezscan.interfaces.stock_metadata_provider import StockMetadataProvider
+from modules.ezscan.interfaces.metadata_provider import MetadataProvider
 from modules.ezscan.utils.cache import ExpressionCache
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class ExpressionEvaluator:
     and condition expressions (returning boolean series for period evaluation).
     """
 
-    def __init__(self, cache_enabled: bool = True, metadata_provider: Optional[StockMetadataProvider] = None):
+    def __init__(self, cache_enabled: bool = True, metadata_provider: MetadataProvider | None = None):
         """Initialize the expression evaluator with cache."""
         self.cache = ExpressionCache(enabled=cache_enabled)
         self.metadata_provider = metadata_provider

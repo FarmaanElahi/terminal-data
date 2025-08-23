@@ -1,13 +1,14 @@
-from typing import Optional, Dict, Any, List
 import logging
+from typing import Optional, Dict, Any, List
+
 import pandas as pd
 
-from modules.ezscan.interfaces.stock_metadata_provider import StockMetadataProvider
+from modules.ezscan.interfaces.metadata_provider import MetadataProvider
 
 logger = logging.getLogger(__name__)
 
 
-class LocalMetadataProvider(StockMetadataProvider):
+class LocalMetadataProvider(MetadataProvider):
     """
     Metadata provider that loads data from the symbols-full-v2.parquet file.
 
