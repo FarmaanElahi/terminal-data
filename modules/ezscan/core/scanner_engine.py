@@ -44,7 +44,7 @@ class ScannerEngine:
         """
         self.candle_provider = candle_provider
         self.metadata_provider = metadata_provider
-        self.expression_evaluator = ExpressionEvaluator(cache_enabled=cache_enabled)
+        self.expression_evaluator = ExpressionEvaluator(cache_enabled=cache_enabled, metadata_provider=metadata_provider)
         self.max_workers = max_workers
 
         # Load initial data
@@ -59,13 +59,12 @@ class ScannerEngine:
             sort_columns: List[SortColumn] = None
     ) -> Dict[str, Any]:
         """
-        Execute technical scan with given conditions and columns.
+        Execute technical scan with 2-phase condition evaluation.
 
         Args:
             conditions: List of technical conditions to evaluate
             columns: List of column definitions for output
             logic: Logic operator for combining conditions ('and' or 'or')
-            sort_by: Single column name to sort by (legacy, deprecated)
             sort_columns: List of columns to sort by with direction
 
         Returns:
@@ -76,15 +75,33 @@ class ScannerEngine:
 
         start_time = pd.Timestamp.now()
 
-        # Step 1: Synchronous condition evaluation
-        selected_symbols = self._evaluate_conditions_sync(conditions, logic)
+        # Separate static and computed conditions
+        static_conditions = [c for c in conditions if c.condition_type == "static"]
+        computed_conditions = [c for c in conditions if c.condition_type == "computed"]
 
-        conditions_time = pd.Timestamp.now() - start_time
+        # Phase 1: Static condition evaluation (metadata filtering)
+        phase1_symbols = self._evaluate_static_conditions(static_conditions, logic)
+        phase1_time = pd.Timestamp.now() - start_time
+
+        logger.info(f"Phase 1 (static) completed: {len(phase1_symbols)}/{len(self.symbol_data)} symbols passed")
+
+        if not phase1_symbols:
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
+
+        # Phase 2: Computed condition evaluation (technical analysis)
+        phase2_start = pd.Timestamp.now()
+        if computed_conditions:
+            selected_symbols = self._evaluate_computed_conditions(phase1_symbols, computed_conditions, logic)
+        else:
+            selected_symbols = phase1_symbols
+        phase2_time = pd.Timestamp.now() - phase2_start
+
+        logger.info(f"Phase 2 (computed) completed: {len(selected_symbols)}/{len(phase1_symbols)} symbols passed")
 
         if not selected_symbols:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
 
-        # Step 2: Synchronous column evaluation
+        # Step 3: Column evaluation
         columns_start = pd.Timestamp.now()
         rows = self._evaluate_columns_sync(selected_symbols, columns)
         columns_time = pd.Timestamp.now() - columns_start
@@ -92,14 +109,15 @@ class ScannerEngine:
         if not rows:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
 
-        # Step 3: Process and sort results
+        # Step 4: Process and sort results
         df_result = self._process_results(rows, columns, sort_columns)
 
         total_time = pd.Timestamp.now() - start_time
 
         logger.info(
-            f"Synchronous scan completed: {len(selected_symbols)}/{len(self.symbol_data)} symbols, "
-            f"conditions: {conditions_time.total_seconds():.3f}s, "
+            f"2-phase scan completed: {len(selected_symbols)}/{len(self.symbol_data)} symbols, "
+            f"phase1 (static): {phase1_time.total_seconds():.3f}s, "
+            f"phase2 (computed): {phase2_time.total_seconds():.3f}s, "
             f"columns: {columns_time.total_seconds():.3f}s, "
             f"total: {total_time.total_seconds():.3f}s"
         )
@@ -110,30 +128,58 @@ class ScannerEngine:
             "data": df_result.values.tolist(),
         }
 
-    def _evaluate_conditions_sync(self, conditions: List[Condition], logic: str) -> List[str]:
+    def _evaluate_static_conditions(self, conditions: List[Condition], logic: str) -> List[str]:
         """
-        Evaluate conditions synchronously across all symbols.
+        Phase 1: Evaluate static conditions using vectorized metadata operations.
 
         Args:
-            conditions: List of conditions to evaluate
+            conditions: List of static conditions to evaluate
             logic: Logic operator ('and' or 'or')
 
         Returns:
-            List[str]: Symbols that pass all conditions
+            List[str]: Symbols that pass static conditions
         """
+        if not conditions:
+            # If no static conditions, return all symbols
+            return list(self.symbol_data.keys())
+
+        # Extract expressions from conditions
+        expressions = [c.condition for c in conditions]
+        symbols = list(self.symbol_data.keys())
+
+        # Use vectorized evaluation
+        return self.expression_evaluator.evaluate_static_conditions_vectorized(
+            symbols, expressions, logic
+        )
+
+    def _evaluate_computed_conditions(self, symbols: List[str], conditions: List[Condition], logic: str) -> List[str]:
+        """
+        Phase 2: Evaluate computed conditions using OHLCV data.
+
+        Args:
+            symbols: List of symbols to evaluate (from phase 1)
+            conditions: List of computed conditions to evaluate
+            logic: Logic operator ('and' or 'or')
+
+        Returns:
+            List[str]: Symbols that pass computed conditions
+        """
+        if not conditions:
+            return symbols
+
         selected_symbols = []
 
-        for symbol in self.symbol_data.keys():
+        for symbol in symbols:
             args = (symbol, conditions, logic)
-            symbol, passes = self._process_symbol_conditions(args)
+            symbol, passes = self._process_symbol_computed_conditions(args)
             if passes:
                 selected_symbols.append(symbol)
 
         return selected_symbols
 
-    def _process_symbol_conditions(self, args: Tuple[str, List[Condition], str]) -> Tuple[str, bool]:
+    def _process_symbol_computed_conditions(self, args: Tuple[str, List[Condition], str]) -> Tuple[str, bool]:
         """
-        Process all conditions for a single symbol.
+        Process computed conditions for a single symbol.
 
         Args:
             args: Tuple of (symbol, conditions, logic)
@@ -159,7 +205,7 @@ class ScannerEngine:
                 )
                 condition_results.append(result)
             except Exception as e:
-                logger.debug(f"Condition evaluation failed for {symbol}: {e}")
+                logger.debug(f"Computed condition evaluation failed for {symbol}: {e}")
                 condition_results.append(False)
 
         if not condition_results:

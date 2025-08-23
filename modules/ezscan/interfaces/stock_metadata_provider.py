@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+import pandas as pd
 
 
 class StockMetadataProvider(ABC):
@@ -44,5 +45,18 @@ class StockMetadataProvider(ABC):
 
         Returns:
             list[str]: List of supported property names.
+        """
+        pass
+
+    @abstractmethod
+    def get_metadata_dataframe(self, symbols: List[str] = None) -> pd.DataFrame:
+        """
+        Get metadata for all symbols as a DataFrame for vectorized operations.
+
+        Args:
+            symbols: Optional list of symbols to filter by. If None, returns all symbols.
+
+        Returns:
+            pd.DataFrame: DataFrame with symbols as index and metadata properties as columns.
         """
         pass

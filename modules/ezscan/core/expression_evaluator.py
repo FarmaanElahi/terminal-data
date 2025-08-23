@@ -6,13 +6,14 @@ with caching for performance optimization.
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List, Literal
 import pandas as pd
 
 from modules.ezscan.core.technical_indicators import (
     sma_single, ema_single, prv_single, min_single, max_single,
     count_single, count_true_single
 )
+from modules.ezscan.interfaces.stock_metadata_provider import StockMetadataProvider
 from modules.ezscan.utils.cache import ExpressionCache
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,10 @@ class ExpressionEvaluator:
     and condition expressions (returning boolean series for period evaluation).
     """
 
-    def __init__(self, cache_enabled: bool = True):
+    def __init__(self, cache_enabled: bool = True, metadata_provider: Optional[StockMetadataProvider] = None):
         """Initialize the expression evaluator with cache."""
         self.cache = ExpressionCache(enabled=cache_enabled)
+        self.metadata_provider = metadata_provider
 
     def evaluate_value_expression(self, symbol: str, df: pd.DataFrame, expression: str) -> float:
         """
@@ -48,7 +50,7 @@ class ExpressionEvaluator:
             return cached_result
 
         try:
-            result = self._evaluate_expression(df, expression)
+            result = self._evaluate_expression(symbol, df, expression)
 
             # Get last value
             if isinstance(result, pd.Series):
@@ -88,7 +90,7 @@ class ExpressionEvaluator:
             return cached_result
 
         try:
-            result = self._evaluate_expression(df, expression)
+            result = self._evaluate_expression(symbol, df, expression)
 
             if isinstance(result, pd.Series):
                 bool_series = result.astype(bool)
@@ -106,11 +108,98 @@ class ExpressionEvaluator:
             self.cache.set(cache_key, false_series)
             return false_series
 
-    def _evaluate_expression(self, df: pd.DataFrame, expression: str) -> Any:
+    def evaluate_static_conditions_vectorized(self, symbols: List[str], expressions: List[str], logic: str = "and") -> List[str]:
+        """
+        Evaluate static conditions in a vectorized manner using DataFrame operations.
+
+        Args:
+            symbols: List of symbols to evaluate
+            expressions: List of static expressions to evaluate
+            logic: Logic operator ('and' or 'or')
+
+        Returns:
+            List[str]: Symbols that pass static conditions
+        """
+        if not expressions or not self.metadata_provider:
+            return symbols
+
+        cache_key = f"static_vectorized_{hash(tuple(symbols))}_{hash(tuple(expressions))}_{logic}"
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+
+        try:
+            # Get metadata DataFrame for all symbols
+            metadata_df = self.metadata_provider.get_metadata_dataframe(symbols)
+
+            # Filter to only requested symbols that exist in metadata
+            available_symbols = [s for s in symbols if s in metadata_df.index]
+            if not available_symbols:
+                self.cache.set(cache_key, [])
+                return []
+
+            metadata_df = metadata_df.loc[available_symbols]
+
+            # Evaluate each condition as a boolean Series
+            condition_results = []
+
+            for expression in expressions:
+                try:
+                    # Create safe environment with metadata columns as variables
+                    safe_env = {
+                        "__builtins__": {},
+                        # Add all metadata columns as series for vectorized operations
+                        **{col: metadata_df[col] for col in metadata_df.columns},
+                        "pd": pd,
+                    }
+
+                    # Evaluate expression - should return a boolean Series
+                    result = eval(expression, safe_env)
+
+                    # Ensure result is a boolean Series
+                    if isinstance(result, pd.Series):
+                        condition_results.append(result.astype(bool))
+                    else:
+                        # If scalar, broadcast to all symbols
+                        condition_results.append(pd.Series([bool(result)] * len(metadata_df), index=metadata_df.index))
+
+                except Exception as e:
+                    logger.debug(f"Static condition '{expression}' failed: {e}")
+                    # Add False series for failed condition
+                    condition_results.append(pd.Series([False] * len(metadata_df), index=metadata_df.index))
+
+            if not condition_results:
+                selected_symbols = available_symbols
+            else:
+                # Combine results based on logic
+                if logic == "and":
+                    # All conditions must be True
+                    combined = condition_results[0]
+                    for cond in condition_results[1:]:
+                        combined = combined & cond
+                else:  # "or"
+                    # At least one condition must be True
+                    combined = condition_results[0]
+                    for cond in condition_results[1:]:
+                        combined = combined | cond
+
+                # Get symbols where condition is True
+                selected_symbols = combined[combined].index.tolist()
+
+            self.cache.set(cache_key, selected_symbols)
+            return selected_symbols
+
+        except Exception as e:
+            logger.error(f"Vectorized static condition evaluation failed: {e}")
+            self.cache.set(cache_key, [])
+            return []
+
+    def _evaluate_expression(self, symbol: str, df: pd.DataFrame, expression: str) -> Any:
         """
         Internal method to evaluate expression against DataFrame.
 
         Args:
+            symbol: Symbol identifier
             df: OHLCV DataFrame
             expression: Expression to evaluate
 
@@ -136,10 +225,19 @@ class ExpressionEvaluator:
             "prv": prv_single,
         }
 
+        # Add metadata if available
+        if self.metadata_provider:
+            try:
+                metadata = self.metadata_provider.get_all_metadata(symbol)
+                # Add metadata as scalar values that can be used in expressions
+                local_env.update(metadata)
+            except Exception as e:
+                logger.debug(f"Failed to load metadata for {symbol}: {e}")
+
         # Evaluate expression in safe environment
         return eval(expression, {"__builtins__": {}}, local_env)
 
-    def reduce_condition_by_period(self, bool_series: pd.Series, mode: str, value: int | None) -> bool:
+    def reduce_condition_by_period(self, bool_series: pd.Series, mode: Literal["now", "x_bar_ago", "within_last", "in_row"] | None, value: int | None) -> bool:
         """
         Reduce boolean series to single boolean based on evaluation period.
 

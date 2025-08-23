@@ -11,7 +11,7 @@ from fastapi import FastAPI
 import uvicorn
 
 from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
-from modules.ezscan.providers.hardcoded_metadata_provider import HardcodedMetadataProvider
+from modules.ezscan.providers.local_metadata_provider import LocalMetadataProvider
 from modules.ezscan.core.scanner_engine import ScannerEngine
 from modules.ezscan.api.routes import create_scanner_routes
 
@@ -42,7 +42,7 @@ def create_application() -> FastAPI:
         period="10y"
     )
 
-    metadata_provider = HardcodedMetadataProvider()
+    metadata_provider = LocalMetadataProvider()
 
     # Initialize scanner engine with providers
     scanner_engine = ScannerEngine(
