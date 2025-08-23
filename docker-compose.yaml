@@ -1,21 +1,7 @@
 services:
-  alert_engine:
-    image: devfarmaan/terminal:latest-arm64
-    command: [ "--mode", "alerts" ]
-    environment:
-      - ALERT_WEBOOK_URL=${ALERT_WEBOOK_URL}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - OCI_BUCKET=${OCI_BUCKET}
-      - OCI_CONFIG=${OCI_CONFIG}
-      - OCI_KEY=${OCI_KEY}
-    env_file:
-      - .env
-    restart: unless-stopped
-
   scanner:
     image: devfarmaan/terminal:latest-arm64
-    command: [ "--mode", "scanner" ]
+    command: [ "--mode", "api" ]
     expose:
       - 8000
     ports:
@@ -27,5 +13,5 @@ services:
       - OCI_CONFIG=${OCI_CONFIG}
       - OCI_KEY=${OCI_KEY}
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/docs"]
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8000/docs" ]
     restart: unless-stopped
