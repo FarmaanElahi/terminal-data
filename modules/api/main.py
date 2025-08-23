@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+from fastapi.exceptions import HTTPException
 from typing import Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,18 +9,22 @@ from fastapi import FastAPI, WebSocket, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
+from modules.api.deps import create_scanner_engine
 from modules.core.provider.marketsmith.client import MarketSmithClient
 from modules.core.provider.stocktwits.client import StockTwitsClient, SymbolFeedParam, GlobalFeedParam
-from modules.scanner.models import ScreenerQuery
-from modules.scanner.ws import WSSession
+from modules.ezscan.models.requests import ScanRequest
+from modules.ezscan.models.responses import ScanResponse
+from modules.api.models import ScreenerQuery
+from modules.api.ws import WSSession
 
 load_dotenv()
 
-from modules.scanner.data import refresh_data, get_con, close_con
+from modules.api.data import refresh_data, get_con, close_con
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(refresh_data, "interval", seconds=300)
 client = StockTwitsClient()
+scanner_engine = create_scanner_engine()
 
 
 @asynccontextmanager
@@ -50,6 +55,21 @@ async def query_data(q: ScreenerQuery):
     conn = get_con()
     result = conn.execute(q.query).fetchdf()
     return Response(content=result.to_json(orient="records", date_format="iso"), media_type="application/json")
+
+
+@app.post("/v2/scan", response_model=ScanResponse)
+def scan(request: ScanRequest):
+    """Execute technical scan."""
+    try:
+        result = scanner_engine.scan(
+            conditions=request.conditions,
+            columns=request.columns,
+            logic=request.logic,
+            sort_columns=request.sort_columns
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.websocket("/ws")
