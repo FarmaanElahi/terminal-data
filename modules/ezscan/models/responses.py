@@ -13,3 +13,4 @@ class ScanResponse(BaseModel):
     count: int
     columns: List[str]
     data: List[List]
+    success: bool

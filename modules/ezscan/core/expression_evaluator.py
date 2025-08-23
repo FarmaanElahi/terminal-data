@@ -194,6 +194,88 @@ class ExpressionEvaluator:
             self.cache.set(cache_key, [])
             return []
 
+    def evaluate_condition_column(
+            self,
+            symbol: str,
+            df: pd.DataFrame,
+            conditions: List['Condition'],  # Using the same Condition class
+            logic: str = "and"
+    ) -> bool:
+        """
+        Evaluate multiple Condition objects for a condition column and return final boolean result.
+
+        Args:
+            symbol: Symbol identifier for caching
+            df: OHLCV DataFrame for the symbol
+            conditions: List of Condition objects to evaluate
+            logic: Logic operator ('and' or 'or')
+
+        Returns:
+            bool: Final result of all conditions combined
+        """
+        cache_key = f"{symbol}_condcol_{hash(tuple((c.expression, c.condition_type, c.evaluation_period, c.value) for c in conditions))}_{logic}"
+
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+
+        try:
+            # Separate static and computed conditions
+            static_conditions = [c for c in conditions if c.condition_type == "static"]
+            computed_conditions = [c for c in conditions if c.condition_type == "computed"]
+
+            condition_results = []
+
+            # Evaluate static conditions
+            for condition in static_conditions:
+                if self.metadata_provider:
+                    try:
+                        # Get all metadata for the symbol
+                        metadata = self.metadata_provider.get_all_metadata(symbol)
+
+                        # Create safe environment for evaluation with metadata
+                        safe_env = {
+                            "__builtins__": {},
+                            **metadata
+                        }
+
+                        result = eval(condition.expression, safe_env)
+                        condition_results.append(bool(result))
+                    except Exception as e:
+                        logger.debug(f"Static condition '{condition.expression}' failed for {symbol}: {e}")
+                        condition_results.append(False)
+                else:
+                    condition_results.append(False)
+
+            # Evaluate computed conditions
+            for condition in computed_conditions:
+                try:
+                    bool_series = self.evaluate_condition_expression(symbol, df, condition.expression)
+                    result = self.reduce_condition_by_period(
+                        bool_series, condition.evaluation_period, condition.value
+                    )
+                    condition_results.append(result)
+                except Exception as e:
+                    logger.debug(f"Computed condition '{condition.expression}' failed for {symbol}: {e}")
+                    condition_results.append(False)
+
+            if not condition_results:
+                final_result = False
+            else:
+                # Combine results based on logic
+                if logic == "and":
+                    final_result = all(condition_results)
+                else:  # "or"
+                    final_result = any(condition_results)
+
+            self.cache.set(cache_key, final_result)
+            return final_result
+
+        except Exception as e:
+            logger.debug(f"Condition column evaluation failed for {symbol}: {e}")
+            self.cache.set(cache_key, False)
+            return False
+
     def _evaluate_expression(self, symbol: str, df: pd.DataFrame, expression: str) -> Any:
         """
         Internal method to evaluate expression against DataFrame.

@@ -1,3 +1,4 @@
+
 """
 Core scanning engine that orchestrates the technical analysis process.
 
@@ -71,7 +72,7 @@ class ScannerEngine:
             Dict containing scan results with columns and data
         """
         if not self.symbol_data:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         start_time = pd.Timestamp.now()
 
@@ -86,7 +87,7 @@ class ScannerEngine:
         logger.info(f"Phase 1 (static) completed: {len(phase1_symbols)}/{len(self.symbol_data)} symbols passed")
 
         if not phase1_symbols:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         # Phase 2: Computed condition evaluation (technical analysis)
         phase2_start = pd.Timestamp.now()
@@ -99,15 +100,15 @@ class ScannerEngine:
         logger.info(f"Phase 2 (computed) completed: {len(selected_symbols)}/{len(phase1_symbols)} symbols passed")
 
         if not selected_symbols:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
-        # Step 3: Column evaluation
+        # Step 3: Column evaluation with vectorized static columns
         columns_start = pd.Timestamp.now()
-        rows = self._evaluate_columns_sync(selected_symbols, columns)
+        rows = self._evaluate_columns_vectorized(selected_symbols, columns)
         columns_time = pd.Timestamp.now() - columns_start
 
         if not rows:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": []}
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         # Step 4: Process and sort results
         df_result = self._process_results(rows, columns, sort_columns)
@@ -126,6 +127,7 @@ class ScannerEngine:
             "count": len(df_result),
             "columns": df_result.columns.tolist(),
             "data": df_result.values.tolist(),
+            "success": True
         }
 
     def _evaluate_static_conditions(self, conditions: List[Condition], logic: str) -> List[str]:
@@ -144,7 +146,7 @@ class ScannerEngine:
             return list(self.symbol_data.keys())
 
         # Extract expressions from conditions
-        expressions = [c.condition for c in conditions]
+        expressions = [c.expression for c in conditions]
         symbols = list(self.symbol_data.keys())
 
         # Use vectorized evaluation
@@ -198,7 +200,7 @@ class ScannerEngine:
         for condition in conditions:
             try:
                 bool_series = self.expression_evaluator.evaluate_condition_expression(
-                    symbol, df, condition.condition
+                    symbol, df, condition.expression
                 )
                 result = self.expression_evaluator.reduce_condition_by_period(
                     bool_series, condition.evaluation_period, condition.value
@@ -219,9 +221,9 @@ class ScannerEngine:
 
         return symbol, passes
 
-    def _evaluate_columns_sync(self, symbols: List[str], columns: List[ColumnDef]) -> List[Dict[str, Any]]:
+    def _evaluate_columns_vectorized(self, symbols: List[str], columns: List[ColumnDef]) -> List[Dict[str, Any]]:
         """
-        Evaluate columns synchronously for selected symbols.
+        Evaluate columns with vectorized approach for static columns and individual approach for computed/condition columns.
 
         Args:
             symbols: List of symbols to process
@@ -230,60 +232,171 @@ class ScannerEngine:
         Returns:
             List[Dict]: List of row dictionaries
         """
-        rows = []
+        # Separate columns by type for optimization
+        static_columns = [c for c in columns if c.type == "static"]
+        computed_columns = [c for c in columns if c.type == "computed"]
+        condition_columns = [c for c in columns if c.type == "condition"]
 
-        for symbol in symbols:
-            args = (symbol, columns)
-            symbol, row = self._process_symbol_columns(args)
-            if row is not None:
-                rows.append(row)
+        # Initialize rows with symbols
+        rows = [{"symbol": symbol} for symbol in symbols]
+
+        # Step 1: Handle static columns in bulk (vectorized)
+        if static_columns:
+            static_start = pd.Timestamp.now()
+            static_data = self._evaluate_static_columns_vectorized(symbols, static_columns)
+            static_time = pd.Timestamp.now() - static_start
+            logger.debug(f"Static columns evaluated in {static_time.total_seconds():.3f}s")
+            
+            # Merge static data into rows
+            for i, symbol in enumerate(symbols):
+                if symbol in static_data:
+                    rows[i].update(static_data[symbol])
+
+        # Step 2: Handle computed and condition columns individually
+        non_static_columns = computed_columns + condition_columns
+        if non_static_columns:
+            computed_start = pd.Timestamp.now()
+            for i, symbol in enumerate(symbols):
+                symbol_data = self._evaluate_non_static_columns(symbol, non_static_columns)
+                rows[i].update(symbol_data)
+            computed_time = pd.Timestamp.now() - computed_start
+            logger.debug(f"Non-static columns evaluated in {computed_time.total_seconds():.3f}s")
 
         return rows
 
-    def _process_symbol_columns(self, args: Tuple[str, List[ColumnDef]]) -> Tuple[str, Dict[str, Any] | None]:
+    def _evaluate_static_columns_vectorized(self, symbols: List[str], static_columns: List[ColumnDef]) -> Dict[str, Dict[str, Any]]:
         """
-        Process all columns for a single symbol.
+        Evaluate static columns in bulk for maximum performance.
 
         Args:
-            args: Tuple of (symbol, columns)
+            symbols: List of symbols to process
+            static_columns: List of static column definitions
 
         Returns:
-            Tuple[str, Dict]: Symbol and row data
+            Dict[str, Dict]: Nested dict with symbol -> {column_name: value}
         """
-        symbol, columns = args
+        try:
+            # Get metadata DataFrame for all symbols at once
+            metadata_df = self.metadata_provider.get_metadata_dataframe(symbols)
+            
+            result = {}
+            
+            # Process each symbol
+            for symbol in symbols:
+                symbol_data = {}
+                
+                if symbol in metadata_df.index:
+                    # Symbol exists in metadata
+                    symbol_row = metadata_df.loc[symbol]
+                    
+                    for column in static_columns:
+                        try:
+                            if column.property_name in metadata_df.columns:
+                                value = symbol_row[column.property_name]
+                                # Handle NaN values and convert to Python types
+                                if pd.isna(value):
+                                    symbol_data[column.name] = None
+                                elif isinstance(value, (pd.Int64Dtype, pd.Float64Dtype)):
+                                    symbol_data[column.name] = value.item()
+                                else:
+                                    symbol_data[column.name] = value
+                            else:
+                                logger.debug(f"Property '{column.property_name}' not found in metadata for column '{column.name}'")
+                                symbol_data[column.name] = None
+                        except Exception as e:
+                            logger.debug(f"Error retrieving static column '{column.name}' for {symbol}: {e}")
+                            symbol_data[column.name] = None
+                else:
+                    # Symbol not found in metadata, set all static columns to None
+                    for column in static_columns:
+                        symbol_data[column.name] = None
+                
+                result[symbol] = symbol_data
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Vectorized static column evaluation failed, falling back to individual evaluation: {e}")
+            return self._evaluate_static_columns_fallback(symbols, static_columns)
 
+    def _evaluate_static_columns_fallback(self, symbols: List[str], static_columns: List[ColumnDef]) -> Dict[str, Dict[str, Any]]:
+        """
+        Fallback method for static column evaluation when vectorized approach fails.
+
+        Args:
+            symbols: List of symbols to process
+            static_columns: List of static column definitions
+
+        Returns:
+            Dict[str, Dict]: Nested dict with symbol -> {column_name: value}
+        """
+        result = {}
+        
+        for symbol in symbols:
+            symbol_data = {}
+            for column in static_columns:
+                try:
+                    value = self.metadata_provider.get_metadata(symbol, column.property_name)
+                    symbol_data[column.name] = value
+                except Exception as e:
+                    logger.debug(f"Static column '{column.name}' failed for {symbol}: {e}")
+                    symbol_data[column.name] = None
+            result[symbol] = symbol_data
+        
+        return result
+
+    def _evaluate_non_static_columns(self, symbol: str, columns: List[ColumnDef]) -> Dict[str, Any]:
+        """
+        Evaluate computed and condition columns for a single symbol.
+
+        Args:
+            symbol: Symbol identifier
+            columns: List of non-static column definitions
+
+        Returns:
+            Dict[str, Any]: Column name to value mapping
+        """
         if symbol not in self.symbol_data:
-            return symbol, None
+            return {column.name: None for column in columns}
 
         df = self.symbol_data[symbol]
-        row = {"symbol": symbol}
+        result = {}
 
         for column in columns:
-            if column.type == "evaluated":
-                # Technical expression evaluation
-                expr = (column.value or "").strip()
-                if expr:
-                    try:
+            try:
+                if column.type == "computed":
+                    # Computed expression column
+                    expr = (column.expression or "").strip()
+                    if expr:
                         value = self.expression_evaluator.evaluate_value_expression(
                             symbol, df, expr
                         )
-                        row[column.name] = value
-                    except Exception as e:
-                        logger.debug(f"Column evaluation failed for {symbol}.{column.name}: {e}")
-                        row[column.name] = None
+                        result[column.name] = value
+                    else:
+                        result[column.name] = None
+
+                elif column.type == "condition":
+                    # Condition column using Condition objects
+                    if column.conditions:
+                        value = self.expression_evaluator.evaluate_condition_column(
+                            symbol=symbol,
+                            df=df,
+                            conditions=column.conditions,
+                            logic=column.logic or "and"
+                        )
+                        result[column.name] = value
+                    else:
+                        result[column.name] = False
+
                 else:
-                    row[column.name] = None
+                    logger.warning(f"Unknown column type '{column.type}' for column '{column.name}'")
+                    result[column.name] = None
 
-            elif column.type == "fixed":
-                # Stock metadata
-                try:
-                    value = self.metadata_provider.get_metadata(symbol, column.prop)
-                    row[column.name] = value
-                except Exception as e:
-                    logger.debug(f"Metadata retrieval failed for {symbol}.{column.prop}: {e}")
-                    row[column.name] = None
+            except Exception as e:
+                logger.debug(f"Column evaluation failed for {symbol}.{column.name}: {e}")
+                result[column.name] = None
 
-        return symbol, row
+        return result
 
     def _process_results(
             self,
@@ -304,10 +417,11 @@ class ScannerEngine:
         """
         df_result = pd.DataFrame(rows)
 
-        # Remove rows with all NaN evaluated columns
-        evaluated_cols = [c.name for c in columns if c.type == "evaluated"]
-        if evaluated_cols:
-            df_result = df_result.dropna(subset=evaluated_cols, how='all')
+        # Remove rows with all NaN computed/condition columns
+        non_static_cols = [c.name for c in columns if c.type in ["computed", "condition"]]
+        if non_static_cols:
+            # Only drop rows where ALL non-static columns are NaN
+            df_result = df_result.dropna(subset=non_static_cols, how='all')
 
         # Multi-column sorting
         if sort_columns:
