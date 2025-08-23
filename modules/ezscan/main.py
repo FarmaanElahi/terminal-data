@@ -48,7 +48,8 @@ def create_application() -> FastAPI:
     scanner_engine = ScannerEngine(
         candle_provider=candle_provider,
         metadata_provider=metadata_provider,
-        max_workers=MAX_WORKERS
+        max_workers=MAX_WORKERS,
+        cache_enabled=False,
     )
 
     # Create FastAPI app
