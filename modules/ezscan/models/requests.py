@@ -20,23 +20,45 @@ class Condition(BaseModel):
     Represents a technical analysis condition.
 
     Attributes:
-        condition: Technical expression (e.g., 'c > sma(c, 20)')
-        evaluation_period: When to evaluate ('now', 'x_bar_ago', 'within_last', 'in_row')
-        value: Period value for time-based evaluations
+        condition: Technical expression (e.g., 'c > sma(c, 20)' or 'opm > 15')
+        evaluation_period: When to evaluate ('now', 'x_bar_ago', 'within_last', 'in_row') - only for computed conditions
+        value: Period value for time-based evaluations - only for computed conditions
+        condition_type: Type of condition ('computed' or 'static')
     """
     condition: str
-    evaluation_period: Literal["now", "x_bar_ago", "within_last", "in_row"]
+    evaluation_period: Literal["now", "x_bar_ago", "within_last", "in_row"] | None = None
     value: Optional[int] = None
+    condition_type: Literal["computed", "static"]
 
-    @validator("value", always=True)
+    # @validator("evaluation_period", always=True)
+    def check_evaluation_period(cls, v, values):
+        condition_type = values.get("condition_type")
+
+        if condition_type == "computed" and v is None:
+            # For computed conditions, evaluation_period is required
+            return "now"  # Default to "now"
+        elif condition_type == "static" and v is not None:
+            # For static conditions, evaluation_period should not be used
+            raise ValueError("evaluation_period not allowed for static conditions")
+
+        return v
+
+    # @validator("value", always=True)
     def check_value(cls, v, values):
+        condition_type = values.get("condition_type")
         ep = values.get("evaluation_period")
-        if ep in ["x_bar_ago", "within_last", "in_row"] and (v is None or v <= 0):
-            raise ValueError(
-                "value must be positive integer for this evaluation_period"
-            )
-        if ep == "now" and v is not None:
-            raise ValueError("value not allowed for 'now'")
+
+        # Only validate for computed conditions
+        if condition_type == "computed":
+            if ep in ["x_bar_ago", "within_last", "in_row"] and (v is None or v <= 0):
+                raise ValueError(
+                    "value must be positive integer for this evaluation_period"
+                )
+            if ep == "now" and v is not None:
+                raise ValueError("value not allowed for 'now'")
+        elif condition_type == "static" and v is not None:
+            raise ValueError("value not allowed for static conditions")
+
         return v
 
 
