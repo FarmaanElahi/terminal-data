@@ -10,5 +10,6 @@ class ScanResponse(BaseModel):
         columns: List of column names
          List of rows, where each row is a list of values
     """
+    count: int
     columns: List[str]
     data: List[List]

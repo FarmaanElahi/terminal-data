@@ -105,8 +105,9 @@ class ScannerEngine:
         )
 
         return {
+            "count": len(df_result),
             "columns": df_result.columns.tolist(),
-            "data": df_result.values.tolist()
+            "data": df_result.values.tolist(),
         }
 
     def _evaluate_conditions_sync(self, conditions: List[Condition], logic: str) -> List[str]:
@@ -193,7 +194,7 @@ class ScannerEngine:
 
         return rows
 
-    def _process_symbol_columns(self, args: Tuple[str, List[ColumnDef]]) -> Tuple[str, Dict[str, Any]]:
+    def _process_symbol_columns(self, args: Tuple[str, List[ColumnDef]]) -> Tuple[str, Dict[str, Any] | None]:
         """
         Process all columns for a single symbol.
 
