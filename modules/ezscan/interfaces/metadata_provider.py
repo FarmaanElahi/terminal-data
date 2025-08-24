@@ -60,3 +60,7 @@ class MetadataProvider(ABC):
             pd.DataFrame: DataFrame with symbols as index and metadata properties as columns.
         """
         pass
+
+    @abstractmethod
+    def refresh_metadata(self):
+        pass
