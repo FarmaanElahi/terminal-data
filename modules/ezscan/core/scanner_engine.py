@@ -526,7 +526,7 @@ class ScannerEngine:
     def refresh_data(self) -> None:
         """Refresh candle data from provider."""
         logger.info("Refreshing scanner data...")
-        self.candle_provider.refresh_data()
+        self.symbol_data = self.candle_provider.refresh_data()
         self.metadata_provider.refresh_metadata()
         self.expression_evaluator.clear_cache()
         logger.info(f"Scanner refreshed with {len(self.symbol_data)} symbols")

@@ -48,7 +48,7 @@ class CandleProvider(ABC):
         pass
 
     @abstractmethod
-    def refresh_data(self) -> None:
+    def refresh_data(self) -> dict[str,pd.DataFrame]:
         """
         Refresh/reload the data from the source.
         """
