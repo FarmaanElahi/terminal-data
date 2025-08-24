@@ -133,9 +133,6 @@ class YahooCandleProvider(CandleProvider):
                 sdf.columns = [c.lower() for c in sdf.columns]
                 sdf = sdf.dropna()
 
-                if len(sdf) < 20:  # Skip symbols with insufficient data
-                    continue
-
                 # Sort by date for efficient operations
                 sdf = sdf.sort_index()
 
@@ -183,8 +180,8 @@ class YahooCandleProvider(CandleProvider):
         """
         return list(self.symbol_data.keys())
 
-    def refresh_data(self) -> None:
+    def refresh_data(self) -> dict[str, pd.DataFrame]:
         """Refresh data by re-downloading from Yahoo Finance."""
         logger.info("Refreshing data from Yahoo Finance...")
         self.symbol_data.clear()
-        self._download_and_cache_data()
+        return self._download_and_cache_data()
