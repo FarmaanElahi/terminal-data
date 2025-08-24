@@ -72,6 +72,16 @@ def scan(request: ScanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/v2/scan/refresh")
+def scan():
+    """Execute technical scan."""
+    try:
+        scanner_engine.refresh_data()
+        return "Scanner Refreshed"
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.websocket("/ws")
 async def websocket_connect(websocket: WebSocket):
     await websocket.accept()

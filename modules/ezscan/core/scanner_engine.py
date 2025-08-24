@@ -1,4 +1,3 @@
-
 """
 Core scanning engine that orchestrates the technical analysis process.
 
@@ -9,6 +8,8 @@ of data sources.
 
 import logging
 from typing import Dict, List, Any, Tuple
+
+import numpy as np
 import pandas as pd
 
 from modules.ezscan.interfaces.candle_provider import CandleProvider
@@ -246,7 +247,7 @@ class ScannerEngine:
             static_data = self._evaluate_static_columns_vectorized(symbols, static_columns)
             static_time = pd.Timestamp.now() - static_start
             logger.debug(f"Static columns evaluated in {static_time.total_seconds():.3f}s")
-            
+
             # Merge static data into rows
             for i, symbol in enumerate(symbols):
                 if symbol in static_data:
@@ -278,17 +279,17 @@ class ScannerEngine:
         try:
             # Get metadata DataFrame for all symbols at once
             metadata_df = self.metadata_provider.get_metadata_dataframe(symbols)
-            
+
             result = {}
-            
+
             # Process each symbol
             for symbol in symbols:
                 symbol_data = {}
-                
+
                 if symbol in metadata_df.index:
                     # Symbol exists in metadata
                     symbol_row = metadata_df.loc[symbol]
-                    
+
                     for column in static_columns:
                         try:
                             if column.property_name in metadata_df.columns:
@@ -310,11 +311,11 @@ class ScannerEngine:
                     # Symbol not found in metadata, set all static columns to None
                     for column in static_columns:
                         symbol_data[column.name] = None
-                
+
                 result[symbol] = symbol_data
-            
+
             return result
-            
+
         except Exception as e:
             logger.warning(f"Vectorized static column evaluation failed, falling back to individual evaluation: {e}")
             return self._evaluate_static_columns_fallback(symbols, static_columns)
@@ -331,7 +332,7 @@ class ScannerEngine:
             Dict[str, Dict]: Nested dict with symbol -> {column_name: value}
         """
         result = {}
-        
+
         for symbol in symbols:
             symbol_data = {}
             for column in static_columns:
@@ -342,7 +343,7 @@ class ScannerEngine:
                     logger.debug(f"Static column '{column.name}' failed for {symbol}: {e}")
                     symbol_data[column.name] = None
             result[symbol] = symbol_data
-        
+
         return result
 
     def _evaluate_non_static_columns(self, symbol: str, columns: List[ColumnDef]) -> Dict[str, Any]:
@@ -473,6 +474,21 @@ class ScannerEngine:
                     sort_info = [(sc.column, id_to_name_map.get(sc.column, sc.column), sc.direction) for sc in valid_sort_columns]
                     logger.info(f"Sorted by columns: {sort_info}")
 
+        # Rearrange columns to match the requested order
+        # Start with 'symbol' column, then add columns in the order they were requested
+        requested_column_order = ["symbol"] + [c.name for c in columns]
+
+        # Filter to only include columns that actually exist in the DataFrame
+        available_columns = list(df_result.columns)
+        final_column_order = [col for col in requested_column_order if col in available_columns]
+
+        # Add any remaining columns that weren't in the requested order (shouldn't happen normally)
+        remaining_columns = [col for col in available_columns if col not in final_column_order]
+        final_column_order.extend(remaining_columns)
+
+        # Reorder the DataFrame columns
+        df_result = df_result[final_column_order]
+
         return df_result
 
     def get_available_symbols(self) -> List[str]:
@@ -511,7 +527,7 @@ class ScannerEngine:
         """Refresh candle data from provider."""
         logger.info("Refreshing scanner data...")
         self.candle_provider.refresh_data()
-        self.symbol_data = self.candle_provider.load_data()
+        self.metadata_provider.refresh_metadata()
         self.expression_evaluator.clear_cache()
         logger.info(f"Scanner refreshed with {len(self.symbol_data)} symbols")
 

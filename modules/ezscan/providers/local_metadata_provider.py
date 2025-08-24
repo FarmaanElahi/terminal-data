@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, List
 import pandas as pd
 
 from modules.ezscan.interfaces.metadata_provider import MetadataProvider
+from utils.bucket import data_bucket, storage_options
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,7 @@ class LocalMetadataProvider(MetadataProvider):
     def _load_metadata(self):
         """Load metadata from the parquet file."""
         try:
-            url = "https://objectstorage.ap-hyderabad-1.oraclecloud.com/n/axbaetdfzydd/b/terminal-files/o/symbols-full-v2.parquet"
-            self._metadata_df = pd.read_parquet(url)
+            self._metadata_df = pd.read_parquet(f'oci://{data_bucket}/symbols-full-v2.parquet', storage_options=storage_options)
             logger.info(f"Loaded metadata for {len(self._metadata_df)} symbols with {len(self._metadata_df.columns)} properties")
         except Exception as e:
             logger.error(f"Failed to load metadata from parquet file: {e}")
