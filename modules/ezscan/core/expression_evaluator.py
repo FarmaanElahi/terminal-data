@@ -11,7 +11,7 @@ import pandas as pd
 
 from modules.ezscan.core.technical_indicators import (
     sma_single, ema_single, prv_single, min_single, max_single,
-    count_single, count_true_single
+    count_single, count_true_single, change
 )
 from modules.ezscan.interfaces.metadata_provider import MetadataProvider
 from modules.ezscan.utils.cache import ExpressionCache
@@ -296,6 +296,7 @@ class ExpressionEvaluator:
             "h": df["high"],
             "l": df["low"],
             "v": df["volume"],
+            "i": df.index,
 
             # Technical indicators
             "sma": sma_single,
@@ -305,6 +306,7 @@ class ExpressionEvaluator:
             "count": count_single,
             "countTrue": count_true_single,
             "prv": prv_single,
+            "change": change,
         }
 
         # Add metadata if available
