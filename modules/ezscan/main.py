@@ -7,13 +7,12 @@ with dependency injection for maximum flexibility.
 
 import logging
 import os
-from fastapi import FastAPI
-import uvicorn
 
-from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
-from modules.ezscan.providers.local_metadata_provider import LocalMetadataProvider
-from modules.ezscan.core.scanner_engine import ScannerEngine
+import uvicorn
+from fastapi import FastAPI
 from modules.ezscan.api.routes import create_scanner_routes
+
+from modules.ezscan.core.scanner_engine import ScannerEngine
 
 # Configure logging
 logging.basicConfig(
@@ -27,30 +26,8 @@ MAX_WORKERS = min(32, (os.cpu_count() or 1) + 4)
 
 
 def create_application() -> FastAPI:
-    """
-    Create and configure the FastAPI application.
-
-    This function demonstrates dependency injection - you can easily
-    swap out providers for different data sources or implementations.
-
-    Returns:
-        FastAPI: Configured application
-    """
-    # Initialize data providers
-    candle_provider = YahooCandleProvider(
-        cache_file="ohlcv_separated.pkl",
-        period="10y"
-    )
-
-    metadata_provider = LocalMetadataProvider()
-
     # Initialize scanner engine with providers
-    scanner_engine = ScannerEngine(
-        candle_provider=candle_provider,
-        metadata_provider=metadata_provider,
-        max_workers=MAX_WORKERS,
-        cache_enabled=False,
-    )
+    scanner_engine = ScannerEngine(cache_enabled=False)
 
     # Create FastAPI app
     app = FastAPI(
