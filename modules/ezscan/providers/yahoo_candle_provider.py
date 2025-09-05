@@ -5,6 +5,7 @@ from typing import Dict, Optional, List
 import pandas as pd
 import yfinance as yf
 import requests
+import os
 from modules.ezscan.interfaces.candle_provider import CandleProvider
 from modules.core.provider.tradingview.tradingview import TradingView
 
@@ -18,6 +19,10 @@ class YahooCandleProvider(CandleProvider):
         if cache_file is None:
             cache_file = f"ohlcv_{market}.pkl"
         self.cache_file = cache_file
+        self.cache_file_location = os.path.join(
+            os.environ.get("BASE_FILE_PATH") if os.environ.get("BASE_FILE_PATH") else os.getcwd(),
+            cache_file
+        )
         self.period = period
         self.market = market
         self.prefix = ""
@@ -57,10 +62,10 @@ class YahooCandleProvider(CandleProvider):
 
     def _load_from_cache(self) -> bool:
         """Attempt to load data from cache."""
-        if not os.path.exists(self.cache_file):
+        if not os.path.exists(self.cache_file_location):
             return False
         try:
-            with open(self.cache_file, 'rb') as f:
+            with open(self.cache_file_location, 'rb') as f:
                 self.symbol_data = pickle.load(f)
             logger.info(f"Loaded {len(self.symbol_data)} symbol datasets from cache for {self.market}")
             return True
@@ -115,7 +120,7 @@ class YahooCandleProvider(CandleProvider):
     def _save_to_cache(self) -> None:
         """Save data to cache."""
         try:
-            with open(self.cache_file, 'wb') as f:
+            with open(self.cache_file_location, 'wb') as f:
                 pickle.dump(self.symbol_data, f)
             logger.info(f"Cached data for {len(self.symbol_data)} symbols in {self.market}")
         except Exception as e:

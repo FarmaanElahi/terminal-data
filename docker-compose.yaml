@@ -12,6 +12,9 @@ services:
       - OCI_BUCKET=${OCI_BUCKET}
       - OCI_CONFIG=${OCI_CONFIG}
       - OCI_KEY=${OCI_KEY}
+      - BASE_FILE_PATH=/data/files
+    volumes:
+      - "./data/files:/data/files"
     healthcheck:
       test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8000/docs" ]
     restart: unless-stopped
