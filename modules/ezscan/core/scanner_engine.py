@@ -1,11 +1,14 @@
 import logging
 from typing import Dict, List, Any, Tuple, Optional
-import pandas as pd
+
 import numpy as np
-from modules.ezscan.interfaces.candle_provider import CandleProvider
-from modules.ezscan.interfaces.metadata_provider import MetadataProvider
+import pandas as pd
+
 from modules.ezscan.core.expression_evaluator import ExpressionEvaluator
 from modules.ezscan.models.requests import Condition, ColumnDef, SortColumn
+from modules.ezscan.providers.india_metadata_provider import IndiaMetadataProvider
+from modules.ezscan.providers.us_metadata_provider import USMetadataProvider
+from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -13,39 +16,55 @@ logger = logging.getLogger(__name__)
 class ScannerEngine:
     """Orchestrates technical analysis with synchronous processing."""
 
-    def __init__(self, candle_provider: CandleProvider, metadata_provider: MetadataProvider,
-                 cache_enabled: bool = True):
-        self.candle_provider = candle_provider
-        self.metadata_provider = metadata_provider
-        self.expression_evaluator = ExpressionEvaluator(cache_enabled=cache_enabled, metadata_provider=metadata_provider)
-        self.symbol_data = self.candle_provider.load_data()
-        logger.info(f"Initialized with {len(self.symbol_data)} symbols")
+    def __init__(self, cache_enabled: bool = True):
+        self.candle_providers = {
+            "india": YahooCandleProvider(market="india"),
+            "us": YahooCandleProvider(market="us")
+        }
+        self.metadata_providers = {
+            "india": IndiaMetadataProvider(),
+            "us": USMetadataProvider()
+        }
+        self.expression_evaluators = {
+            market: ExpressionEvaluator(cache_enabled=cache_enabled, metadata_provider=provider)
+            for market, provider in self.metadata_providers.items()
+        }
+        self.symbol_data = {}
+        for market in self.candle_providers:
+            self.symbol_data[market] = self.candle_providers[market].load_data()
+        logger.info(f"Initialized with markets: {list(self.symbol_data.keys())}")
 
-    def scan(self, conditions: List[Condition], columns: List[ColumnDef],
-             logic: str = "and", sort_columns: Optional[List[SortColumn]] = None) -> Dict[str, Any]:
-        """Execute technical scan with 2-phase evaluation."""
-        if not self.symbol_data:
+    def scan(self, market: str, conditions: List[Condition], columns: List[ColumnDef],
+             logic: str = "and", sort_columns: List[SortColumn] | None = None) -> Dict[str, Any]:
+        """Execute technical scan with 2-phase evaluation for specified market."""
+        if market not in self.symbol_data:
+            raise ValueError(f"Unsupported market: {market}")
+
+        symbol_data = self.symbol_data[market]
+        expression_evaluator = self.expression_evaluators[market]
+
+        if not symbol_data:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         start_time = pd.Timestamp.now()
         static_conditions = [c for c in conditions if c.condition_type == "static"]
         computed_conditions = [c for c in conditions if c.condition_type == "computed"]
 
-        phase1_symbols = self._evaluate_static_conditions(static_conditions, logic)
+        phase1_symbols = self._evaluate_static_conditions(static_conditions, logic, expression_evaluator, symbol_data)
         phase1_time = pd.Timestamp.now() - start_time
 
         if not phase1_symbols:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         phase2_start = pd.Timestamp.now()
-        selected_symbols = self._evaluate_computed_conditions(phase1_symbols, computed_conditions, logic)
+        selected_symbols = self._evaluate_computed_conditions(phase1_symbols, computed_conditions, logic, expression_evaluator, symbol_data)
         phase2_time = pd.Timestamp.now() - phase2_start
 
         if not selected_symbols:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
         columns_start = pd.Timestamp.now()
-        rows = self._evaluate_columns_vectorized(selected_symbols, columns)
+        rows = self._evaluate_columns_vectorized(selected_symbols, columns, expression_evaluator, market, symbol_data)
         columns_time = pd.Timestamp.now() - columns_start
 
         if not rows:
@@ -55,7 +74,7 @@ class ScannerEngine:
 
         total_time = pd.Timestamp.now() - start_time
         logger.info(
-            f"Scan completed: {len(selected_symbols)}/{len(self.symbol_data)} symbols, "
+            f"Scan completed for {market}: {len(selected_symbols)}/{len(symbol_data)} symbols, "
             f"phase1: {phase1_time.total_seconds():.3f}s, phase2: {phase2_time.total_seconds():.3f}s, "
             f"columns: {columns_time.total_seconds():.3f}s, total: {total_time.total_seconds():.3f}s"
         )
@@ -67,40 +86,42 @@ class ScannerEngine:
             "success": True
         }
 
-    def _evaluate_static_conditions(self, conditions: List[Condition], logic: str) -> List[str]:
+    def _evaluate_static_conditions(self, conditions: List[Condition], logic: str, expression_evaluator: ExpressionEvaluator,
+                                    symbol_data: Dict[str, pd.DataFrame]) -> List[str]:
         """Evaluate static conditions."""
         if not conditions:
-            return list(self.symbol_data.keys())
+            return list(symbol_data.keys())
 
         expressions = [c.expression for c in conditions]
-        return self.expression_evaluator.evaluate_static_conditions_vectorized(
-            list(self.symbol_data.keys()), expressions, logic
+        return expression_evaluator.evaluate_static_conditions_vectorized(
+            list(symbol_data.keys()), expressions, logic
         )
 
-    def _evaluate_computed_conditions(self, symbols: List[str], conditions: List[Condition], logic: str) -> List[str]:
+    def _evaluate_computed_conditions(self, symbols: List[str], conditions: List[Condition], logic: str, expression_evaluator: ExpressionEvaluator,
+                                      symbol_data: Dict[str, pd.DataFrame]) -> List[str]:
         """Evaluate computed conditions synchronously."""
         if not conditions:
             return symbols
 
         selected_symbols = []
         for symbol in symbols:
-            if self._process_symbol_computed_conditions((symbol, conditions, logic))[1]:
+            if self._process_symbol_computed_conditions((symbol, conditions, logic, expression_evaluator, symbol_data))[1]:
                 selected_symbols.append(symbol)
         return selected_symbols
 
-    def _process_symbol_computed_conditions(self, args: Tuple[str, List[Condition], str]) -> Tuple[str, bool]:
+    def _process_symbol_computed_conditions(self, args: Tuple[str, List[Condition], str, ExpressionEvaluator, Dict[str, pd.DataFrame]]) -> Tuple[str, bool]:
         """Process computed conditions for a single symbol."""
-        symbol, conditions, logic = args
-        if symbol not in self.symbol_data:
+        symbol, conditions, logic, expression_evaluator, symbol_data = args
+        if symbol not in symbol_data:
             return symbol, False
 
-        df = self.symbol_data[symbol]
+        df = symbol_data[symbol]
         condition_results = []
 
         for condition in conditions:
             try:
-                bool_series = self.expression_evaluator.evaluate_condition_expression(symbol, df, condition.expression)
-                result = self.expression_evaluator.reduce_condition_by_period(
+                bool_series = expression_evaluator.evaluate_condition_expression(symbol, df, condition.expression)
+                result = expression_evaluator.reduce_condition_by_period(
                     bool_series, condition.evaluation_period, condition.value
                 )
                 condition_results.append(result)
@@ -110,7 +131,8 @@ class ScannerEngine:
 
         return symbol, all(condition_results) if logic == "and" else any(condition_results)
 
-    def _evaluate_columns_vectorized(self, symbols: List[str], columns: List[ColumnDef]) -> List[Dict[str, Any]]:
+    def _evaluate_columns_vectorized(self, symbols: List[str], columns: List[ColumnDef], expression_evaluator: ExpressionEvaluator, market: str,
+                                     symbol_data: Dict[str, pd.DataFrame]) -> List[Dict[str, Any]]:
         """Evaluate columns with vectorized static columns."""
         static_columns = [c for c in columns if c.type == "static"]
         computed_columns = [c for c in columns if c.type == "computed"]
@@ -119,7 +141,7 @@ class ScannerEngine:
 
         if static_columns:
             static_start = pd.Timestamp.now()
-            static_data = self._evaluate_static_columns_vectorized(symbols, static_columns)
+            static_data = self._evaluate_static_columns_vectorized(symbols, static_columns, market)
             for i, symbol in enumerate(symbols):
                 if symbol in static_data:
                     rows[i].update(static_data[symbol])
@@ -128,15 +150,15 @@ class ScannerEngine:
         if computed_columns or condition_columns:
             computed_start = pd.Timestamp.now()
             for i, symbol in enumerate(symbols):
-                rows[i].update(self._evaluate_non_static_columns((symbol, computed_columns + condition_columns)))
+                rows[i].update(self._evaluate_non_static_columns((symbol, computed_columns + condition_columns, expression_evaluator, symbol_data)))
             logger.debug(f"Non-static columns evaluated in {(pd.Timestamp.now() - computed_start).total_seconds():.3f}s")
 
         return rows
 
-    def _evaluate_static_columns_vectorized(self, symbols: List[str], static_columns: List[ColumnDef]) -> Dict[str, Dict[str, Any]]:
+    def _evaluate_static_columns_vectorized(self, symbols: List[str], static_columns: List[ColumnDef], market: str) -> Dict[str, Dict[str, Any]]:
         """Evaluate static columns vectorized."""
         try:
-            metadata_df = self.metadata_provider.get_metadata_dataframe(symbols)
+            metadata_df = self.metadata_providers[market].get_metadata_dataframe(symbols)
             result = {}
             for symbol in symbols:
                 symbol_data = {}
@@ -150,37 +172,37 @@ class ScannerEngine:
                 result[symbol] = symbol_data
             return result
         except Exception as e:
-            logger.warning(f"Vectorized static column evaluation failed: {e}", exc_info=True)
-            return self._evaluate_static_columns_fallback(symbols, static_columns)
+            logger.warning(f"Vectorized static column evaluation failed for {market}: {e}", exc_info=True)
+            return self._evaluate_static_columns_fallback(symbols, static_columns, market)
 
-    def _evaluate_static_columns_fallback(self, symbols: List[str], static_columns: List[ColumnDef]) -> Dict[str, Dict[str, Any]]:
+    def _evaluate_static_columns_fallback(self, symbols: List[str], static_columns: List[ColumnDef], market: str) -> Dict[str, Dict[str, Any]]:
         """Fallback for static column evaluation."""
         result = {}
         for symbol in symbols:
             symbol_data = {}
             for column in static_columns:
                 try:
-                    value = self.metadata_provider.get_metadata(symbol, column.property_name)
+                    value = self.metadata_providers[market].get_metadata(symbol, column.property_name)
                     symbol_data[column.name] = value
                 except Exception:
                     symbol_data[column.name] = None
             result[symbol] = symbol_data
         return result
 
-    def _evaluate_non_static_columns(self, args: Tuple[str, List[ColumnDef]]) -> Dict[str, Any]:
+    def _evaluate_non_static_columns(self, args: Tuple[str, List[ColumnDef], ExpressionEvaluator, Dict[str, pd.DataFrame]]) -> Dict[str, Any]:
         """Evaluate non-static columns."""
-        symbol, columns = args
-        if symbol not in self.symbol_data:
+        symbol, columns, expression_evaluator, symbol_data = args
+        if symbol not in symbol_data:
             return {column.name: None for column in columns}
 
-        df = self.symbol_data[symbol]
+        df = symbol_data[symbol]
         result = {}
         for column in columns:
             try:
                 if column.type == "computed" and column.expression:
-                    result[column.name] = self.expression_evaluator.evaluate_value_expression(symbol, df, column.expression)
+                    result[column.name] = expression_evaluator.evaluate_value_expression(symbol, df, column.expression)
                 elif column.type == "condition" and column.conditions:
-                    result[column.name] = self.expression_evaluator.evaluate_condition_column(
+                    result[column.name] = expression_evaluator.evaluate_condition_column(
                         symbol, df, column.conditions, column.logic or "and"
                     )
                 else:
@@ -191,7 +213,7 @@ class ScannerEngine:
         return result
 
     def _process_results(self, rows: List[Dict[str, Any]], columns: List[ColumnDef],
-                         sort_columns: Optional[List[SortColumn]] = None) -> pd.DataFrame:
+                         sort_columns: List[SortColumn] | None = None) -> pd.DataFrame:
         """Process and sort results."""
         df_result = pd.DataFrame(rows)
         non_static_cols = [c.name for c in columns if c.type in ["computed", "condition"]]
@@ -222,13 +244,17 @@ class ScannerEngine:
         remaining_columns = [col for col in df_result.columns if col not in final_column_order]
         return df_result[final_column_order + remaining_columns]
 
-    def get_available_symbols(self) -> List[str]:
-        """Get available symbols."""
-        return list(self.symbol_data.keys())
+    def get_available_symbols(self, market: str = "india") -> List[str]:
+        """Get available symbols for a market."""
+        if market not in self.candle_providers:
+            raise ValueError(f"Unsupported market: {market}")
+        return self.candle_providers[market].get_available_symbols()
 
-    def get_symbol_info(self, symbol: str) -> Dict[str, Any]:
-        """Get symbol information."""
-        df = self.candle_provider.get_symbol_data(symbol)
+    def get_symbol_info(self, symbol: str, market: str = "india") -> Dict[str, Any]:
+        """Get symbol information for a market."""
+        if market not in self.candle_providers:
+            raise ValueError(f"Unsupported market: {market}")
+        df = self.candle_providers[market].get_symbol_data(symbol)
         if df is None or df.empty:
             return {"error": "Symbol not found"}
 
@@ -240,32 +266,43 @@ class ScannerEngine:
                        "date": df.index[-1].isoformat()}
         }
 
-    def refresh_data(self) -> None:
-        """Refresh data."""
-        logger.info("Refreshing scanner data...")
-        self.symbol_data = self.candle_provider.refresh_data()
-        self.metadata_provider.refresh_metadata()
-        self.expression_evaluator.clear_cache()
-        logger.info(f"Refreshed with {len(self.symbol_data)} symbols")
+    def refresh_data(self, market: Optional[str] = None) -> None:
+        """Refresh data for a specific market or all markets."""
+        logger.info(f"Refreshing scanner data for {'all markets' if market is None else market}...")
+        markets = [market] if market else list(self.candle_providers.keys())
+        for m in markets:
+            if m in self.candle_providers:
+                self.symbol_data[m] = self.candle_providers[m].refresh_data()
+                self.metadata_providers[m].refresh_metadata()
+                self.expression_evaluators[m].clear_cache()
+                logger.info(f"Refreshed {m} with {len(self.symbol_data[m])} symbols")
+            else:
+                logger.warning(f"Skipping unsupported market: {m}")
 
     def enable_cache(self) -> None:
-        """Enable caching."""
-        self.expression_evaluator.enable_cache()
+        """Enable caching for all evaluators."""
+        for evaluator in self.expression_evaluators.values():
+            evaluator.enable_cache()
 
     def disable_cache(self) -> None:
-        """Disable caching."""
-        self.expression_evaluator.disable_cache()
+        """Disable caching for all evaluators."""
+        for evaluator in self.expression_evaluators.values():
+            evaluator.disable_cache()
 
     def is_cache_enabled(self) -> bool:
-        """Check if caching is enabled."""
-        return self.expression_evaluator.is_cache_enabled()
+        """Check if caching is enabled (checks first evaluator)."""
+        return next(iter(self.expression_evaluators.values())).is_cache_enabled()
 
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
-        stats = self.expression_evaluator.get_cache_stats()
-        stats.update({"loaded_symbols": len(self.symbol_data)})
+        """Get cache statistics aggregated across markets."""
+        stats = {}
+        for market, evaluator in self.expression_evaluators.items():
+            market_stats = evaluator.get_cache_stats()
+            market_stats["loaded_symbols"] = len(self.symbol_data.get(market, {}))
+            stats[market] = market_stats
         return stats
 
     def clear_cache(self) -> None:
-        """Clear cache."""
-        self.expression_evaluator.clear_cache()
+        """Clear cache for all evaluators."""
+        for evaluator in self.expression_evaluators.values():
+            evaluator.clear_cache()

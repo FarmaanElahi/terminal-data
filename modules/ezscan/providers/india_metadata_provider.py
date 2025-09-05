@@ -6,7 +6,7 @@ from utils.bucket import data_bucket, storage_options
 
 logger = logging.getLogger(__name__)
 
-class LocalMetadataProvider(MetadataProvider):
+class IndiaMetadataProvider(MetadataProvider):
     """Loads metadata from symbols-full-v2.parquet file."""
 
     def __init__(self):
