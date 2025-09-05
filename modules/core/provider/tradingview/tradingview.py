@@ -379,38 +379,6 @@ class TradingView:
                 yield ticker, b_df
 
     @staticmethod
-    def get_symbol_list():
-        market = "india"
-        url = f"https://scanner.tradingview.com/{market}/scan"
-        payload = {
-            "columns": [],
-            "filter": [
-                {
-                    "left": "exchange",
-                    "operation": "in_range",
-                    "right": ["NSE"]
-                },
-                {
-                    # Above 100CR only
-                    "left": "market_cap_basic",
-                    "operation": "egreater",
-                    "right": 1000000000
-                }
-            ],
-            "sort": {
-                "sortBy": "market_cap_basic",
-                "sortOrder": "desc"
-            },
-        }
-        headers = {'Content-Type': 'text/plain'}
-
-        r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
-        r.raise_for_status()
-        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
-        data = r.json()['data']
-        return [i['s'] for i in data]
-
-    @staticmethod
     def get_base_symbols(limit: int | None = None):
         market = "india"
         url = f"https://scanner.tradingview.com/{market}/scan"
@@ -457,12 +425,6 @@ class TradingView:
                     "left": "exchange",
                     "operation": "in_range",
                     "right": ["NSE"]
-                },
-                {
-                    # Above 100CR only
-                    "left": "market_cap_basic",
-                    "operation": "egreater",
-                    "right": 1000000000
                 }
             ],
             "sort": {
@@ -514,6 +476,174 @@ class TradingView:
         base.ipo = to_datetime(base.ipo)
         base['days_since_ipo'] = (pd.Timestamp.now() - base['ipo']).dt.days
         return base
+
+    @staticmethod
+    def get_us_symbols(limit: int | None = None):
+        market = "america"
+        url = f"https://scanner.tradingview.com/{market}/scan"
+        payload = {
+            "columns": [
+                "name",
+                "type",
+                "isin",
+                "description",
+                "logoid",
+                "pricescale",
+                "minmov",
+                "currency",
+                "fundamental_currency_code",
+                "market",
+                "sector",
+                "industry.tr",
+                "recommendation_mark",
+                "exchange",
+                "source-logoid",
+                # Recent earning
+                "earnings_release_trading_date_fq",
+                # Upcoming earnings
+                "earnings_release_next_trading_date_fq",
+                "float_shares_outstanding_current",
+                # Index part
+                "indexes.tr",
+
+                # Some fundamental
+                "market_cap_basic",
+                "price_earnings_ttm",
+                "price_earnings_growth_ttm",
+                "price_target_1y",
+                "float_shares_percent_current",
+                "High.All",
+                "Low.All",
+                "beta_1_year",
+                "beta_3_year",
+                "beta_5_year",
+                "first_bar_time",
+            ],
+            "filter": [
+                {
+                    "left": "exchange",
+                    "operation": "in_range",
+                    "right": ["NYSE", "NASDAQ"]
+                },
+                {
+                    "left": "is_primary",
+                    "operation": "equal",
+                    "right": True
+                }
+            ],
+            "sort": {
+                "sortBy": "market_cap_basic",
+                "sortOrder": "desc"
+            },
+        }
+        headers = {'Content-Type': 'text/plain'}
+
+        r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+        r.raise_for_status()
+        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        # Only 10 data in test mode
+        data = r.json()['data'][:limit] if limit else r.json()['data']
+        base = pd.DataFrame([i['d'] for i in data], columns=payload["columns"])
+        base.rename(
+            columns={
+                "logoid": "logo",
+                "source-logoid": "exchange_logo",
+                "fundamental_currency_code": "fundamental_currency",
+                "industry.tr": "industry",
+                "indexes.tr": "indexes",
+                "market_cap_basic": "mcap",
+                "High.All": "all_time_high",
+                "Low.All": "all_time_low",
+                "float_shares_outstanding_current": "shares_float",
+                "earnings_release_trading_date_fq": "earnings_release_date",
+                "earnings_release_next_trading_date_fq": "earnings_release_next_date",
+                "first_bar_time": "ipo"
+            },
+            inplace=True
+        )
+        base.isin = base['isin'].astype(str)
+        base.type = base['type'].astype('category')
+        base.name = base['name'].astype(str)
+        base['ticker'] = base['name']
+        base.minmov = base['minmov'].astype('int16')
+        base.pricescale = base['pricescale'].astype('int16')
+        base.type = base['type'].astype('category')
+        base.exchange = base['exchange'].astype('category')
+        base.exchange_logo = base['exchange_logo'].astype('category')
+        base.currency = base['currency'].astype('category')
+        base.fundamental_currency = base['fundamental_currency'].astype('category')
+        base.market = base['market'].astype('category')
+        base.sector = base['sector'].astype('category')
+        base.industry = base['industry'].astype('category')
+        base.set_index(['ticker'], inplace=True)
+        base.earnings_release_date = to_datetime(base.earnings_release_date)
+        base.earnings_release_next_date = to_datetime(base.earnings_release_next_date)
+        base.ipo = to_datetime(base.ipo)
+        base['days_since_ipo'] = (pd.Timestamp.now() - base['ipo']).dt.days
+        return base
+
+    @staticmethod
+    def get_us_symbols_list():
+        market = "america"
+        url = f"https://scanner.tradingview.com/{market}/scan"
+        payload = {
+            "columns": [],
+            "filter": [
+                {
+                    "left": "exchange",
+                    "operation": "in_range",
+                    "right": ["NYSE", "NASDAQ"]
+                },
+                {
+                    "left": "is_primary",
+                    "operation": "equal",
+                    "right": True
+                }
+            ],
+            "sort": {
+                "sortBy": "market_cap_basic",
+                "sortOrder": "desc"
+            },
+        }
+        headers = {'Content-Type': 'text/plain'}
+
+        r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+        r.raise_for_status()
+        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        data = r.json()['data']
+        return [i['s'] for i in data]
+
+    @staticmethod
+    def get_india_symbols_list():
+        market = "india"
+        url = f"https://scanner.tradingview.com/{market}/scan"
+        payload = {
+            "columns": [],
+            "filter": [
+                {
+                    "left": "exchange",
+                    "operation": "in_range",
+                    "right": ["NSE"]
+                },
+                {
+                    # Above 100CR only
+                    "left": "market_cap_basic",
+                    "operation": "egreater",
+                    "right": 1000000000
+                }
+            ],
+            "sort": {
+                "sortBy": "market_cap_basic",
+                "sortOrder": "desc"
+            },
+        }
+        headers = {'Content-Type': 'text/plain'}
+
+        r = requests.request("POST", url, headers=headers, data=json.dumps(payload))
+        r.raise_for_status()
+        # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
+        data = r.json()['data']
+        return [i['s'] for i in data]
 
     @staticmethod
     async def get_index(default_columns: list[str]):
