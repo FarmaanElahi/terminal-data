@@ -1,5 +1,3 @@
-import os
-
 from modules.ezscan.core.scanner_engine import ScannerEngine
 from modules.ezscan.providers.local_metadata_provider import LocalMetadataProvider
 from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
@@ -13,12 +11,8 @@ def create_scanner_engine() -> ScannerEngine:
     )
     metadata_provider = LocalMetadataProvider()
 
-    max_workers = min(32, (os.cpu_count() or 1) + 4)
-
-    # Initialize scanner engine with providers
     return ScannerEngine(
         candle_provider=candle_provider,
         metadata_provider=metadata_provider,
-        max_workers=max_workers,
         cache_enabled=False,
     )
