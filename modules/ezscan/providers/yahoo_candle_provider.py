@@ -1,10 +1,10 @@
 import logging
 import os
 import pickle
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import pandas as pd
 import yfinance as yf
-
+import requests
 from modules.ezscan.interfaces.candle_provider import CandleProvider
 from modules.core.provider.tradingview.tradingview import TradingView
 
@@ -12,176 +12,125 @@ logger = logging.getLogger(__name__)
 
 
 class YahooCandleProvider(CandleProvider):
-    """
-    Yahoo Finance implementation of CandleProvider.
+    """Yahoo Finance candle provider."""
 
-    Provides OHLCV data from Yahoo Finance with local caching
-    for improved performance.
-    """
-
-    def __init__(self, cache_file: str = "ohlcv_separated.pkl", period: str = "10y"):
-        """
-        Initialize Yahoo Finance candle provider.
-
-        Args:
-            cache_file: Path to cache file for storing downloaded data
-            period: Period for historical data (e.g., '10y', '5y', '1y')
-        """
+    def __init__(self, market: str = "india", cache_file: Optional[str] = None, period: str = "10y"):
+        if cache_file is None:
+            cache_file = f"ohlcv_{market}.pkl"
         self.cache_file = cache_file
         self.period = period
+        self.market = market
+        self.prefix = ""
+        self.suffix = ""
         self.symbol_data: Dict[str, pd.DataFrame] = {}
+        self.base_symbols: List[str] = []
+        self._configure_market()
         self._load_symbols()
 
+    def _configure_market(self) -> None:
+        """Configure prefix and suffix based on market."""
+        if self.market == "india":
+            self.prefix = "NSE:"
+            self.suffix = ".NS"
+        elif self.market == "us":
+            self.prefix = ""
+            self.suffix = ""
+        else:
+            raise ValueError(f"Unsupported market: {self.market}")
+
     def _load_symbols(self) -> None:
-        """Load base symbols from TradingView."""
+        """Load base symbols based on market."""
         try:
-            self.base_symbols = TradingView.get_base_symbols().index.tolist()
+            if self.market == "india":
+                self.base_symbols = TradingView.get_india_symbols_list()
+            elif self.market == "us":
+                self.base_symbols = TradingView.get_us_symbols_list()
         except Exception as e:
-            logger.warning(f"Could not load TradingView symbols: {e}")
+            logger.warning(f"Could not load symbols for {self.market}: {e}", exc_info=True)
             self.base_symbols = []
 
     def load_data(self) -> Dict[str, pd.DataFrame]:
-        """
-        Load OHLCV data from cache or download from Yahoo Finance.
-
-        Returns:
-            Dict[str, pd.DataFrame]: Dictionary of symbol data
-        """
+        """Load OHLCV data."""
         if self._load_from_cache():
             return self.symbol_data
-
         return self._download_and_cache_data()
 
     def _load_from_cache(self) -> bool:
-        """
-        Attempt to load data from cache file.
-
-        Returns:
-            bool: True if successfully loaded from cache, False otherwise
-        """
+        """Attempt to load data from cache."""
         if not os.path.exists(self.cache_file):
             return False
-
         try:
-            logger.info("Loading cached OHLCV data...")
             with open(self.cache_file, 'rb') as f:
                 self.symbol_data = pickle.load(f)
-            logger.info(f"Loaded {len(self.symbol_data)} symbol datasets from cache")
+            logger.info(f"Loaded {len(self.symbol_data)} symbol datasets from cache for {self.market}")
             return True
         except Exception as e:
-            logger.error(f"Error loading cache: {e}")
+            logger.error(f"Error loading cache for {self.market}: {e}", exc_info=True)
             return False
 
     def _download_and_cache_data(self) -> Dict[str, pd.DataFrame]:
-        """
-        Download data from Yahoo Finance and cache it.
-
-        Returns:
-            Dict[str, pd.DataFrame]: Dictionary of symbol data
-        """
-        logger.info("Downloading OHLCV data from Yahoo Finance...")
-
+        """Download and cache data."""
+        logger.info(f"Downloading OHLCV data from Yahoo Finance for {self.market}...")
         if not self.base_symbols:
-            logger.warning("No symbols available for download")
+            logger.warning(f"No symbols available for download in {self.market}")
             return {}
 
-        # Convert to Yahoo Finance format
-        yf_symbols = [s.split(":")[1] + ".NS" for s in self.base_symbols]
+        yf_symbols = [s.split(":")[-1] + self.suffix for s in self.base_symbols]
+        # replace / with hyphen
+        yf_symbols = [s.replace("/", "-") for s in yf_symbols]
 
         try:
-            df = yf.download(
-                yf_symbols,
-                period=self.period,
-                interval="1d",
-                group_by="ticker",
-                auto_adjust=True
-            )
-
+            df = yf.download(yf_symbols, period=self.period, interval="1d", group_by="ticker", auto_adjust=True)
             self.symbol_data = self._process_downloaded_data(df, yf_symbols)
             self._save_to_cache()
-
         except Exception as e:
-            logger.error(f"Error downloading  {e}")
+            logger.error(f"Error downloading for {self.market}: {e}", exc_info=True)
             return {}
-
         return self.symbol_data
 
-    def _process_downloaded_data(self, df: pd.DataFrame, yf_symbols: list[str]) -> Dict[str, pd.DataFrame]:
-        """
-        Process and clean downloaded data.
-
-        Args:
-            df: Raw downloaded DataFrame from yfinance
-            yf_symbols: List of Yahoo Finance symbol identifiers
-
-        Returns:
-            Dict[str, pd.DataFrame]: Processed symbol data
-        """
+    def _process_downloaded_data(self, df: pd.DataFrame, yf_symbols: List[str]) -> Dict[str, pd.DataFrame]:
+        """Process downloaded data."""
         processed_data = {}
-
         for i, sym in enumerate(yf_symbols):
             if sym not in df:
-                logger.warning(f"Skipping missing symbol {sym}")
+                logger.warning(f"Skipping missing symbol {sym} in {self.market}")
                 continue
-
             try:
                 sdf = df[sym].copy()
                 if sdf.empty:
                     continue
-
-                # Clean and prepare data
                 sdf.columns = [c.lower() for c in sdf.columns]
-                sdf = sdf.dropna()
-
-                # Sort by date for efficient operations
-                sdf = sdf.sort_index()
-
-                # Convert back to NSE format
-                nse_symbol = "NSE:" + sym.split(".")[0]
-                processed_data[nse_symbol] = sdf
-
+                sdf = sdf.dropna().sort_index()
+                symbol_key = self.prefix + sym.split(".")[0]
+                symbol_key = symbol_key.replace("-", "/")
+                processed_data[symbol_key] = sdf
                 if (i + 1) % 100 == 0:
-                    logger.info(f"Processed {i + 1}/{len(yf_symbols)} symbols")
-
+                    logger.info(f"Processed {i + 1}/{len(yf_symbols)} symbols for {self.market}")
             except Exception as e:
-                logger.warning(f"Error processing {sym}: {e}")
+                logger.warning(f"Error processing {sym} in {self.market}: {e}")
                 continue
-
-        logger.info(f"Successfully processed {len(processed_data)} symbols")
+        logger.info(f"Successfully processed {len(processed_data)} symbols for {self.market}")
         return processed_data
 
     def _save_to_cache(self) -> None:
-        """Save processed data to cache file."""
+        """Save data to cache."""
         try:
             with open(self.cache_file, 'wb') as f:
                 pickle.dump(self.symbol_data, f)
-            logger.info(f"Cached data for {len(self.symbol_data)} symbols")
+            logger.info(f"Cached data for {len(self.symbol_data)} symbols in {self.market}")
         except Exception as e:
-            logger.error(f"Error saving cache: {e}")
+            logger.error(f"Error saving cache for {self.market}: {e}", exc_info=True)
 
     def get_symbol_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """
-        Get OHLCV data for a specific symbol.
-
-        Args:
-            symbol: Symbol identifier (e.g., 'NSE:RELIANCE')
-
-        Returns:
-            Optional[pd.DataFrame]: OHLCV data or None if not found
-        """
+        """Get symbol data."""
         return self.symbol_data.get(symbol)
 
-    def get_available_symbols(self) -> list[str]:
-        """
-        Get list of all available symbols.
-
-        Returns:
-            list[str]: List of available symbol identifiers
-        """
+    def get_available_symbols(self) -> List[str]:
+        """Get available symbols."""
         return list(self.symbol_data.keys())
 
-    def refresh_data(self) -> dict[str, pd.DataFrame]:
-        """Refresh data by re-downloading from Yahoo Finance."""
-        logger.info("Refreshing data from Yahoo Finance...")
+    def refresh_data(self) -> Dict[str, pd.DataFrame]:
+        """Refresh data."""
+        logger.info(f"Refreshing data from Yahoo Finance for {self.market}...")
         self.symbol_data.clear()
         return self._download_and_cache_data()

@@ -62,6 +62,7 @@ def scan(request: ScanRequest):
     """Execute technical scan."""
     try:
         result = scanner_engine.scan(
+            request.market,
             conditions=request.conditions,
             columns=request.columns,
             logic=request.logic,
