@@ -30,8 +30,18 @@ class ExpressionEvaluator:
 
         try:
             result = self._evaluate_expression(symbol, df, expression)
-            last_val = result.iloc[-1] if isinstance(result, pd.Series) and not result.empty else pd.NA
-            last_val = None if pd.isna(last_val) else float(last_val)
+            if isinstance(result, pd.Series) and not result.empty:
+                last_val = result.iloc[-1]
+            elif np.isscalar(result) and not pd.isna(result):
+                if isinstance(result, (int, np.integer)):
+                    last_val = int(result)
+                elif isinstance(result, (float, np.floating)):
+                    last_val = float(result)
+                else:
+                    last_val = result  # Keep other scalar types as-is
+            else:
+                last_val = None
+            last_val = None if pd.isna(last_val) else last_val
 
             self.cache.set(cache_key, last_val)
             return last_val
