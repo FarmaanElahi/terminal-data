@@ -103,11 +103,51 @@ class ScannerEngine:
         if not conditions:
             return symbols
 
-        selected_symbols = []
-        for symbol in symbols:
-            if self._process_symbol_computed_conditions((symbol, conditions, logic, expression_evaluator, symbol_data))[1]:
-                selected_symbols.append(symbol)
-        return selected_symbols
+        # Separate rank and boolean conditions
+        rank_conditions = [c for c in conditions if c.evaluation_type == "rank"]
+        boolean_conditions = [c for c in conditions if c.evaluation_type == "boolean"]
+
+        filtered_symbols = symbols
+
+        # Handle rank conditions vectorized
+        if rank_conditions:
+            rank_expressions = [c.expression for c in rank_conditions]
+            rank_mins = [c.rank_min or 1 for c in rank_conditions]
+            rank_maxes = [c.rank_max or 99 for c in rank_conditions]
+
+            rank_selected = expression_evaluator.evaluate_rank_conditions_vectorized(
+                filtered_symbols, rank_expressions, rank_mins, rank_maxes, symbol_data, logic
+            )
+
+            if logic == "and":
+                filtered_symbols = [s for s in filtered_symbols if s in rank_selected]
+            else:
+                # For OR logic with mixed condition types, we need to handle it differently
+                if not boolean_conditions:
+                    filtered_symbols = rank_selected
+                # If there are boolean conditions too, we'll handle the OR logic later
+
+        # Handle boolean conditions
+        if boolean_conditions:
+            boolean_selected = []
+            for symbol in filtered_symbols:
+                if self._process_symbol_computed_conditions((symbol, boolean_conditions, logic, expression_evaluator, symbol_data))[1]:
+                    boolean_selected.append(symbol)
+
+            if logic == "and":
+                filtered_symbols = boolean_selected
+            elif rank_conditions:
+                # OR logic: combine rank and boolean results
+                rank_selected = expression_evaluator.evaluate_rank_conditions_vectorized(
+                    symbols, [c.expression for c in rank_conditions],
+                    [c.rank_min or 1 for c in rank_conditions],
+                    [c.rank_max or 99 for c in rank_conditions], symbol_data, "or"
+                ) if rank_conditions else []
+                filtered_symbols = list(set(rank_selected + boolean_selected))
+            else:
+                filtered_symbols = boolean_selected
+
+        return filtered_symbols
 
     def _process_symbol_computed_conditions(self, args: Tuple[str, List[Condition], str, ExpressionEvaluator, Dict[str, pd.DataFrame]]) -> Tuple[str, bool]:
         """Process computed conditions for a single symbol."""
@@ -120,14 +160,22 @@ class ScannerEngine:
 
         for condition in conditions:
             try:
-                bool_series = expression_evaluator.evaluate_condition_expression(symbol, df, condition.expression)
-                result = expression_evaluator.reduce_condition_by_period(
-                    bool_series, condition.evaluation_period, condition.value
-                )
-                condition_results.append(result)
+                if condition.evaluation_type == "rank":
+                    # Skip rank conditions here - they're handled vectorized in the parent method
+                    continue
+                else:
+                    bool_series = expression_evaluator.evaluate_condition_expression(symbol, df, condition.expression)
+                    result = expression_evaluator.reduce_condition_by_period(
+                        bool_series, condition.evaluation_period, condition.value
+                    )
+                    condition_results.append(result)
             except Exception as e:
                 logger.debug(f"Computed condition failed for {symbol}: {e}")
                 condition_results.append(False)
+
+        # If no boolean conditions, return True (rank conditions handled elsewhere)
+        if not condition_results:
+            return symbol, True
 
         return symbol, all(condition_results) if logic == "and" else any(condition_results)
 
@@ -203,7 +251,7 @@ class ScannerEngine:
                     result[column.name] = expression_evaluator.evaluate_value_expression(symbol, df, column.expression)
                 elif column.type == "condition" and column.conditions:
                     result[column.name] = expression_evaluator.evaluate_condition_column(
-                        symbol, df, column.conditions, column.logic or "and"
+                        symbol, df, column.conditions, column.logic or "and", symbol_data
                     )
                 else:
                     result[column.name] = None
