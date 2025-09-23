@@ -73,6 +73,106 @@ class ExpressionEvaluator:
             self.cache.set(cache_key, false_series)
             return false_series
 
+    def evaluate_rank_condition(self, symbol: str, expression: str, all_symbol_data: Dict[str, pd.DataFrame],
+                                rank_min: int = 1, rank_max: int = 99) -> bool:
+        """Evaluate rank-based condition by comparing symbol's rank against all symbols."""
+        cache_key = f"rank_{hash(expression)}_{rank_min}_{rank_max}_{hash(tuple(sorted(all_symbol_data.keys())))}"
+
+        if cached_result := self.cache.get(cache_key):
+            symbol_ranks = cached_result
+        else:
+            # Calculate expression values for all symbols
+            symbol_values = {}
+            for sym, df in all_symbol_data.items():
+                try:
+                    value = self.evaluate_value_expression(sym, df, expression)
+                    if value is not None and not pd.isna(value):
+                        symbol_values[sym] = float(value)
+                except Exception as e:
+                    logger.debug(f"Failed to evaluate expression for {sym}: {e}")
+                    continue
+
+            if len(symbol_values) < 2:
+                logger.warning("Not enough symbols with valid values for ranking")
+                return False
+
+            # Calculate percentile ranks (0-100)
+            values_series = pd.Series(symbol_values)
+            ranks = values_series.rank(method='min', pct=True) * 100
+            symbol_ranks = ranks.to_dict()
+
+            self.cache.set(cache_key, symbol_ranks)
+
+        # Check if this symbol's rank is within the specified range
+        symbol_rank = symbol_ranks.get(symbol)
+        if symbol_rank is None:
+            return False
+
+        return rank_min <= symbol_rank <= rank_max
+
+    def evaluate_rank_conditions_vectorized(self, symbols: List[str], expressions: List[str],
+                                            rank_mins: List[int], rank_maxes: List[int],
+                                            all_symbol_data: Dict[str, pd.DataFrame],
+                                            logic: Literal["and", "or"] = "and") -> List[str]:
+        """Evaluate rank conditions for multiple expressions vectorized."""
+        if not expressions:
+            return symbols
+
+        cache_key = f"rank_vectorized_{hash(tuple(expressions))}_{hash(tuple(rank_mins))}_{hash(tuple(rank_maxes))}_{logic}_{hash(tuple(sorted(all_symbol_data.keys())))}"
+
+        if cached_result := self.cache.get(cache_key):
+            return cached_result
+
+        try:
+            condition_results = []
+
+            for expression, rank_min, rank_max in zip(expressions, rank_mins, rank_maxes):
+                # Calculate expression values for all symbols
+                symbol_values = {}
+                for sym in all_symbol_data.keys():
+                    try:
+                        value = self.evaluate_value_expression(sym, all_symbol_data[sym], expression)
+                        if value is not None and not pd.isna(value):
+                            symbol_values[sym] = float(value)
+                    except Exception as e:
+                        logger.debug(f"Failed to evaluate expression for {sym}: {e}")
+                        continue
+
+                if len(symbol_values) < 2:
+                    logger.warning(f"Not enough symbols with valid values for ranking expression: {expression}")
+                    condition_results.append(pd.Series(False, index=symbols))
+                    continue
+
+                # Calculate percentile ranks
+                values_series = pd.Series(symbol_values)
+                ranks = values_series.rank(method='min', pct=True) * 100
+
+                # Create boolean series for symbols that meet rank criteria
+                symbol_meets_rank = {}
+                for sym in symbols:
+                    rank = ranks.get(sym)
+                    symbol_meets_rank[sym] = (rank is not None and rank_min <= rank <= rank_max)
+
+                condition_results.append(pd.Series(symbol_meets_rank))
+
+            # Combine conditions with logic
+            if len(condition_results) == 1:
+                combined = condition_results[0]
+            else:
+                combined = condition_results[0]
+                for cond in condition_results[1:]:
+                    combined = combined & cond if logic == "and" else combined | cond
+
+            selected_symbols = combined[combined].index.tolist()
+
+            self.cache.set(cache_key, selected_symbols)
+            return selected_symbols
+
+        except Exception as e:
+            logger.error(f"Vectorized rank condition evaluation failed: {e}", exc_info=True)
+            self.cache.set(cache_key, [])
+            return []
+
     def evaluate_static_conditions_vectorized(self, symbols: List[str], expressions: List[str], logic: Literal["and", "or"] = "and") -> List[str]:
         """Evaluate static conditions vectorized."""
         if not expressions or not self.metadata_provider:
@@ -119,9 +219,11 @@ class ExpressionEvaluator:
             self.cache.set(cache_key, [])
             return []
 
-    def evaluate_condition_column(self, symbol: str, df: pd.DataFrame, conditions: List['Condition'], logic: Literal["and", "or"] = "and") -> bool:
+    def evaluate_condition_column(self, symbol: str, df: pd.DataFrame, conditions: List['Condition'],
+                                  logic: Literal["and", "or"] = "and",
+                                  all_symbol_data: Optional[Dict[str, pd.DataFrame]] = None) -> bool:
         """Evaluate multiple conditions for a condition column."""
-        cache_key = f"{symbol}_condcol_{hash(tuple((c.expression, c.condition_type, c.evaluation_period, c.value) for c in conditions))}_{logic}"
+        cache_key = f"{symbol}_condcol_{hash(tuple((c.expression, c.condition_type, c.evaluation_period, c.evaluation_type, c.value, c.rank_min, c.rank_max) for c in conditions))}_{logic}"
 
         if cached_result := self.cache.get(cache_key):
             return cached_result
@@ -135,7 +237,18 @@ class ExpressionEvaluator:
                     safe_env = {"__builtins__": {}, **metadata}
                     result = eval(condition.expression, safe_env)
                     condition_results.append(bool(result))
+                elif condition.evaluation_type == "rank":
+                    if all_symbol_data is None:
+                        logger.error("all_symbol_data required for rank evaluation")
+                        condition_results.append(False)
+                    else:
+                        result = self.evaluate_rank_condition(
+                            symbol, condition.expression, all_symbol_data,
+                            condition.rank_min or 1, condition.rank_max or 99
+                        )
+                        condition_results.append(result)
                 else:
+                    # Boolean evaluation (existing logic)
                     bool_series = self.evaluate_condition_expression(symbol, df, condition.expression)
                     result = self.reduce_condition_by_period(bool_series, condition.evaluation_period, condition.value)
                     condition_results.append(result)
@@ -184,6 +297,18 @@ class ExpressionEvaluator:
         elif mode == "in_row" and value:
             return bool(bool_series.tail(value).all()) if len(bool_series) >= value else False
         return False
+
+    def enable_cache(self) -> None:
+        """Enable caching."""
+        self.cache.enabled = True
+
+    def disable_cache(self) -> None:
+        """Disable caching."""
+        self.cache.enabled = False
+
+    def is_cache_enabled(self) -> bool:
+        """Check if caching is enabled."""
+        return self.cache.enabled
 
     def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache performance statistics."""
