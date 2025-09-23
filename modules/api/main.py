@@ -61,13 +61,7 @@ async def query_data(q: ScreenerQuery):
 def scan(request: ScanRequest):
     """Execute technical scan."""
     try:
-        result = scanner_engine.scan(
-            request.market,
-            conditions=request.conditions,
-            columns=request.columns,
-            logic=request.logic,
-            sort_columns=request.sort_columns
-        )
+        result = scanner_engine.scan(request)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

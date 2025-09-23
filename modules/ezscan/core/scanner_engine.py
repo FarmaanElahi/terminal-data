@@ -9,6 +9,7 @@ from modules.ezscan.models.requests import Condition, ColumnDef, SortColumn
 from modules.ezscan.providers.india_metadata_provider import IndiaMetadataProvider
 from modules.ezscan.providers.us_metadata_provider import USMetadataProvider
 from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
+from modules.ezscan.models.requests import ScanRequest
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +35,41 @@ class ScannerEngine:
             self.symbol_data[market] = self.candle_providers[market].load_data()
         logger.info(f"Initialized with markets: {list(self.symbol_data.keys())}")
 
-    def scan(self, market: str, conditions: List[Condition], columns: List[ColumnDef],
-             logic: str = "and", sort_columns: List[SortColumn] | None = None) -> Dict[str, Any]:
+    def scan(self, request: ScanRequest) -> Dict[str, Any]:
         """Execute technical scan with 2-phase evaluation for specified market."""
-        if market not in self.symbol_data:
-            raise ValueError(f"Unsupported market: {market}")
+        if request.market not in self.symbol_data:
+            raise ValueError(f"Unsupported market: {request.market}")
 
-        symbol_data = self.symbol_data[market]
-        expression_evaluator = self.expression_evaluators[market]
+        symbol_data = self.symbol_data[request.market]
+        expression_evaluator = self.expression_evaluators[request.market]
+        columns = request.columns
 
-        if not symbol_data:
+        # PreScan
+        pre_scanned_symbols = self.perform_scan(request.pre_conditions, expression_evaluator, symbol_data, request.pre_condition_logic)
+        if not pre_scanned_symbols:
             return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
 
+        # Scan - Perform scan on prescanned result only
+        symbol_data = {sym: symbol_data[sym] for sym in pre_scanned_symbols}
+        scanned_symbols = self.perform_scan(request.conditions, expression_evaluator, symbol_data, request.logic)
+        if not scanned_symbols:
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
+
+        rows = self._evaluate_columns_vectorized(scanned_symbols, columns, expression_evaluator, request.market, symbol_data)
+
+        if not rows:
+            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
+
+        df_result = self._process_results(rows, columns, request.sort_columns)
+
+        return {
+            "count": len(df_result),
+            "columns": df_result.columns.tolist(),
+            "data": df_result.replace({np.nan: None}).values.tolist(),
+            "success": True
+        }
+
+    def perform_scan(self, conditions: List[Condition], expression_evaluator: ExpressionEvaluator, symbol_data: dict[str, pd.DataFrame], logic: str = "and"):
         start_time = pd.Timestamp.now()
         static_conditions = [c for c in conditions if c.condition_type == "static"]
         computed_conditions = [c for c in conditions if c.condition_type == "computed"]
@@ -54,37 +78,13 @@ class ScannerEngine:
         phase1_time = pd.Timestamp.now() - start_time
 
         if not phase1_symbols:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
+            return None
 
         phase2_start = pd.Timestamp.now()
         selected_symbols = self._evaluate_computed_conditions(phase1_symbols, computed_conditions, logic, expression_evaluator, symbol_data)
         phase2_time = pd.Timestamp.now() - phase2_start
 
-        if not selected_symbols:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
-
-        columns_start = pd.Timestamp.now()
-        rows = self._evaluate_columns_vectorized(selected_symbols, columns, expression_evaluator, market, symbol_data)
-        columns_time = pd.Timestamp.now() - columns_start
-
-        if not rows:
-            return {"columns": ["symbol"] + [c.name for c in columns], "data": [], "count": 0, "success": False}
-
-        df_result = self._process_results(rows, columns, sort_columns)
-
-        total_time = pd.Timestamp.now() - start_time
-        logger.info(
-            f"Scan completed for {market}: {len(selected_symbols)}/{len(symbol_data)} symbols, "
-            f"phase1: {phase1_time.total_seconds():.3f}s, phase2: {phase2_time.total_seconds():.3f}s, "
-            f"columns: {columns_time.total_seconds():.3f}s, total: {total_time.total_seconds():.3f}s"
-        )
-
-        return {
-            "count": len(df_result),
-            "columns": df_result.columns.tolist(),
-            "data": df_result.replace({np.nan: None}).values.tolist(),
-            "success": True
-        }
+        return selected_symbols
 
     def _evaluate_static_conditions(self, conditions: List[Condition], logic: str, expression_evaluator: ExpressionEvaluator,
                                     symbol_data: Dict[str, pd.DataFrame]) -> List[str]:

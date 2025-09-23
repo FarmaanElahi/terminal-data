@@ -112,6 +112,8 @@ class ColumnDef(BaseModel):
 
 class ScanRequest(BaseModel):
     """Complete scan request specification."""
+    pre_conditions: List[Condition] = []
+    pre_condition_logic: Literal["and", "or"] = "and"
     conditions: List[Condition]
     columns: List[ColumnDef]
     logic: Literal["and", "or"] = "and"
