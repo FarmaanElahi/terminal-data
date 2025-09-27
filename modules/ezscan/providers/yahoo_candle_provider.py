@@ -2,12 +2,12 @@ import logging
 import os
 import pickle
 from typing import Dict, Optional, List
+
 import pandas as pd
 import yfinance as yf
-import requests
-import os
-from modules.ezscan.interfaces.candle_provider import CandleProvider
+
 from modules.core.provider.tradingview.tradingview import TradingView
+from modules.ezscan.interfaces.candle_provider import CandleProvider
 
 logger = logging.getLogger(__name__)
 
