@@ -67,11 +67,11 @@ def scan(request: ScanRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/v2/scan/refresh")
-def scan():
+@app.get("/v2/scan/refresh/{market}")
+def scan(market:Literal["india","us"]):
     """Execute technical scan."""
     try:
-        scanner_engine.refresh_data()
+        scanner_engine.refresh_data(market)
         return "Scanner Refreshed"
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
