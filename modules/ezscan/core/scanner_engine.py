@@ -6,10 +6,10 @@ import pandas as pd
 
 from modules.ezscan.core.expression_evaluator import ExpressionEvaluator
 from modules.ezscan.models.requests import Condition, ColumnDef, SortColumn
+from modules.ezscan.models.requests import ScanRequest
 from modules.ezscan.providers.india_metadata_provider import IndiaMetadataProvider
 from modules.ezscan.providers.us_metadata_provider import USMetadataProvider
-from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
-from modules.ezscan.models.requests import ScanRequest
+from modules.ezscan.providers.tradingview_candle_provider import TradingViewCandleProvider
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class ScannerEngine:
 
     def __init__(self, cache_enabled: bool = True):
         self.candle_providers = {
-            "india": YahooCandleProvider(market="india"),
-            "us": YahooCandleProvider(market="us")
+            "india": TradingViewCandleProvider(market="india"),
+            "us": TradingViewCandleProvider(market="us"),
         }
         self.metadata_providers = {
             "india": IndiaMetadataProvider(),

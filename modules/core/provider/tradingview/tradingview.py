@@ -176,7 +176,7 @@ async def _on_symbol_resolved(socket: ClientConnection, data: dict[str, Any]):
     series_id = f"s{keys[symbol_key]['i']}"
 
     # Request data
-    await _send(socket, {"m": "create_series", "p": [cs, "sds_1", series_id, symbol_key, "1D", 5500]})
+    await _send(socket, {"m": "create_series", "p": [cs, "sds_1", series_id, symbol_key, "1D", 2600]})
     bar_started.append(symbol_key)
 
 
@@ -269,11 +269,11 @@ def to_bars_df(bars: dict[str, list[list]]):
 async def fetch_bulk(tickers: list[str], mode: Literal["quote", "bar", "all"] = "all"):
     # Currently tradingview only allow 5 active websocket connections, so we spit the entire list into 500
     # Then to parallize the processing further, we split the request into 100 chunks of symbols again
-    main_chunk = _chunk_list(tickers, 500)
+    main_chunk = _chunk_list(tickers, 450)
     failed_chunks = []
     for idx, chunk in enumerate(main_chunk):
         print(f"Started: {idx + 1}/{len(main_chunk)}")
-        sub_chunks = _chunk_list(chunk, 100)
+        sub_chunks = _chunk_list(chunk, 150)
         # Starts a new connection and fetches data fot this chunk only and closes the connection
         tasks = [create_task(_fetch_data(chunked_symbols, mode)) for chunked_symbols in sub_chunks]
         chunk_result = await gather(*tasks)
