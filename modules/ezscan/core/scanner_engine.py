@@ -350,6 +350,6 @@ class ScannerEngine:
         return stats
 
     def clear_cache(self) -> None:
-        """Clear cache for all evaluators."""
+        """Clear cache for all evaluators ."""
         for evaluator in self.expression_evaluators.values():
             evaluator.clear_cache()
