@@ -114,7 +114,6 @@ class ScannerEngine:
             rank_expressions = [c.expression for c in rank_conditions]
             rank_mins = [c.rank_min or 1 for c in rank_conditions]
             rank_maxes = [c.rank_max or 99 for c in rank_conditions]
-
             rank_selected = expression_evaluator.evaluate_rank_conditions_vectorized(
                 filtered_symbols, rank_expressions, rank_mins, rank_maxes, symbol_data, logic
             )

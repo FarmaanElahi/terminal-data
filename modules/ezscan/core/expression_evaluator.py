@@ -145,7 +145,7 @@ class ExpressionEvaluator:
 
                 # Calculate percentile ranks
                 values_series = pd.Series(symbol_values)
-                ranks = values_series.rank(method='min', pct=True) * 100
+                ranks = values_series.rank(pct=True) * 98 + 1  # Scale to 1-99
 
                 # Create boolean series for symbols that meet rank criteria
                 symbol_meets_rank = {}
