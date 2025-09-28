@@ -93,7 +93,7 @@ async def _init(socket: ClientConnection, tickers: list[str], data: dict[str, An
         for symbol_key in keys:
             meta = keys[symbol_key]
             ticker = meta['t']
-            p = json.dumps({"adjustment": "splits", "currency-id": "INR", "symbol": ticker})
+            p = json.dumps({"adjustment": "splits", "symbol": ticker})
             request = {"m": "resolve_symbol", "p": [cs_session, symbol_key, f'={p}']}
             resolve_request.append(request)
         await _send(socket, resolve_request)
