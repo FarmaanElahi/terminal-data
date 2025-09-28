@@ -543,7 +543,8 @@ class TradingView:
         # [{'s': 'NYSE:HKD', 'd': []}, {'s': 'NASDAQ:ALTY', 'd': []}...]
         # Only 10 data in test mode
         data = r.json()['data'][:limit] if limit else r.json()['data']
-        base = pd.DataFrame([i['d'] for i in data], columns=payload["columns"])
+        columns: list[str] = ["ticker"] + payload["columns"]
+        base = pd.DataFrame([[i['s']] + i['d'] for i in data], columns=columns)
         base.rename(
             columns={
                 "logoid": "logo",
@@ -564,7 +565,6 @@ class TradingView:
         base.isin = base['isin'].astype(str)
         base.type = base['type'].astype('category')
         base.name = base['name'].astype(str)
-        base['ticker'] = base['name']
         base.minmov = base['minmov'].astype('int16')
         base.pricescale = base['pricescale'].astype('int16')
         base.type = base['type'].astype('category')
@@ -576,6 +576,7 @@ class TradingView:
         base.sector = base['sector'].astype('category')
         base.industry = base['industry'].astype('category')
         base.set_index(['ticker'], inplace=True)
+
         base.earnings_release_date = to_datetime(base.earnings_release_date)
         base.earnings_release_next_date = to_datetime(base.earnings_release_next_date)
         base.ipo = to_datetime(base.ipo)
