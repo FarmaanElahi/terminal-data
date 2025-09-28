@@ -100,5 +100,4 @@ class TradingViewCandleProvider(CandleProvider):
     def refresh_data(self) -> Dict[str, pd.DataFrame]:
         """Refresh data."""
         logger.info(f"Refreshing data from Yahoo Finance for {self.market}...")
-        self.symbol_data.clear()
         return self._download_and_cache_data()
