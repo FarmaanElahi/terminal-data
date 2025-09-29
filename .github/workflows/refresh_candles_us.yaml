@@ -1,0 +1,40 @@
+name: Refresh US Candles
+
+on:
+  schedule:
+    # Runs at 3 AM IST Daily. Cron format is in GMT
+    - cron: '0 22 * * *'
+  workflow_dispatch: # Allow manual trigger of the workflow
+
+jobs:
+  run-notebook:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install the project
+        run: uv sync --locked
+
+      - name: Download Candles
+        env:
+          PG_CONNECTION: ${{ secrets.PG_CONNECTION }}
+          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
+          OCI_CONFIG: ${{ secrets.OCI_CONFIG }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+          STOCK_FUNDAMENTAL_BASE_URL: ${{ secrets.STOCK_FUNDAMENTAL_BASE_URL }}
+          BASE_FILE_PATH: ${{ secrets.OCI_BUCKET }}/candles
+        run: .venv/bin/python3 -u main.py --mode refresh-candles-us
+
