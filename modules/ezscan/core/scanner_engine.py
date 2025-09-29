@@ -10,6 +10,7 @@ from modules.ezscan.models.requests import ScanRequest
 from modules.ezscan.providers.india_metadata_provider import IndiaMetadataProvider
 from modules.ezscan.providers.us_metadata_provider import USMetadataProvider
 from modules.ezscan.providers.tradingview_candle_provider import TradingViewCandleProvider
+from fsspec.spec import AbstractFileSystem
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +18,10 @@ logger = logging.getLogger(__name__)
 class ScannerEngine:
     """Orchestrates technical analysis with synchronous processing."""
 
-    def __init__(self, cache_enabled: bool = True):
+    def __init__(self, fs: AbstractFileSystem, auto_load=True, cache_enabled: bool = True):
         self.candle_providers = {
-            "india": TradingViewCandleProvider(market="india"),
-            "us": TradingViewCandleProvider(market="us"),
+            "india": TradingViewCandleProvider(fs, market="india"),
+            "us": TradingViewCandleProvider(fs, market="us"),
         }
         self.metadata_providers = {
             "india": IndiaMetadataProvider(),
@@ -31,8 +32,9 @@ class ScannerEngine:
             for market, provider in self.metadata_providers.items()
         }
         self.symbol_data = {}
-        for market in self.candle_providers:
-            self.symbol_data[market] = self.candle_providers[market].load_data()
+        if auto_load:
+            for market in self.candle_providers:
+                self.symbol_data[market] = self.candle_providers[market].load_data()
         logger.info(f"Initialized with markets: {list(self.symbol_data.keys())}")
 
     def scan(self, request: ScanRequest) -> Dict[str, Any]:

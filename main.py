@@ -16,7 +16,7 @@ def run():
     )
     parser.add_argument(
         "--mode",
-        choices=["download-fundamental", "download-ms", "download-compliance", "scan", "alerts", "api"],
+        choices=["download-fundamental", "download-ms", "download-compliance", "scan", "alerts", "api", "refresh-candles-india", "refresh-candles-us"],
         required=True,
         help="Choose 'download' to fetch fundamentals or 'scan' to run the scanner."
     )
@@ -31,6 +31,12 @@ def run():
         downloader = MarketSmithDownloader()
         symbols = TradingView.get_base_symbols()
         return asyncio.run(downloader.download_all(symbols))
+    if args.mode == "refresh-candles-india":
+        from modules.ezscan.main import refresh_candles
+        return refresh_candles(market="india")
+    if args.mode == "refresh-candles-us":
+        from modules.ezscan.main import refresh_candles
+        return refresh_candles(market="us")
     if args.mode == "download-compliance":
         from utils.compliant import refresh_compliant
         return refresh_compliant()

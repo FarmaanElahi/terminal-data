@@ -1,6 +1,7 @@
+from fsspec.spec import AbstractFileSystem
+
 from modules.ezscan.core.scanner_engine import ScannerEngine
-from modules.ezscan.providers.yahoo_candle_provider import YahooCandleProvider
 
 
-def create_scanner_engine() -> ScannerEngine:
-    return ScannerEngine(cache_enabled=False)
+def create_scanner_engine(fs: AbstractFileSystem) -> ScannerEngine:
+    return ScannerEngine(fs, cache_enabled=False)
