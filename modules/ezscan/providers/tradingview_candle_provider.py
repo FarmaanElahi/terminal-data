@@ -41,7 +41,7 @@ class TradingViewCandleProvider(CandleProvider):
         """Load base symbols based on market."""
         try:
             if self.market == "india":
-                self.base_symbols = TradingView.get_india_symbols_list()[:100]
+                self.base_symbols = TradingView.get_india_symbols_list()
             elif self.market == "us":
                 self.base_symbols = TradingView.get_us_symbols_list()
         except Exception as e:
