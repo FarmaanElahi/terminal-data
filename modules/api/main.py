@@ -1,30 +1,31 @@
 import os
 from contextlib import asynccontextmanager
-from fastapi.exceptions import HTTPException
 from typing import Literal
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, Query
+from fastapi.exceptions import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from modules.api.deps import create_scanner_engine
+from modules.api.models import ScreenerQuery
+from modules.api.ws import WSSession
 from modules.core.provider.marketsmith.client import MarketSmithClient
 from modules.core.provider.stocktwits.client import StockTwitsClient, SymbolFeedParam, GlobalFeedParam
 from modules.ezscan.models.requests import ScanRequest
 from modules.ezscan.models.responses import ScanResponse
-from modules.api.models import ScreenerQuery
-from modules.api.ws import WSSession
 
 load_dotenv()
 
 from modules.api.data import refresh_data, get_con, close_con
+from utils.bucket import data_bucket_fs
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(refresh_data, "interval", seconds=300)
 client = StockTwitsClient()
-scanner_engine = create_scanner_engine()
+scanner_engine = create_scanner_engine(data_bucket_fs)
 
 
 @asynccontextmanager
@@ -68,7 +69,7 @@ def scan(request: ScanRequest):
 
 
 @app.get("/v2/scan/refresh/{market}")
-def scan(market:Literal["india","us"]):
+def scan(market: Literal["india", "us"]):
     """Execute technical scan."""
     try:
         scanner_engine.refresh_data(market)
