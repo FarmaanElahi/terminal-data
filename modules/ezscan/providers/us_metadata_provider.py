@@ -13,9 +13,9 @@ class USMetadataProvider(MetadataProvider):
 
     def __init__(self):
         """Initialize placeholder."""
-        self._load_metadata()
+        self._metadata_df: pd.DataFrame = pd.DataFrame()
 
-    def _load_metadata(self) -> None:
+    def load(self) -> None:
         """Load metadata from TradingView."""
         df = TradingView.get_us_symbols()
         self._metadata_df = df
@@ -58,11 +58,6 @@ class USMetadataProvider(MetadataProvider):
             return self._metadata_df.copy()
         available_symbols = [s for s in symbols if s in self._metadata_df.index]
         return self._metadata_df.loc[available_symbols].copy() if available_symbols else pd.DataFrame()
-
-    def refresh_metadata(self) -> None:
-        """Refresh metadata."""
-        logger.info("Refreshing metadata...")
-        self._load_metadata()
 
     def get_available_symbols(self) -> List[str]:
         """Get available symbols."""

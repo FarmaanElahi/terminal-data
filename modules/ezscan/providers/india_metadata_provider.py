@@ -6,14 +6,14 @@ from utils.bucket import data_bucket, storage_options
 
 logger = logging.getLogger(__name__)
 
+
 class IndiaMetadataProvider(MetadataProvider):
     """Loads metadata from symbols-full-v2.parquet file."""
 
     def __init__(self):
-        self._metadata_df = None
-        self._load_metadata()
+        self._metadata_df: pd.DataFrame = pd.DataFrame()
 
-    def _load_metadata(self) -> None:
+    def load(self) -> None:
         """Load metadata from parquet file."""
         try:
             self._metadata_df = pd.read_parquet(f'oci://{data_bucket}/symbols-full-v2.parquet', storage_options=storage_options)
@@ -61,11 +61,6 @@ class IndiaMetadataProvider(MetadataProvider):
             return self._metadata_df.copy()
         available_symbols = [s for s in symbols if s in self._metadata_df.index]
         return self._metadata_df.loc[available_symbols].copy() if available_symbols else pd.DataFrame()
-
-    def refresh_metadata(self) -> None:
-        """Refresh metadata."""
-        logger.info("Refreshing metadata...")
-        self._load_metadata()
 
     def get_available_symbols(self) -> List[str]:
         """Get available symbols."""

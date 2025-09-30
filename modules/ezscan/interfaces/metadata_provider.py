@@ -7,6 +7,10 @@ class MetadataProvider(ABC):
     """Abstract base class for stock metadata providers."""
 
     @abstractmethod
+    def load(self):
+        pass
+
+    @abstractmethod
     def get_metadata(self, symbol: str, property_name: str) -> Optional[float]:
         """Get a specific metadata property for a symbol."""
         pass
@@ -24,9 +28,4 @@ class MetadataProvider(ABC):
     @abstractmethod
     def get_metadata_dataframe(self, symbols: Optional[List[str]] = None) -> pd.DataFrame:
         """Get metadata as a DataFrame for vectorized operations."""
-        pass
-
-    @abstractmethod
-    def refresh_metadata(self) -> None:
-        """Refresh metadata from the source."""
         pass

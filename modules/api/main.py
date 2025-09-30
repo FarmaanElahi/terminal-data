@@ -16,6 +16,7 @@ from modules.core.provider.marketsmith.client import MarketSmithClient
 from modules.core.provider.stocktwits.client import StockTwitsClient, SymbolFeedParam, GlobalFeedParam
 from modules.ezscan.models.requests import ScanRequest
 from modules.ezscan.models.responses import ScanResponse
+from datetime import datetime
 
 load_dotenv()
 
@@ -23,9 +24,10 @@ from modules.api.data import refresh_data, get_con, close_con
 from utils.bucket import data_bucket_fs
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(refresh_data, "interval", seconds=300)
+
 client = StockTwitsClient()
 scanner_engine = create_scanner_engine(data_bucket_fs)
+print("Starting API")
 
 
 @asynccontextmanager
@@ -33,6 +35,9 @@ async def lifespan(app: FastAPI):
     # After start
     refresh_data()
     scheduler.start()
+
+    scheduler.add_job(refresh_data, "interval", seconds=3600 * 2, next_run_time=datetime.now())
+    scheduler.add_job(scanner_engine.load, "interval", seconds=3600 * 2, next_run_time=datetime.now())
 
     yield
     # Before close

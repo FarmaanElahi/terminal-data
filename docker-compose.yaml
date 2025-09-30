@@ -12,7 +12,7 @@ services:
       - OCI_BUCKET=${OCI_BUCKET}
       - OCI_CONFIG=${OCI_CONFIG}
       - OCI_KEY=${OCI_KEY}
-      - BASE_FILE_PATH=/data/files
+      - BASE_FILE_PATH=${BASE_FILE_PATH}
     volumes:
       - "./data/files:/data/files"
     healthcheck:
