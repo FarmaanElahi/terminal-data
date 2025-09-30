@@ -33,8 +33,7 @@ class ScannerEngine:
         }
         self.symbol_data = {}
         if auto_load:
-            for market in self.candle_providers:
-                self.symbol_data[market] = self.candle_providers[market].load_data()
+            self.load()
         logger.info(f"Initialized with markets: {list(self.symbol_data.keys())}")
 
     def scan(self, request: ScanRequest) -> Dict[str, Any]:
@@ -322,7 +321,7 @@ class ScannerEngine:
         for m in markets:
             if m in self.candle_providers:
                 self.symbol_data[m] = self.candle_providers[m].refresh_data()
-                self.metadata_providers[m].refresh_metadata()
+                self.metadata_providers[m].load()
                 self.expression_evaluators[m].clear_cache()
                 logger.info(f"Refreshed {m} with {len(self.symbol_data[m])} symbols")
             else:
@@ -355,3 +354,13 @@ class ScannerEngine:
         """Clear cache for all evaluators ."""
         for evaluator in self.expression_evaluators.values():
             evaluator.clear_cache()
+
+    def load(self):
+        for m in list(self.candle_providers.keys()):
+            if m in self.candle_providers:
+                self.metadata_providers[m].load()
+                self.symbol_data[m] = self.candle_providers[m].load_data()
+                self.expression_evaluators[m].clear_cache()
+                logger.info(f"Reload {m} with {len(self.symbol_data[m])} symbols")
+            else:
+                logger.warning(f"Skipping unsupported market: {m}")
