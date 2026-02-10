@@ -6,3 +6,5 @@
 key.pem
 config
 data
+
+**/*.pyc
