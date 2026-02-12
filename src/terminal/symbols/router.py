@@ -5,7 +5,7 @@ from terminal.symbols.service import SymbolProvider
 from terminal.symbols.tasks import sync_symbols
 from terminal.config import Settings
 
-router = APIRouter(prefix="/api/symbols", tags=["symbols"])
+router = APIRouter(prefix="/symbols", tags=["symbols"])
 
 
 @router.get("/")

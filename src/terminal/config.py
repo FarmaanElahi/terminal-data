@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     oci_key: str
 
     # logging
-    log_level: LogLevels = LogLevels.debug
+    log_level: LogLevels = LogLevels.info
 
     @property
     def is_oci_configured(self) -> bool:
