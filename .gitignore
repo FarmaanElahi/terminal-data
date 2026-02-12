@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# Environment Variables
+.env
+.env.*
+
+# Distribution / Packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Type Checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.pyc
+
+# IDEs / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# MacOS
+.DS_Store
+
+# Project Specific
+old/
+postgres_data/  # If local volume is mounted here
