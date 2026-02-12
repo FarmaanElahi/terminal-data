@@ -13,8 +13,21 @@ def _setup_oci_config() -> Optional[str]:
     Sets up OCI configuration files from environment variables.
     Returns the path to the configuration file.
     """
-    oci_config = os.environ.get("OCI_CONFIG")
-    oci_key_content = os.environ.get("OCI_KEY")
+
+    def clean_val(val: Optional[str]) -> str:
+        if not val:
+            return ""
+        # Remove literal quotes if they wrap the value
+        val = val.strip()
+        if (val.startswith('"') and val.endswith('"')) or (
+            val.startswith("'") and val.endswith("'")
+        ):
+            val = val[1:-1]
+        # Resolve literal \n sequences into real newlines
+        return val.encode().decode("unicode_escape").strip()
+
+    oci_config = clean_val(os.environ.get("OCI_CONFIG"))
+    oci_key_content = clean_val(os.environ.get("OCI_KEY"))
 
     if not oci_config or not oci_key_content:
         return None

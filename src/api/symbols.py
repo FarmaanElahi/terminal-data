@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Query, BackgroundTasks
-from typing import List, Optional
+from typing import Optional
 from features.symbols import (
     search_symbols,
     get_search_metadata,
