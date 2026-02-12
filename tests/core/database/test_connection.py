@@ -1,5 +1,5 @@
 from sqlmodel import Session, text
-from terminal.database.engine import engine
+from core.database.engine import engine
 
 
 def test_database_connection():

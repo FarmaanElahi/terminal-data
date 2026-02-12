@@ -1,5 +1,5 @@
 import os
-from terminal.storage import get_fs
+from core.storage import get_fs
 
 
 def test_storage_ls():
