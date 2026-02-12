@@ -16,6 +16,7 @@ dependencies = [
     "sqlalchemy-utils>=0.42.1",
     "sqlmodel>=0.0.33",
     "uvicorn[standard]>=0.40.0",
+    "cloudscraper>=1.2.71",
 ]
 
 
