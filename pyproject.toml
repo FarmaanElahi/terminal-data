@@ -11,6 +11,7 @@ dependencies = [
     "oci>=2.167.1",
     "ocifs>=1.3.4",
     "psycopg[binary]>=3.3.2",
+    "pydantic-settings>=2.12.0",
     "python-dotenv>=1.2.1",
     "sqlmodel>=0.0.33",
     "uvicorn[standard]>=0.40.0",
@@ -19,7 +20,7 @@ dependencies = [
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/core", "src/features", "src/api", "src/external"]
+packages = ["src/internal", "src/api", "src/external"]
 
 [build-system]
 requires = ["hatchling"]
