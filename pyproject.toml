@@ -13,6 +13,7 @@ dependencies = [
     "psycopg[binary]>=3.3.2",
     "pydantic-settings>=2.12.0",
     "python-dotenv>=1.2.1",
+    "sqlalchemy-utils>=0.42.1",
     "sqlmodel>=0.0.33",
     "uvicorn[standard]>=0.40.0",
 ]
@@ -20,7 +21,10 @@ dependencies = [
 
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/internal", "src/api", "src/external"]
+packages = ["src/terminal"]
+
+[project.scripts]
+terminal = "terminal.cli:app"
 
 [build-system]
 requires = ["hatchling"]

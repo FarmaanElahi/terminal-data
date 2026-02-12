@@ -1,11 +1,11 @@
 import pytest
 from httpx import ASGITransport, AsyncClient
-from main import app
+from terminal.main import api
 from unittest.mock import patch, AsyncMock
 from fsspec.implementations.memory import MemoryFileSystem
-from internal.features.symbols.provider import InMemorySymbolProvider
-from api.deps import get_symbol_provider, get_fs, get_settings
-from api.config import Settings
+from terminal.symbols.service import InMemorySymbolProvider
+from terminal.dependencies import get_symbol_provider, get_fs, get_settings
+from terminal.config import Settings
 
 
 @pytest.mark.asyncio
@@ -33,20 +33,20 @@ async def test_full_sync_and_search_flow():
     test_provider = InMemorySymbolProvider(fs=mfs, bucket=bucket)
 
     # Dependency overrides
-    app.dependency_overrides[get_settings] = lambda: Settings(
+    api.dependency_overrides[get_settings] = lambda: Settings(
         database_url="postgresql+psycopg://postgres:postgres@localhost:5432/terminal",
         oci_bucket=bucket,
         oci_config="dummy",
         oci_key="dummy",
     )
-    app.dependency_overrides[get_fs] = lambda: mfs
-    app.dependency_overrides[get_symbol_provider] = lambda: test_provider
+    api.dependency_overrides[get_fs] = lambda: mfs
+    api.dependency_overrides[get_symbol_provider] = lambda: test_provider
 
-    # Patch the external client in sync.py
-    with patch("internal.features.symbols.sync.TradingViewScreenerClient") as MockTV:
+    # Patch the external client in tasks.py
+    with patch("terminal.symbols.tasks.TradingViewScreenerClient") as MockTV:
         MockTV.return_value.fetch_symbols = AsyncMock(return_value=mock_symbols)
 
-        transport = ASGITransport(app=app)
+        transport = ASGITransport(app=api)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # 1. Trigger Sync
             sync_resp = await ac.post("/api/symbols/sync")
@@ -68,4 +68,4 @@ async def test_full_sync_and_search_flow():
             assert meta_resp.status_code == 200
             assert "india" in meta_resp.json()["markets"]
 
-    app.dependency_overrides.clear()
+    api.dependency_overrides.clear()
