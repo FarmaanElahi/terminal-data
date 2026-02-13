@@ -47,7 +47,7 @@ async def test_get_symbols_api(mock_provider):
     transport = ASGITransport(app=api)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # Test search
-        response = await ac.get("/api/symbols/?q=NVDA&market=america")
+        response = await ac.get("/api/v1/symbols/?q=NVDA&market=america")
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 1
@@ -62,7 +62,7 @@ async def test_get_symbols_metadata_api(mock_provider):
 
     transport = ASGITransport(app=api)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/symbols/search_metadata")
+        response = await ac.get("/api/v1/symbols/search_metadata")
         assert response.status_code == 200
         data = response.json()
         assert "india" in data["markets"]
@@ -92,7 +92,7 @@ async def test_sync_symbols_api(monkeypatch, mock_provider):
 
     transport = ASGITransport(app=api)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post("/api/symbols/sync")
+        response = await ac.post("/api/v1/symbols/sync")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "Sync complete"

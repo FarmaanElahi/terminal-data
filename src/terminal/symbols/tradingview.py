@@ -55,7 +55,7 @@ class TradingViewScreenerClient:
                 response = await client.post(
                     self.SCANNER_URL,
                     headers=self.DEFAULT_HEADERS,
-                    data=json.dumps(payload),
+                    content=json.dumps(payload),
                     timeout=30.0,
                 )
                 response.raise_for_status()

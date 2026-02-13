@@ -49,7 +49,7 @@ async def test_full_sync_and_search_flow():
         transport = ASGITransport(app=api)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # 1. Trigger Sync
-            sync_resp = await ac.post("/api/symbols/sync")
+            sync_resp = await ac.post("/api/v1/symbols/sync")
             assert sync_resp.status_code == 200
             assert sync_resp.json()["count"] == 1
 
@@ -57,14 +57,14 @@ async def test_full_sync_and_search_flow():
             assert mfs.exists(f"{bucket}/symbols/symbols.json")
 
             # 2. Search for the symbol
-            search_resp = await ac.get("/api/symbols/?q=RELIANCE&market=india")
+            search_resp = await ac.get("/api/v1/symbols/?q=RELIANCE&market=india")
             assert search_resp.status_code == 200
             results = search_resp.json()
             assert len(results) == 1
             assert results[0]["ticker"] == "NSE:RELIANCE"
 
             # 3. Check metadata
-            meta_resp = await ac.get("/api/symbols/search_metadata")
+            meta_resp = await ac.get("/api/v1/symbols/search_metadata")
             assert meta_resp.status_code == 200
             assert "india" in meta_resp.json()["markets"]
 
