@@ -21,6 +21,7 @@ def mock_provider():
             "type": "stock",
             "isin": "US67066G1040",
             "indexes": ["S&P 500", "NASDAQ 100"],
+            "typespecs": ["common"],
         },
         {
             "ticker": "NSE:RELIANCE",
@@ -30,6 +31,7 @@ def mock_provider():
             "type": "stock",
             "isin": "INE002A01018",
             "indexes": ["NIFTY 50", "NIFTY 100"],
+            "typespecs": ["common"],
         },
         {
             "ticker": "NSE:TCS",
@@ -39,15 +41,17 @@ def mock_provider():
             "type": "stock",
             "isin": "INE467B01029",
             "indexes": ["NIFTY 50", "CNX IT"],
+            "typespecs": ["common"],
         },
         {
             "ticker": "NYSE:SPY",
             "name": "SPDR S&P 500 ETF TRUST",
             "market": "america",
             "country": "United States",
-            "type": "etf",
+            "type": "fund",
             "isin": "US78462F1030",
             "indexes": [],
+            "typespecs": ["etf"],
         },
     ]
 
@@ -75,7 +79,7 @@ async def test_search_symbols_query(mock_provider):
 
 @pytest.mark.asyncio
 async def test_search_symbols_type(mock_provider):
-    results = await mock_provider.search(item_type="etf", market="america")
+    results = await mock_provider.search(item_type="fund", market="america")
     assert len(results) == 1
     assert results[0]["ticker"] == "NYSE:SPY"
 
@@ -107,6 +111,6 @@ def test_get_search_metadata(mock_provider):
     assert "india" in metadata["markets"]
     assert "america" in metadata["markets"]
     assert "stock" in metadata["types"]
-    assert "etf" in metadata["types"]
+    assert "fund" in metadata["types"]
     assert "NIFTY 50" in metadata["indexes"]
     assert "NASDAQ 100" in metadata["indexes"]

@@ -38,12 +38,118 @@ class TradingViewScreenerClient:
                         "isin",
                         "exchange",
                         "country",
+                        "type",
                         "typespecs",
                         "indexes",
                     ],
                     "filter": [
-                        {"left": "is_primary", "operation": "equal", "right": True}
+                        {
+                            "left": "is_primary",
+                            "operation": "equal",
+                            "right": True,
+                        },
+                        {
+                            "left": "exchange",
+                            "operation": "in_range",
+                            "right": ["NSE", "BSE", "NASDAQ", "NYSE"],
+                        },
                     ],
+                    "filter2": {
+                        "operator": "and",
+                        "operands": [
+                            {
+                                "operation": {
+                                    "operator": "or",
+                                    "operands": [
+                                        {
+                                            "operation": {
+                                                "operator": "and",
+                                                "operands": [
+                                                    {
+                                                        "expression": {
+                                                            "left": "type",
+                                                            "operation": "equal",
+                                                            "right": "stock",
+                                                        }
+                                                    },
+                                                    {
+                                                        "expression": {
+                                                            "left": "typespecs",
+                                                            "operation": "has",
+                                                            "right": ["common"],
+                                                        }
+                                                    },
+                                                ],
+                                            }
+                                        },
+                                        {
+                                            "operation": {
+                                                "operator": "and",
+                                                "operands": [
+                                                    {
+                                                        "expression": {
+                                                            "left": "type",
+                                                            "operation": "equal",
+                                                            "right": "stock",
+                                                        }
+                                                    },
+                                                    {
+                                                        "expression": {
+                                                            "left": "typespecs",
+                                                            "operation": "has",
+                                                            "right": ["preferred"],
+                                                        }
+                                                    },
+                                                ],
+                                            }
+                                        },
+                                        {
+                                            "operation": {
+                                                "operator": "and",
+                                                "operands": [
+                                                    {
+                                                        "expression": {
+                                                            "left": "type",
+                                                            "operation": "equal",
+                                                            "right": "dr",
+                                                        }
+                                                    }
+                                                ],
+                                            }
+                                        },
+                                        {
+                                            "operation": {
+                                                "operator": "and",
+                                                "operands": [
+                                                    {
+                                                        "expression": {
+                                                            "left": "type",
+                                                            "operation": "equal",
+                                                            "right": "fund",
+                                                        }
+                                                    },
+                                                    {
+                                                        "expression": {
+                                                            "left": "typespecs",
+                                                            "operation": "has",
+                                                            "right": ["etf"],
+                                                        }
+                                                    },
+                                                ],
+                                            }
+                                        },
+                                    ],
+                                }
+                            },
+                            {
+                                "expression": {
+                                    "left": "typespecs",
+                                    "operation": "has_none_of",
+                                    "right": ["pre-ipo"],
+                                }
+                            },
+                        ],
+                    },
                     "ignore_unknown_fields": False,
                     "options": {"lang": "en"},
                     "range": [],
@@ -65,6 +171,9 @@ class TradingViewScreenerClient:
                     # item format: {"s": "TICKER", "d": [values in columns order]}
                     ticker = item["s"]
                     details = item["d"]
+                    raw_type = details[6]
+                    raw_specs = details[7] or []
+
                     symbol_info = {
                         "ticker": ticker,
                         "name": details[0],
@@ -74,9 +183,10 @@ class TradingViewScreenerClient:
                         "exchange": details[4],
                         "country": details[5],
                         "market": market,
-                        "type": details[6][0] if details[6] else None,
-                        "indexes": [idx["name"] for idx in details[7]]
-                        if details[7]
+                        "type": raw_type,
+                        "typespecs": raw_specs,
+                        "indexes": [idx["name"] for idx in details[8]]
+                        if details[8]
                         else [],
                     }
                     all_symbols.append(symbol_info)
