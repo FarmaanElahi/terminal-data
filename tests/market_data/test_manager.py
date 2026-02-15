@@ -97,5 +97,7 @@ async def test_manager_get_ohlcv_series():
     assert len(series) == 10
     # Each item should be a list [t, o, h, l, c, v]
     assert len(series[0]) == 6
+    # Verify latest is first
+    assert series[0][0] > series[-1][0]
     assert isinstance(series[0][0], int)  # timestamp
     assert isinstance(series[0][1], float)  # open

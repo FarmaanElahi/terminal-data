@@ -136,7 +136,7 @@ def refresh_candle_day():
         tv_provider = _get_tradingview_provider_instance()
 
         typer.echo("Fetching symbol list...")
-        symbols_info = await sym_provider.search(limit=1000)  # Get all primary symbols
+        symbols_info = await sym_provider.search(limit=20000)  # Get all primary symbols
         tickers = [s["ticker"] for s in symbols_info]
 
         if not tickers:

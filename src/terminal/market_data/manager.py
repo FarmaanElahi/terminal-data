@@ -127,4 +127,5 @@ class MarketDataManager:
             return None
 
         # Convert structured numpy array to list of tuples (JSON serializes tuples as lists)
-        return data.tolist()
+        # We use [::-1] to reverse the order so the latest candle is first
+        return data[::-1].tolist()
