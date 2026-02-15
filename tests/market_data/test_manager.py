@@ -81,3 +81,21 @@ async def test_manager_get_ohlcv():
     assert len(ohlcv["close"]) == 10
     assert ohlcv["close"].dtype == np.float64
     assert len(ohlcv["timestamp"]) == 10
+
+
+@pytest.mark.asyncio
+async def test_manager_get_ohlcv_series():
+    store = OHLCStore()
+    provider = MockDataProvider()
+    manager = MarketDataManager(store, provider)
+
+    await manager.load_history(["AAPL"])
+    series = manager.get_ohlcv_series("AAPL")
+
+    assert series is not None
+    assert isinstance(series, list)
+    assert len(series) == 10
+    # Each item should be a list [t, o, h, l, c, v]
+    assert len(series[0]) == 6
+    assert isinstance(series[0][0], int)  # timestamp
+    assert isinstance(series[0][1], float)  # open

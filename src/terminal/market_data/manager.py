@@ -116,3 +116,15 @@ class MarketDataManager:
             "close": data["close"],
             "volume": data["volume"],
         }
+
+    def get_ohlcv_series(self, symbol: str) -> Optional[List[List]]:
+        """
+        Returns OHLCV data as a list of [t, o, h, l, c, v] rows.
+        Ordered chronologically by timestamp.
+        """
+        data = self.store.get_data(symbol)
+        if data is None:
+            return None
+
+        # Convert structured numpy array to list of tuples (JSON serializes tuples as lists)
+        return data.tolist()

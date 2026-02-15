@@ -9,30 +9,41 @@ client = TestClient(api)
 
 @pytest.fixture
 def mock_ohlc_data():
-    return {
-        "timestamp": np.array([1672531200], dtype=np.int64),
-        "open": np.array([100.0], dtype=np.float64),
-        "high": np.array([110.0], dtype=np.float64),
-        "low": np.array([90.0], dtype=np.float64),
-        "close": np.array([105.0], dtype=np.float64),
-        "volume": np.array([5000.0], dtype=np.float64),
-    }
+    data = np.zeros(
+        1,
+        dtype=[
+            ("timestamp", "int64"),
+            ("open", "float64"),
+            ("high", "float64"),
+            ("low", "float64"),
+            ("close", "float64"),
+            ("volume", "float64"),
+        ],
+    )
+    data[0] = (1672531200, 100.0, 110.0, 90.0, 105.0, 5000.0)
+    return data
 
 
 def test_get_ohlcv_success(mock_ohlc_data):
-    with patch("terminal.market_data.manager.MarketDataManager.get_ohlcv") as mock_get:
-        mock_get.return_value = mock_ohlc_data
+    with patch(
+        "terminal.market_data.manager.MarketDataManager.get_ohlcv_series"
+    ) as mock_get:
+        mock_get.return_value = mock_ohlc_data.tolist()
 
         response = client.get("/market-data/NSE:RELIANCE")
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["close"] == [105.0]
-        assert data["timestamp"] == [1672531200]
+        json_resp = response.json()
+        assert "data" in json_resp
+        data = json_resp["data"]
+        assert isinstance(data, list)
+        assert data[0] == [1672531200, 100.0, 110.0, 90.0, 105.0, 5000.0]
 
 
 def test_get_ohlcv_not_found():
-    with patch("terminal.market_data.manager.MarketDataManager.get_ohlcv") as mock_get:
+    with patch(
+        "terminal.market_data.manager.MarketDataManager.get_ohlcv_series"
+    ) as mock_get:
         # First call returns None, then manager.load_history is called, then second get_ohlcv returns None
         mock_get.return_value = None
 
@@ -52,16 +63,9 @@ def test_get_ohlcv_refresh():
         "terminal.market_data.manager.MarketDataManager.load_history"
     ) as mock_load:
         with patch(
-            "terminal.market_data.manager.MarketDataManager.get_ohlcv"
+            "terminal.market_data.manager.MarketDataManager.get_ohlcv_series"
         ) as mock_get:
-            mock_get.return_value = {
-                "timestamp": [1],
-                "open": [1],
-                "high": [1],
-                "low": [1],
-                "close": [1],
-                "volume": [1],
-            }
+            mock_get.return_value = [[1, 1, 1, 1, 1, 1]]
 
             response = client.get("/market-data/NSE:RELIANCE?refresh=true")
 

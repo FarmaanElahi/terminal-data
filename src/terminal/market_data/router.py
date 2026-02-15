@@ -20,18 +20,17 @@ async def get_ohlcv(
     if refresh:
         await manager.load_history([symbol])
 
-    data = manager.get_ohlcv(symbol)
+    data = manager.get_ohlcv_series(symbol)
 
     if data is None:
         # If no data and we didn't just refresh, try a quick refresh
         if not refresh:
             await manager.load_history([symbol])
-            data = manager.get_ohlcv(symbol)
+            data = manager.get_ohlcv_series(symbol)
 
         if data is None:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol: {symbol}"
             )
 
-    # Convert numpy arrays to lists for JSON serialization
-    return {k: v.tolist() if hasattr(v, "tolist") else v for k, v in data.items()}
+    return {"data": data}
