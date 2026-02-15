@@ -6,8 +6,8 @@ from terminal.storage.service import OCIClient
 from terminal.symbols.service import InMemorySymbolProvider
 from terminal.database import get_session as db_get_session
 from sqlmodel import Session
-from terminal.market_data.tradingview import TradingViewDataProvider
-from terminal.market_data import OHLCStore, MarketDataManager
+from terminal.market_feed.tradingview import TradingViewDataProvider
+from terminal.market_feed import OHLCStore, MarketDataManager
 
 
 @lru_cache

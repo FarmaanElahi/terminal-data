@@ -18,7 +18,7 @@ class DataProvider(ABC):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_file_local = self.cache_dir / f"{provider_name}_candles.parquet"
-        self.cache_file_oci = f"{bucket}/market_data/candles_1d.parquet"
+        self.cache_file_oci = f"{bucket}/market_feed/candles_1d.parquet"
 
     @abstractmethod
     def get_history(self, symbol: str) -> np.ndarray:

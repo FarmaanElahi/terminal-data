@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from unittest.mock import MagicMock, patch, PropertyMock
 from pathlib import Path
-from terminal.market_data.tradingview import TradingViewDataProvider
+from terminal.market_feed.tradingview import TradingViewDataProvider
 
 
 @pytest.fixture

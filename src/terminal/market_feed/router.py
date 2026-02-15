@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from terminal.market_data.manager import MarketDataManager
+from terminal.market_feed.manager import MarketDataManager
 from terminal.dependencies import get_market_manager
 
-router = APIRouter(prefix="/market-data", tags=["Market Data"])
+router = APIRouter(prefix="/market-feed", tags=["Market Feed"])
 
 
 @router.get("/{symbol}")
