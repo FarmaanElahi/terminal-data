@@ -43,8 +43,8 @@ async def test_full_sync_and_search_flow():
     api.dependency_overrides[get_symbol_provider] = lambda: test_provider
 
     # Patch the external client in tasks.py
-    with patch("terminal.symbols.tasks.TradingViewScreenerClient") as MockTV:
-        MockTV.return_value.fetch_symbols = AsyncMock(return_value=mock_symbols)
+    with patch("terminal.symbols.tasks.TradingView") as MockTV:
+        MockTV.return_value.scanner.fetch_symbols = AsyncMock(return_value=mock_symbols)
 
         transport = ASGITransport(app=api)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

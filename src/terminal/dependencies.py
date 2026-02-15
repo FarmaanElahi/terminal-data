@@ -6,6 +6,7 @@ from terminal.storage.service import OCIClient
 from terminal.symbols.service import InMemorySymbolProvider
 from terminal.database import get_session as db_get_session
 from sqlmodel import Session
+from terminal.market_data.tradingview import TradingViewDataProvider
 
 
 @lru_cache
@@ -36,6 +37,18 @@ def _get_symbol_provider_instance() -> InMemorySymbolProvider:
     return InMemorySymbolProvider(fs=client.get_fs(), bucket=settings.oci_bucket)
 
 
+@lru_cache
+def _get_tradingview_provider_instance() -> TradingViewDataProvider:
+    """
+    Internal helper to provide a memoized TradingViewDataProvider singleton.
+    """
+    client = _get_oci_client()
+    settings = get_settings()
+    return TradingViewDataProvider(
+        fs=client.get_fs(), bucket=settings.oci_bucket, cache_dir="data"
+    )
+
+
 # Dependencies for FastAPI
 
 
@@ -59,3 +72,10 @@ async def get_symbol_provider() -> InMemorySymbolProvider:
     Provides the global InMemorySymbolProvider instance.
     """
     return _get_symbol_provider_instance()
+
+
+async def get_tradingview_provider() -> TradingViewDataProvider:
+    """
+    Provides the global TradingViewDataProvider instance.
+    """
+    return _get_tradingview_provider_instance()

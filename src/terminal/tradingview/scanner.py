@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 
-class TradingViewScreenerClient:
+class TradingViewScanner:
     """
     Client for interacting with TradingView Scanner API to fetch symbols.
     """

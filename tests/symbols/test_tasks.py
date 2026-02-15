@@ -11,10 +11,10 @@ async def test_sync_symbols_success():
         {"ticker": "NASDAQ:AAPL", "name": "APPLE INC"},
     ]
 
-    # Mock TradingViewScreenerClient
-    with patch("terminal.symbols.tasks.TradingViewScreenerClient") as MockClient:
+    # Mock TradingView
+    with patch("terminal.symbols.tasks.TradingView") as MockClient:
         instance = MockClient.return_value
-        instance.fetch_symbols = AsyncMock(return_value=mock_symbols)
+        instance.scanner.fetch_symbols = AsyncMock(return_value=mock_symbols)
 
         mfs = MemoryFileSystem()
         bucket = "test-bucket"
@@ -23,7 +23,7 @@ async def test_sync_symbols_success():
         count = await sync_symbols(fs=mfs, bucket=bucket)
 
         assert count == 2
-        instance.fetch_symbols.assert_called_once()
+        instance.scanner.fetch_symbols.assert_called_once()
         assert mfs.exists(f"{bucket}/symbols/symbols.json")
 
 

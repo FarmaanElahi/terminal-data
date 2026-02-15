@@ -113,5 +113,42 @@ def make_migrations(
     command.revision(alembic_cfg, message=message, autogenerate=True)
 
 
+# ... (existing database_app commands)
+
+data_app = typer.Typer()
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("refresh-candle-day")
+def refresh_candle_day():
+    """
+    Refresh 1D candle data from TradingView and save to OCI cache.
+    """
+    import asyncio
+    from terminal.dependencies import (
+        _get_symbol_provider_instance,
+        _get_tradingview_provider_instance,
+    )
+
+    async def _run():
+        typer.echo("Initializing providers...")
+        sym_provider = _get_symbol_provider_instance()
+        tv_provider = _get_tradingview_provider_instance()
+
+        typer.echo("Fetching symbol list...")
+        symbols_info = await sym_provider.search(limit=1000)  # Get all primary symbols
+        tickers = [s["ticker"] for s in symbols_info]
+
+        if not tickers:
+            typer.echo("No symbols found to refresh.")
+            return
+
+        typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
+        await tv_provider.refresh_cache(tickers)
+        typer.echo("Refresh complete.")
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     app()
