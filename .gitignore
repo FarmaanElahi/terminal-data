@@ -42,3 +42,4 @@ dmypy.json
 # Project Specific
 old/
 postgres_data/  # If local volume is mounted here
+data/

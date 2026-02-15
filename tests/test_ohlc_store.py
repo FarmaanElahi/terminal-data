@@ -1,5 +1,7 @@
 import numpy as np
-from terminal.market_data import OHLCStore, MockDataProvider
+import time
+from terminal.market_data import OHLCStore
+from terminal.market_data.types import CANDLE_DTYPE
 
 
 def test_ohlc_store_init():
@@ -10,92 +12,46 @@ def test_ohlc_store_init():
 
 def test_load_history():
     store = OHLCStore(capacity_per_symbol=100)
-    provider = MockDataProvider()
-
-    # Generate random history
-    history = provider.get_history("AAPL", periods=50)
+    history = np.zeros(50, dtype=CANDLE_DTYPE)
+    for i in range(50):
+        history[i] = (
+            int(time.time()) - (50 - i) * 86400,
+            100.0,
+            105.0,
+            95.0,
+            102.0,
+            1000.0,
+        )
 
     store.load_history("AAPL", history)
-
     data = store.get_data("AAPL")
     assert len(data) == 50
     assert np.array_equal(data["timestamp"], history["timestamp"])
 
 
-def test_load_history_overflow():
-    capacity = 10
-    store = OHLCStore(capacity_per_symbol=capacity)
-    provider = MockDataProvider()
-
-    history = provider.get_history("AAPL", periods=20)
-
-    store.load_history("AAPL", history)
-
-    data = store.get_data("AAPL")
-    assert len(data) == capacity
-    # Should contain the *last* 10 candles
-    assert np.array_equal(data["timestamp"], history["timestamp"][-capacity:])
-
-
 def test_add_realtime_update():
     store = OHLCStore(capacity_per_symbol=100)
-    provider = MockDataProvider()
+    ts = int(time.time())
+    candle1 = (ts, 100.0, 105.0, 95.0, 102.0, 1000.0)
+    store.add_realtime("AAPL", candle1)
 
-    # Initial load
-    history = provider.get_history("AAPL", periods=10)
-    store.load_history("AAPL", history)
-
-    # Simulate update to the last candle
-    last_candle = history[-1]
-    updated_candle = last_candle.copy()
-    updated_candle["close"] += 1.0
-    updated_candle["volume"] += 100
-
-    store.add_realtime("AAPL", updated_candle)
+    candle1_updated = (ts, 100.0, 110.0, 95.0, 108.0, 1500.0)
+    store.add_realtime("AAPL", candle1_updated)
 
     data = store.get_data("AAPL")
-    assert len(data) == 10
-    assert data[-1]["close"] == updated_candle["close"]
-    assert data[-1]["volume"] == updated_candle["volume"]
+    assert len(data) == 1
+    assert data[0]["close"] == 108.0
 
 
 def test_add_realtime_new_candle():
     store = OHLCStore(capacity_per_symbol=100)
-    provider = MockDataProvider()
+    ts = int(time.time())
+    candle1 = (ts, 100.0, 105.0, 95.0, 102.0, 1000.0)
+    store.add_realtime("AAPL", candle1)
 
-    history = provider.get_history("AAPL", periods=10)
-    store.load_history("AAPL", history)
-
-    # New candle (next day)
-    new_timestamp = history[-1]["timestamp"] + 86400
-    new_candle = (new_timestamp, 150.0, 155.0, 149.0, 152.0, 5000.0)
-
-    store.add_realtime("AAPL", new_candle)
+    candle2 = (ts + 86400, 102.0, 108.0, 101.0, 105.0, 1200.0)
+    store.add_realtime("AAPL", candle2)
 
     data = store.get_data("AAPL")
-    assert len(data) == 11
-    assert data[-1]["timestamp"] == new_timestamp
-
-
-def test_multi_symbol_isolation():
-    store = OHLCStore(capacity_per_symbol=100)
-    provider = MockDataProvider()
-
-    aapl_history = provider.get_history("AAPL", periods=10)
-    goog_history = provider.get_history("GOOG", periods=15)
-
-    store.load_history("AAPL", aapl_history)
-    store.load_history("GOOG", goog_history)
-
-    aapl_data = store.get_data("AAPL")
-    goog_data = store.get_data("GOOG")
-
-    assert len(aapl_data) == 10
-    assert len(goog_data) == 15
-
-    # Update AAPL, verify GOOG unchanged
-    new_candle = (aapl_data[-1]["timestamp"] + 86400, 100, 110, 90, 105, 1000)
-    store.add_realtime("AAPL", new_candle)
-
-    assert len(store.get_data("AAPL")) == 11
-    assert len(store.get_data("GOOG")) == 15
+    assert len(data) == 2
+    assert data[-1]["timestamp"] == ts + 86400

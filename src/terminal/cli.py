@@ -116,10 +116,10 @@ def make_migrations(
 # ... (existing database_app commands)
 
 data_app = typer.Typer()
-app.add_typer(data_app, name="data")
+app.add_typer(data_app, name="market-data")
 
 
-@data_app.command("refresh-candle-day")
+@data_app.command("refresh-daily")
 def refresh_candle_day():
     """
     Refresh 1D candle data from TradingView and save to OCI cache.

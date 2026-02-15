@@ -1,7 +1,6 @@
 import logging
 import pandas as pd
 import numpy as np
-from pathlib import Path
 from typing import List
 
 from .provider import DataProvider
@@ -19,12 +18,7 @@ class TradingViewDataProvider(DataProvider):
     """
 
     def __init__(self, fs: any, bucket: str, cache_dir: str = "data"):
-        self.fs = fs
-        self.bucket = bucket
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_file_local = self.cache_dir / "tv_candles.parquet"
-        self.cache_file_oci = f"{bucket}/market_data/candles_1d.parquet"
+        super().__init__(fs, bucket, cache_dir, provider_name="tv")
         self._tv = TradingView()
 
     def get_history(self, symbol: str) -> np.ndarray:
@@ -97,8 +91,10 @@ class TradingViewDataProvider(DataProvider):
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s").dt.floor("D")
         return df.set_index("timestamp")
 
-    def subscribe(self, symbols: List[str]):
-        pass
-
-    def unsubscribe(self, symbols: List[str]):
-        pass
+    async def fetch_realtime(
+        self, markets: List[str] = ["india", "america"]
+    ) -> List[dict]:
+        """
+        Fetches latest OHLC data via scanner polling.
+        """
+        return await self._tv.scanner.fetch_ohlc(markets=markets)

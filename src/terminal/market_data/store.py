@@ -64,7 +64,6 @@ class OHLCStore:
             self._pointers[symbol] += 1
         else:
             # Buffer full, shift data (expensive, but hopefully rare with large capacity)
-            # Ideally, use a ring buffer or ensure capacity is sufficient for the session
             # For now, shift left and append
             buffer[:-1] = buffer[1:]
             buffer[-1] = candle
