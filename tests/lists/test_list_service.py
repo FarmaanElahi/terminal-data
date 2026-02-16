@@ -1,69 +1,139 @@
 import pytest
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session
 from terminal.lists import service as lists_service
+from terminal.lists.models import (
+    ListCreate,
+    ListUpdate,
+    SymbolsUpdate,
+    SourceListsUpdate,
+)
 from terminal.lists.enums import ListType
 
-
-@pytest.fixture(name="session")
-def session_fixture():
-    # Use SQLite for testing
-    engine = create_engine("sqlite:///:memory:")
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        yield session
+USER_ID = "test-user-id"
+OTHER_USER_ID = "other-user-id"
 
 
 def test_create_list(session: Session):
-    lst = lists_service.create(session, "My List", ListType.simple)
-    assert lst.id is not None
+    data = ListCreate(name="My List", type=ListType.simple)
+    lst = lists_service.create(session, USER_ID, data)
     assert lst.name == "My List"
+    assert lst.user_id == USER_ID
     assert lst.type == ListType.simple
 
 
-def test_append_symbols(session: Session):
-    lst = lists_service.create(session, "Simple", ListType.simple)
-    lists_service.append_symbols(session, lst.id, ["AAPL", "GOOG"])
-
-    lst = lists_service.get(session, lst.id)
-    assert "AAPL" in lst.symbols
-    assert "GOOG" in lst.symbols
-    assert len(lst.symbols) == 2
+def test_get_list(session: Session):
+    data = ListCreate(name="My List", type=ListType.simple)
+    lst = lists_service.create(session, USER_ID, data)
+    fetched = lists_service.get(session, lst.id, user_id=USER_ID)
+    assert fetched.id == lst.id
 
 
-def test_bulk_remove_symbols(session: Session):
-    lst = lists_service.create(session, "Simple", ListType.simple)
-    lists_service.append_symbols(session, lst.id, ["AAPL", "GOOG", "TSLA"])
-    lists_service.bulk_remove_symbols(session, lst.id, ["AAPL", "TSLA"])
-
-    lst = lists_service.get(session, lst.id)
-    assert lst.symbols == ["GOOG"]
+def test_get_all_lists(session: Session):
+    lists_service.create(session, USER_ID, ListCreate(name="L1", type=ListType.simple))
+    lists_service.create(session, USER_ID, ListCreate(name="L2", type=ListType.simple))
+    all_lists = lists_service.get_all(session, USER_ID)
+    assert len(all_lists) == 2
 
 
-def test_unique_color_list_constraint(session: Session):
-    red = lists_service.create(session, "Red", ListType.color, color="red")
-    green = lists_service.create(session, "Green", ListType.color, color="green")
+def test_append_symbols_simple(session: Session):
+    data = ListCreate(name="Simple", type=ListType.simple)
+    lst = lists_service.create(session, USER_ID, data)
 
-    # Add AAPL to Red
-    lists_service.append_symbols(session, red.id, ["AAPL"])
-    assert "AAPL" in lists_service.get_symbols(session, red.id)
+    lists_service.append_symbols(session, lst, USER_ID, SymbolsUpdate(symbols=["AAPL"]))
 
-    # Add AAPL to Green (should remove from Red)
-    lists_service.append_symbols(session, green.id, ["AAPL"])
-
-    assert "AAPL" not in lists_service.get_symbols(session, red.id)
-    assert "AAPL" in lists_service.get_symbols(session, green.id)
+    assert lst.symbols == ["AAPL"]
 
 
-def test_combo_list_aggregation(session: Session):
-    l1 = lists_service.create(session, "L1", ListType.simple)
-    l2 = lists_service.create(session, "L2", ListType.simple)
-
-    lists_service.append_symbols(session, l1.id, ["S1", "S2"])
-    lists_service.append_symbols(session, l2.id, ["S2", "S3"])
-
-    combo = lists_service.create(
-        session, "Combo", ListType.combo, source_list_ids=[l1.id, l2.id]
+def test_color_list_exclusive_symbols(session: Session):
+    # Two color lists for same user
+    l1 = lists_service.create(
+        session, USER_ID, ListCreate(name="Red", type=ListType.color, color="red")
+    )
+    l2 = lists_service.create(
+        session, USER_ID, ListCreate(name="Blue", type=ListType.color, color="blue")
     )
 
-    symbols = lists_service.get_symbols(session, combo.id)
-    assert set(symbols) == {"S1", "S2", "S3"}
+    # Add symbol to Red
+    lists_service.append_symbols(session, l1, USER_ID, SymbolsUpdate(symbols=["AAPL"]))
+    assert "AAPL" in l1.symbols
+
+    # Add same symbol to Blue -> should be removed from Red
+    lists_service.append_symbols(
+        session, l2, USER_ID, SymbolsUpdate(symbols=["AAPL", "MSFT"])
+    )
+    assert "AAPL" in l2.symbols
+    assert "AAPL" not in l1.symbols
+
+
+def test_combo_symbols_aggregation(session: Session):
+    # Create source lists
+    s1 = lists_service.create(
+        session, USER_ID, ListCreate(name="S1", type=ListType.simple)
+    )
+    s2 = lists_service.create(
+        session, USER_ID, ListCreate(name="S2", type=ListType.simple)
+    )
+
+    lists_service.append_symbols(session, s1, USER_ID, SymbolsUpdate(symbols=["AAPL"]))
+    lists_service.append_symbols(session, s2, USER_ID, SymbolsUpdate(symbols=["MSFT"]))
+
+    # Create combo list
+    combo = lists_service.create(
+        session,
+        USER_ID,
+        ListCreate(name="Combo", type=ListType.combo, source_list_ids=[s1.id, s2.id]),
+    )
+
+    symbols = lists_service.get_symbols(session, combo, USER_ID)
+    assert set(symbols) == {"AAPL", "MSFT"}
+
+
+def test_cross_user_security(session: Session):
+    # User 1 creates a list
+    l1 = lists_service.create(
+        session, USER_ID, ListCreate(name="U1 List", type=ListType.simple)
+    )
+
+    # User 2 tries to fetch it -> should be None
+    fetched = lists_service.get(session, l1.id, user_id=OTHER_USER_ID)
+    assert fetched is None
+
+    # User 2's get_all should be empty
+    assert lists_service.get_all(session, OTHER_USER_ID) == []
+
+
+def test_combo_source_list_management(session: Session):
+    l1 = lists_service.create(
+        session, USER_ID, ListCreate(name="L1", type=ListType.simple)
+    )
+    l2 = lists_service.create(
+        session, USER_ID, ListCreate(name="L2", type=ListType.simple)
+    )
+
+    combo = lists_service.create(
+        session,
+        USER_ID,
+        ListCreate(name="Combo", type=ListType.combo, source_list_ids=[l1.id]),
+    )
+
+    # Append
+    lists_service.append_source_lists(
+        session, combo, SourceListsUpdate(source_list_ids=[l2.id])
+    )
+    assert set(combo.source_list_ids) == {l1.id, l2.id}
+
+    # Remove
+    lists_service.bulk_remove_source_lists(
+        session, combo, SourceListsUpdate(source_list_ids=[l1.id])
+    )
+    assert combo.source_list_ids == [l2.id]
+
+
+def test_update_list(session: Session):
+    lst = lists_service.create(
+        session, USER_ID, ListCreate(name="Old Name", type=ListType.simple)
+    )
+    updated = lists_service.update(session, lst, ListUpdate(name="New Name"))
+
+    assert updated.name == "New Name"
+    assert lists_service.get(session, lst.id, USER_ID).name == "New Name"

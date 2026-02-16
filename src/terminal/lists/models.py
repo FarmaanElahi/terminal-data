@@ -1,5 +1,4 @@
-from typing import Optional
-from sqlmodel import Field, Column, JSON
+udafrom sqlmodel import Field, Column, JSON
 from sqlalchemy import ARRAY, String
 from terminal.lists.enums import ListType
 from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
@@ -10,9 +9,10 @@ class List(PrimaryKeyModel, TimeStampMixin, table=True):
     Unified List model for Simple, Color, and Combo lists.
     """
 
+    user_id: str = Field(foreign_key="user.id", index=True)
     name: str
     type: ListType
-    color: Optional[str] = None  # e.g., "red", "green", "purple"
+    color: str | None = None  # e.g., "red", "green", "purple"
 
     # Store list of symbol strings (e.g., ["NSE:RELIANCE", "NASDAQ:AAPL"])
     symbols: list[str] = Field(
@@ -30,9 +30,18 @@ class List(PrimaryKeyModel, TimeStampMixin, table=True):
 class ListCreate(TerminalBase):
     name: str
     type: ListType
-    color: Optional[str] = None
-    source_list_ids: Optional[list[str]] = None
+    color: str | None = None
+    source_list_ids: list[str] | None = None
 
 
-class SymbolUpdate(TerminalBase):
+class ListUpdate(TerminalBase):
+    name: str | None = None
+    color: str | None = None
+
+
+class SymbolsUpdate(TerminalBase):
     symbols: list[str]
+
+
+class SourceListsUpdate(TerminalBase):
+    source_list_ids: list[str]
