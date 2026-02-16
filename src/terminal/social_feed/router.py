@@ -1,10 +1,7 @@
 from fastapi import APIRouter, Query, HTTPException
 from typing import Literal
-from terminal.social_feed.client import (
-    StockTwitsClient,
-    SymbolFeedParam,
-    GlobalFeedParam,
-)
+from .client import StockTwitsClient
+from .models import GlobalFeedParam, SymbolFeedParam
 
 router = APIRouter(prefix="/social_feeds", tags=["Social Feed"])
 

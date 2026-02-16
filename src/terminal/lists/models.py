@@ -1,26 +1,15 @@
 from typing import Optional
-from uuid import uuid7
-from sqlmodel import SQLModel, Field, Column, JSON
+from sqlmodel import Field, Column, JSON
 from sqlalchemy import ARRAY, String
-from pydantic import ConfigDict
 from terminal.lists.enums import ListType
+from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
-def uuid7_str() -> str:
-    return str(uuid7())
-
-
-class List(SQLModel, table=True):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
+class List(PrimaryKeyModel, TimeStampMixin, table=True):
     """
     Unified List model for Simple, Color, and Combo lists.
     """
 
-    id: str = Field(
-        default_factory=uuid7_str,
-        primary_key=True,
-    )
     name: str
     type: ListType
     color: Optional[str] = None  # e.g., "red", "green", "purple"
@@ -36,3 +25,14 @@ class List(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(ARRAY(String).with_variant(JSON, "sqlite")),
     )
+
+
+class ListCreate(TerminalBase):
+    name: str
+    type: ListType
+    color: Optional[str] = None
+    source_list_ids: Optional[list[str]] = None
+
+
+class SymbolUpdate(TerminalBase):
+    symbols: list[str]

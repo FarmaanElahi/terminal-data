@@ -1,24 +1,8 @@
 import asyncio
-from typing import Literal, Union
-from pydantic import BaseModel
 from cloudscraper import CloudScraper, create_scraper
 from urllib.parse import urlencode
 
-
-# --- Parameter Models ---
-class GlobalFeedParam(BaseModel):
-    feed: Literal["trending", "suggested", "popular"]
-    limit: int
-
-
-class SymbolFeedParam(BaseModel):
-    feed: Literal["symbol"]
-    filter: Literal["trending", "popular"]
-    symbol: str
-    limit: int
-
-
-Param = Union[GlobalFeedParam, SymbolFeedParam]
+from .models import SymbolFeedParam, Param
 
 
 class StockTwitsClient:
