@@ -1,4 +1,4 @@
-udafrom sqlmodel import Field, Column, JSON
+from sqlmodel import Field, Column, JSON
 from sqlalchemy import ARRAY, String
 from terminal.lists.enums import ListType
 from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
