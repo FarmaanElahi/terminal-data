@@ -1,5 +1,9 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from terminal.enums import LogLevels
+
+# Resolve project root: config.py is at src/terminal/config.py → parents[2] = project root
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -8,7 +12,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=str(PROJECT_ROOT / ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
     # Database

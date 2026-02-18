@@ -4,7 +4,7 @@ import warnings
 from fastapi import FastAPI
 
 from .api import api_router as api_router
-from .logging import configure_logging
+from .log_config import configure_logging
 
 # Filter out Pydantic migration warnings
 warnings.filterwarnings("ignore", message=".*has been moved to.*")

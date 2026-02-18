@@ -2,9 +2,15 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+
 from terminal.models import Base
 from alembic import context
 from terminal.config import settings
+
+# Import all models to register them with Base.metadata for autogenerate
+from terminal.auth.models import User  # noqa: F401
+from terminal.lists.models import List  # noqa: F401
+from terminal.symbols.models import Symbol  # noqa: F401
 
 
 config = context.config

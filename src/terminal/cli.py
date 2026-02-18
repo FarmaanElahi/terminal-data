@@ -115,6 +115,39 @@ def make_migrations(
 
 # ... (existing database_app commands)
 
+symbol_app = typer.Typer()
+app.add_typer(symbol_app, name="symbol")
+
+
+@symbol_app.command("refresh")
+def refresh_symbols(
+    market: str = typer.Option("india", help="Market to sync symbols for"),
+):
+    """
+    Fetch symbols from TradingView and upsert them into the database.
+    """
+    import asyncio
+    from terminal.database import get_session
+    from terminal.symbols import service as symbol_service
+    from terminal.symbols.tasks import sync_symbols
+
+    async def _run():
+        typer.echo(f"Fetching symbols for market '{market}' from TradingView...")
+        symbols = await sync_symbols(fs=None, bucket="")
+
+        if not symbols:
+            typer.echo("No symbols returned from TradingView.")
+            return
+
+        typer.echo(f"Syncing {len(symbols)} symbols to database...")
+        for session in get_session():
+            count = await symbol_service.refresh(session, symbols)
+            typer.echo(f"Successfully upserted {count} symbols.")
+            break
+
+    asyncio.run(_run())
+
+
 data_app = typer.Typer()
 app.add_typer(data_app, name="market-data")
 
@@ -126,26 +159,33 @@ def refresh_candle_day():
     """
     import asyncio
     from terminal.dependencies import (
-        _get_symbol_provider_instance,
         _get_tradingview_provider_instance,
     )
+    from terminal.database import get_session
+    from terminal.symbols import service as symbol_service
 
     async def _run():
         typer.echo("Initializing providers...")
-        sym_provider = _get_symbol_provider_instance()
         tv_provider = _get_tradingview_provider_instance()
 
-        typer.echo("Fetching symbol list...")
-        symbols_info = await sym_provider.search(limit=20000)  # Get all primary symbols
-        tickers = [s["ticker"] for s in symbols_info]
+        typer.echo("Fetching symbol list from database...")
+        # Get a session from the generator
+        # Since get_session yields a session and handles commit/rollback/close, we iterate
+        for session in get_session():
+            symbols_info = await symbol_service.search(
+                session, limit=20000
+            )  # Get all primary symbols
+            tickers = [s.ticker for s in symbols_info]
 
-        if not tickers:
-            typer.echo("No symbols found to refresh.")
-            return
+            if not tickers:
+                typer.echo("No symbols found to refresh.")
+                return
 
-        typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
-        await tv_provider.refresh_cache(tickers)
-        typer.echo("Refresh complete.")
+            typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
+            await tv_provider.refresh_cache(tickers)
+            typer.echo("Refresh complete.")
+            # Break after one use since get_session yields once
+            break
 
     asyncio.run(_run())
 
