@@ -48,3 +48,9 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 
 - Use `ruff` for linting and formatting.
 - Run `ruff check --fix .` to auto-fix issues.
+
+### Alembic Migrations
+
+- **Timing**: Only generate Alembic migrations once the entire feature is complete and approved.
+- **Avoid Intermediate Diffing**: Do not generate intermediate schema diff migrations during the active development phase.
+- Use `alembic revision --autogenerate -m "description"` only for finalized schema changes.
