@@ -21,8 +21,8 @@ def test_database_lifecycle():
         patch("terminal.database.core.engine", test_engine),
         patch("terminal.database.manage.engine", test_engine),
     ):
-        # 1. Initialize DB (creates tables in memory)
-        init_db()
+        # 1. Initialize only the required table for this test
+        Hero.__table__.create(test_engine)
 
         # 2. Get session and perform ops
         session_gen = get_session()

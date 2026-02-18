@@ -1,17 +1,14 @@
 import pytest
-from terminal.symbols.service import InMemorySymbolProvider
+import pytest_asyncio
+from sqlmodel import Session
+from terminal.symbols import service as symbol_service
 
 
-@pytest.fixture
-def mock_provider():
+@pytest_asyncio.fixture
+async def seeded_session(session: Session):
     """
-    Creates a provider with mock data for testing search logic.
+    Creates a session with mock data for testing search logic.
     """
-    from unittest.mock import MagicMock
-
-    mock_fs = MagicMock()
-    provider = InMemorySymbolProvider(fs=mock_fs, bucket="test-bucket")
-
     mock_data = [
         {
             "ticker": "NASDAQ:NVDA",
@@ -20,7 +17,10 @@ def mock_provider():
             "country": "United States",
             "type": "stock",
             "isin": "US67066G1040",
-            "indexes": ["S&P 500", "NASDAQ 100"],
+            "indexes": [
+                {"name": "S&P 500", "proname": "SPX"},
+                {"name": "NASDAQ 100", "proname": "NDX"},
+            ],
             "typespecs": ["common"],
         },
         {
@@ -30,7 +30,10 @@ def mock_provider():
             "country": "India",
             "type": "stock",
             "isin": "INE002A01018",
-            "indexes": ["NIFTY 50", "NIFTY 100"],
+            "indexes": [
+                {"name": "NIFTY 50", "proname": "NSE:NIFTY"},
+                {"name": "NIFTY 100", "proname": "NSE:NIFTY100"},
+            ],
             "typespecs": ["common"],
         },
         {
@@ -40,7 +43,10 @@ def mock_provider():
             "country": "India",
             "type": "stock",
             "isin": "INE467B01029",
-            "indexes": ["NIFTY 50", "CNX IT"],
+            "indexes": [
+                {"name": "NIFTY 50", "proname": "NSE:NIFTY"},
+                {"name": "CNX IT", "proname": "NSE:CNXIT"},
+            ],
             "typespecs": ["common"],
         },
         {
@@ -55,59 +61,65 @@ def mock_provider():
         },
     ]
 
-    provider._symbols = mock_data
-    provider._initialized = True
-    provider._build_index()
-
-    return provider
+    await symbol_service.refresh(session, mock_data)
+    return session
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_query(mock_provider):
+async def test_search_symbols_query(seeded_session):
     # Search by ticker
-    results = await mock_provider.search(query="NVDA", market="america")
+    results = await symbol_service.search(
+        seeded_session, query="NVDA", market="america"
+    )
     assert len(results) == 1
-    assert results[0]["ticker"] == "NASDAQ:NVDA"
-    assert "indexes" not in results[0]
+    assert results[0].ticker == "NASDAQ:NVDA"
 
     # Search by name
-    results = await mock_provider.search(query="RELIANCE", market="india")
+    results = await symbol_service.search(
+        seeded_session, query="RELIANCE", market="india"
+    )
     assert len(results) == 1
-    assert "RELIANCE" in results[0]["name"]
-    assert "indexes" not in results[0]
+    assert "RELIANCE" in results[0].name
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_type(mock_provider):
-    results = await mock_provider.search(item_type="fund", market="america")
+async def test_search_symbols_type(seeded_session):
+    results = await symbol_service.search(
+        seeded_session, item_type="fund", market="america"
+    )
     assert len(results) == 1
-    assert results[0]["ticker"] == "NYSE:SPY"
+    assert results[0].ticker == "NYSE:SPY"
 
-    results = await mock_provider.search(item_type="stock", market="america")
+    results = await symbol_service.search(
+        seeded_session, item_type="stock", market="america"
+    )
     assert len(results) == 1
-    assert results[0]["ticker"] == "NASDAQ:NVDA"
+    assert results[0].ticker == "NASDAQ:NVDA"
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_market_default(mock_provider):
-    # india is default
-    results = await mock_provider.search(query="TCS")
+async def test_search_symbols_market_default(seeded_session):
+    results = await symbol_service.search(seeded_session, query="TCS")
     assert len(results) == 1
-    assert results[0]["ticker"] == "NSE:TCS"
+    assert results[0].ticker == "NSE:TCS"
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_index(mock_provider):
-    results = await mock_provider.search(index="NIFTY 50")
+async def test_search_symbols_index(seeded_session):
+    results = await symbol_service.search(
+        seeded_session, index="NIFTY 50", market="india"
+    )
     assert len(results) == 2  # RELIANCE and TCS
 
-    results = await mock_provider.search(index="CNX IT")
+    results = await symbol_service.search(
+        seeded_session, index="CNX IT", market="india"
+    )
     assert len(results) == 1
-    assert results[0]["ticker"] == "NSE:TCS"
+    assert results[0].ticker == "NSE:TCS"
 
 
-def test_get_search_metadata(mock_provider):
-    metadata = mock_provider.get_metadata()
+def test_get_search_metadata(seeded_session):
+    metadata = symbol_service.get_metadata(seeded_session)
     assert "india" in metadata["markets"]
     assert "america" in metadata["markets"]
     assert "stock" in metadata["types"]

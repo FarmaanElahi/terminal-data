@@ -1,163 +1,110 @@
-from abc import ABC, abstractmethod
 from typing import Any
-import json
+from sqlmodel import Session, select, func
+from terminal.symbols.models import Symbol
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 
-class SymbolProvider(ABC):
+async def search(
+    session: Session,
+    query: str | None = None,
+    market: str | None = "india",
+    item_type: str | None = None,
+    index: str | None = None,
+    limit: int = 100,
+) -> list[Symbol]:
     """
-    Abstract base class for symbol data access.
+    Search symbols using PostgreSQL Full-Text Search or basic filters.
     """
+    statement = select(Symbol)
 
-    @abstractmethod
-    async def search(
-        self,
-        query: str | None = None,
-        market: str | None = "india",
-        item_type: str | None = None,
-        index: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        pass
+    if market:
+        statement = statement.where(Symbol.market == market)
 
-    @abstractmethod
-    def get_metadata(self) -> dict[str, list[str]]:
-        pass
+    if item_type:
+        statement = statement.where(Symbol.type == item_type)
 
-    @abstractmethod
-    async def refresh(self, trigger_sync: bool = False) -> int:
-        """Reloads data from storage, optionally triggering a sync."""
-        pass
+    if index:
+        # PostgreSQL JSONB containment check (@>)
+        # We search for an object with matching name within the indexes array
+        statement = statement.where(Symbol.indexes.contains([{"name": index}]))
+
+    if query:
+        # Clean query and prepare for prefix matching
+        # e.g. "aa pl" -> "aa:* & pl:*"
+        clean_query = " & ".join([f"{term}:*" for term in query.split() if term])
+        if clean_query:
+            ts_query = func.to_tsquery("english", clean_query)
+            statement = statement.where(Symbol.search_vector.op("@@")(ts_query))
+            # Sort by rank descending
+            statement = statement.order_by(
+                func.ts_rank(Symbol.search_vector, ts_query).desc()
+            )
+
+    statement = statement.limit(limit)
+    return list(session.exec(statement).all())
 
 
-class InMemorySymbolProvider(SymbolProvider):
+async def refresh(session: Session, symbols: list[dict[str, Any]]) -> int:
     """
-    High-performance in-memory symbol provider with indexing.
+    Syncs a list of symbols into the database using an efficient upsert strategy.
+    Existing symbols (matched by ticker) are updated, others are inserted.
     """
+    if not symbols:
+        return 0
 
-    def __init__(self, fs: Any, bucket: str):
-        self.fs = fs
-        self.bucket = bucket
-        self._symbols: list[dict[str, Any]] = []
-        self._by_market: dict[str, list[int]] = {}  # index in self._symbols
-        self._by_type: dict[str, list[int]] = {}
-        self._markets: set[str] = set()
-        self._types: set[str] = set()
-        self._indexes: set[str] = set()
-        self._initialized = False
-
-    async def _ensure_loaded(self):
-        if not self._initialized:
-            await self.refresh(trigger_sync=False)
-
-    def _build_index(self):
-        """Builds market and type indexes for O(1) initial access."""
-        self._by_market = {}
-        self._by_type = {}
-        self._markets = set()
-        self._types = set()
-        self._indexes = set()
-
-        for idx, s in enumerate(self._symbols):
-            m = s.get("market")
-            t = s.get("type")
-            idxs = s.get("indexes", [])
-
-            if m:
-                self._markets.add(m)
-                self._by_market.setdefault(m, []).append(idx)
-
-            if t:
-                self._types.add(t)
-                self._by_type.setdefault(t, []).append(idx)
-
-            for i in idxs:
-                self._indexes.add(i)
-
-    @staticmethod
-    async def persist_symbols(
-        fs: Any, bucket: str, symbols: list[dict[str, Any]]
-    ) -> int:
-        """
-        Persists provided symbols to OCI S3 storage.
-        """
-        if not bucket:
-            raise ValueError("OCI_BUCKET environment variable is not set")
-
-        file_path = f"{bucket}/symbols/symbols.json"
-
-        with fs.open(file_path, "w") as f:
-            json.dump(symbols, f)
-
-        return len(symbols)
-
-    async def refresh(self, trigger_sync: bool = False) -> int:
-        file_path = f"{self.bucket}/symbols/symbols.json"
-
-        if not self.fs.exists(file_path):
-            self._initialized = True
-            return 0
-
-        with self.fs.open(file_path, "r") as f:
-            self._symbols = json.load(f)
-
-        self._build_index()
-        self._initialized = True
-        return len(self._symbols)
-
-    async def search(
-        self,
-        query: str | None = None,
-        market: str | None = "india",
-        item_type: str | None = None,
-        index: str | None = None,
-        limit: int = 100,
-    ) -> list[dict[str, Any]]:
-        await self._ensure_loaded()
-
-        # 1. Start with the most restrictive indexed set
-        candidates: list[int] = []
-
-        if market and market in self._by_market:
-            candidates = self._by_market[market]
-        elif market:
-            return []  # Market requested but not found
-        else:
-            candidates = list(range(len(self._symbols)))
-
-        results = []
-        query = query.lower() if query else None
-
-        for idx in candidates:
-            s = self._symbols[idx]
-
-            # 2. Sequential filters
-            if item_type and s.get("type") != item_type:
-                continue
-
-            if index and index not in s.get("indexes", []):
-                continue
-
-            if query:
-                match = (
-                    query in s.get("ticker", "").lower()
-                    or query in s.get("name", "").lower()
-                    or query in s.get("isin", "").lower()
-                )
-                if not match:
-                    continue
-
-            # Return a copy without 'indexes'
-            res = s.copy()
-            res.pop("indexes", None)
-            results.append(res)
-            if len(results) >= limit:
-                break
-
-        return results
-
-    def get_metadata(self) -> dict[str, list[str]]:
-        return {
-            "markets": sorted(list(self._markets)),
-            "indexes": sorted(list(self._indexes)),
-            "types": sorted(list(self._types)),
+    # Prepare symbol data (strip non-model fields if any)
+    data_list = [
+        {
+            "ticker": s.get("ticker"),
+            "name": s.get("name"),
+            "type": s.get("type"),
+            "market": s.get("market"),
+            "isin": s.get("isin"),
+            "indexes": s.get("indexes", []),
+            "typespecs": s.get("typespecs", []),
         }
+        for s in symbols
+    ]
+
+    # Optimized idiomatic bulk upsert for PostgreSQL using Session.execute(stmt, params)
+    # This is the native SQLAlchemy 2.0 pattern for batch execution
+    stmt = pg_insert(Symbol)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker"],
+        set_={
+            "name": stmt.excluded.name,
+            "type": stmt.excluded.type,
+            "market": stmt.excluded.market,
+            "isin": stmt.excluded.isin,
+            "indexes": stmt.excluded.indexes,
+            "typespecs": stmt.excluded.typespecs,
+        },
+    )
+    session.execute(stmt, data_list)
+    session.commit()
+    return len(symbols)
+
+
+def get_metadata(session: Session) -> dict[str, list[str]]:
+    """
+    Returns available filter options (markets, indexes, types).
+    """
+    markets = session.exec(select(Symbol.market).distinct()).all()
+    types = session.exec(select(Symbol.type).distinct()).all()
+
+    # Indexes are in a JSON column, so we might need a different approach for distinct values
+    all_symbols = session.exec(select(Symbol.indexes)).all()
+    unique_indexes = set()
+    for idxs in all_symbols:
+        if isinstance(idxs, list):
+            for idx in idxs:
+                if isinstance(idx, dict) and "name" in idx:
+                    unique_indexes.add(idx["name"])
+                elif isinstance(idx, str):
+                    unique_indexes.add(idx)
+
+    return {
+        "markets": sorted(list(markets)),
+        "types": sorted(list(types)),
+        "indexes": sorted(list(unique_indexes)),
+    }

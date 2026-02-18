@@ -1,17 +1,13 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
-from terminal.main import api
 from unittest.mock import patch, AsyncMock
-from fsspec.implementations.memory import MemoryFileSystem
-from terminal.symbols.service import InMemorySymbolProvider
-from terminal.dependencies import get_symbol_provider, get_fs, get_settings
-from terminal.config import Settings
+from terminal.symbols.models import Symbol
+from sqlmodel import select
 
 
 @pytest.mark.asyncio
-async def test_full_sync_and_search_flow():
+async def test_full_sync_and_search_flow(client, session):
     """
-    Tests the full flow from fetching (mocked) to search via API with DI.
+    Tests the full flow from fetching (mocked) to search via API with DB.
     """
     mock_symbols = [
         {
@@ -21,51 +17,35 @@ async def test_full_sync_and_search_flow():
             "market": "india",
             "type": "stock",
             "isin": "INE002A01018",
-            "indexes": ["NIFTY 50"],
+            "indexes": [{"name": "NIFTY 50", "proname": "NSE:NIFTY"}],
+            "typespecs": ["common"],
         }
     ]
-
-    # Use MemoryFileSystem for storage testing
-    mfs = MemoryFileSystem()
-    bucket = "test-bucket"
-
-    # Setup a fresh provider for DI with constructor injection
-    test_provider = InMemorySymbolProvider(fs=mfs, bucket=bucket)
-
-    # Dependency overrides
-    api.dependency_overrides[get_settings] = lambda: Settings(
-        database_url="postgresql+psycopg://postgres:postgres@localhost:5432/terminal",
-        oci_bucket=bucket,
-        oci_config="dummy",
-        oci_key="dummy",
-    )
-    api.dependency_overrides[get_fs] = lambda: mfs
-    api.dependency_overrides[get_symbol_provider] = lambda: test_provider
 
     # Patch the external client in tasks.py
     with patch("terminal.symbols.tasks.TradingView") as MockTV:
         MockTV.return_value.scanner.fetch_symbols = AsyncMock(return_value=mock_symbols)
 
-        transport = ASGITransport(app=api)
-        async with AsyncClient(transport=transport, base_url="http://test") as ac:
-            # 1. Trigger Sync
-            sync_resp = await ac.post("/api/v1/symbols/sync")
-            assert sync_resp.status_code == 200
-            assert sync_resp.json()["count"] == 1
+        # 1. Trigger Sync via API
+        sync_resp = await client.post("/api/v1/symbols/sync")
+        assert sync_resp.status_code == 200
+        assert sync_resp.json()["count"] == 1
 
-            # Check if file was actually "written" to memory
-            assert mfs.exists(f"{bucket}/symbols/symbols.json")
+        # 2. Verify data in DB
+        symbols_in_db = session.exec(select(Symbol)).all()
+        assert len(symbols_in_db) == 1
+        assert symbols_in_db[0].ticker == "NSE:RELIANCE"
+        assert symbols_in_db[0].indexes[0]["name"] == "NIFTY 50"
 
-            # 2. Search for the symbol
-            search_resp = await ac.get("/api/v1/symbols/?q=RELIANCE&market=india")
-            assert search_resp.status_code == 200
-            results = search_resp.json()
-            assert len(results) == 1
-            assert results[0]["ticker"] == "NSE:RELIANCE"
+        # 3. Search for the symbol via API
+        search_resp = await client.get("/api/v1/symbols/?q=RELIANCE&market=india")
+        assert search_resp.status_code == 200
+        results = search_resp.json()
+        assert len(results) == 1
+        assert results[0]["ticker"] == "NSE:RELIANCE"
 
-            # 3. Check metadata
-            meta_resp = await ac.get("/api/v1/symbols/search_metadata")
-            assert meta_resp.status_code == 200
-            assert "india" in meta_resp.json()["markets"]
-
-    api.dependency_overrides.clear()
+        # 4. Check metadata via API
+        meta_resp = await client.get("/api/v1/symbols/search_metadata")
+        assert meta_resp.status_code == 200
+        assert "india" in meta_resp.json()["markets"]
+        assert "NIFTY 50" in meta_resp.json()["indexes"]

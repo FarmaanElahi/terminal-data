@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlmodel import Session
 import jwt
 
-from terminal.database import get_session
+from terminal.dependencies import get_session
 from terminal.auth.models import User, UserCreate, Token
 from terminal.auth import service as auth_service
 from terminal.auth.security import create_access_token, SECRET_KEY, ALGORITHM

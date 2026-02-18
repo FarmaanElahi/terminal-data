@@ -7,6 +7,8 @@ class User(PrimaryKeyModel, TimeStampMixin, table=True):
     User model for authentication.
     """
 
+    __tablename__ = "users"
+
     username: str = Field(unique=True, index=True)
     hashed_password: str
     is_active: bool = Field(default=True)

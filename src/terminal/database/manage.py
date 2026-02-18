@@ -1,12 +1,23 @@
-from sqlmodel import SQLModel
+from sqlmodel import SQLModel, text
 from sqlalchemy_utils import database_exists, create_database, drop_database
 from .core import engine
 
+# Import all models here to ensure they are registered in SQLModel.metadata
+from terminal.auth.models import User
+from terminal.lists.models import List
+from terminal.symbols.models import Symbol
 
-def init_db():
-    if not database_exists(engine.url):
-        create_database(engine.url)
-    SQLModel.metadata.create_all(engine)
+
+def init_db(engine_input=None):
+    use_engine = engine_input or engine
+    if not database_exists(use_engine.url):
+        create_database(use_engine.url)
+
+    with use_engine.begin() as conn:
+        if use_engine.dialect.name == "postgresql":
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+
+    SQLModel.metadata.create_all(use_engine)
 
 
 def drop_db():

@@ -1,104 +1,89 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
-from terminal.main import api
-from terminal.symbols.service import InMemorySymbolProvider
-from terminal.dependencies import get_symbol_provider
+from terminal.symbols.models import Symbol
+from terminal.symbols import service as symbol_service
+from unittest.mock import AsyncMock, patch
 
 
-@pytest.fixture
-def mock_provider():
-    """
-    Creates a provider with mock data for testing search API.
-    """
-    from unittest.mock import MagicMock
-
-    mock_fs = MagicMock()
-    provider = InMemorySymbolProvider(fs=mock_fs, bucket="test-bucket")
+@pytest.mark.asyncio
+async def test_get_symbols_api(client, session):
+    # 1. Seed data
     mock_data = [
         {
             "ticker": "NASDAQ:NVDA",
             "name": "nvidia",
             "market": "america",
-            "country": "United States",
             "type": "stock",
-            "isin": "US67066G1040",
-            "indexes": ["S&P 500", "NASDAQ 100"],
-        },
+            "indexes": [{"name": "NASDAQ 100", "proname": "NDX"}],
+            "typespecs": ["common"],
+        }
+    ]
+    await symbol_service.refresh(session, mock_data)
+
+    # 2. Test search via API
+    response = await client.get("/api/v1/symbols/?q=NVDA&market=america")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["ticker"] == "NASDAQ:NVDA"
+    assert data[0]["indexes"][0]["name"] == "NASDAQ 100"
+
+
+@pytest.mark.asyncio
+async def test_get_symbols_metadata_api(client, session):
+    # 1. Seed data
+    mock_data = [
         {
             "ticker": "NSE:RELIANCE",
             "name": "RELIANCE INDUSTRIES",
             "market": "india",
-            "country": "India",
             "type": "stock",
-            "isin": "INE002A01018",
-            "indexes": ["NIFTY 50", "NIFTY 100"],
-        },
+            "indexes": [{"name": "NIFTY 50", "proname": "NSE:NIFTY"}],
+            "typespecs": ["common"],
+        }
     ]
-    provider._symbols = mock_data
-    provider._initialized = True
-    provider._build_index()
-    return provider
+    await symbol_service.refresh(session, mock_data)
+
+    # 2. Test metadata via API
+    response = await client.get("/api/v1/symbols/search_metadata")
+    assert response.status_code == 200
+    data = response.json()
+    assert "india" in data["markets"]
+    assert "NIFTY 50" in data["indexes"]
 
 
 @pytest.mark.asyncio
-async def test_get_symbols_api(mock_provider):
-    api.dependency_overrides[get_symbol_provider] = lambda: mock_provider
-
-    transport = ASGITransport(app=api)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Test search
-        response = await ac.get("/api/v1/symbols/?q=NVDA&market=america")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["ticker"] == "NASDAQ:NVDA"
-
-    api.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_get_symbols_metadata_api(mock_provider):
-    api.dependency_overrides[get_symbol_provider] = lambda: mock_provider
-
-    transport = ASGITransport(app=api)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.get("/api/v1/symbols/search_metadata")
-        assert response.status_code == 200
-        data = response.json()
-        assert "india" in data["markets"]
-        assert "S&P 500" in data["indexes"]
-
-    api.dependency_overrides.clear()
-
-
-@pytest.mark.asyncio
-async def test_sync_symbols_api(monkeypatch, mock_provider):
+async def test_sync_symbols_api(client, session):
     """
-    Test the sync API endpoint with mock sync logic and DI.
+    Test the sync API endpoint with mock sync logic.
     """
-    api.dependency_overrides[get_symbol_provider] = lambda: mock_provider
+    mock_symbols = [
+        {
+            "ticker": "MOCK:TICKER",
+            "name": "Mock Name",
+            "market": "india",
+            "type": "stock",
+            "indexes": [{"name": "MOCK INDEX", "proname": "MOCK:IDX"}],
+            "typespecs": ["common"],
+        }
+    ]
 
-    # Mock synchronous feature-level sync_symbols (the one from routers/symbols.py)
-    import terminal.symbols.router as symbols_api
-    from unittest.mock import AsyncMock
+    # Patch sync_symbols in the router module
+    with patch(
+        "terminal.symbols.router.sync_symbols", new_callable=AsyncMock
+    ) as mocked_sync:
+        mocked_sync.return_value = mock_symbols
 
-    async def mock_sync(**kwargs):
-        return 42
-
-    monkeypatch.setattr(symbols_api, "sync_symbols", mock_sync)
-
-    # Mock provider.refresh
-    mock_provider.refresh = AsyncMock(return_value=42)
-
-    transport = ASGITransport(app=api)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        response = await ac.post("/api/v1/symbols/sync")
+        response = await client.post("/api/v1/symbols/sync")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "Sync complete"
-        assert data["count"] == 42
+        assert data["count"] == 1
 
-        # Verify provider refresh was called
-        mock_provider.refresh.assert_called_once_with(trigger_sync=False)
+        # Verify data was actually refreshed in DB
+        from sqlmodel import select
 
-    api.dependency_overrides.clear()
+        symbols_in_db = session.exec(select(Symbol)).all()
+        assert len(symbols_in_db) == 1
+        assert symbols_in_db[0].ticker == "MOCK:TICKER"
+        assert symbols_in_db[0].indexes[0]["name"] == "MOCK INDEX"
+        assert symbols_in_db[0].typespecs == ["common"]

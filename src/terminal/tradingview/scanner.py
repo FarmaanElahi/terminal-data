@@ -185,9 +185,7 @@ class TradingViewScanner:
                         "market": market,
                         "type": raw_type,
                         "typespecs": raw_specs,
-                        "indexes": [idx["name"] for idx in details[8]]
-                        if details[8]
-                        else [],
+                        "indexes": details[8] if details[8] else [],
                     }
                     all_symbols.append(symbol_info)
 

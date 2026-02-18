@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session
 
-from terminal.database import get_session
+from terminal.dependencies import get_session
 from terminal.lists.models import (
     ListCreate,
     ListUpdate,

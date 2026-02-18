@@ -7,8 +7,18 @@ from fsspec.implementations.memory import MemoryFileSystem
 @pytest.mark.asyncio
 async def test_sync_symbols_success():
     mock_symbols = [
-        {"ticker": "NSE:RELIANCE", "name": "RELIANCE INDUSTRIES LTD"},
-        {"ticker": "NASDAQ:AAPL", "name": "APPLE INC"},
+        {
+            "ticker": "NSE:RELIANCE",
+            "name": "RELIANCE INDUSTRIES LTD",
+            "indexes": [{"name": "NIFTY 50", "proname": "NSE:NIFTY"}],
+            "typespecs": ["common"],
+        },
+        {
+            "ticker": "NASDAQ:AAPL",
+            "name": "APPLE INC",
+            "indexes": [{"name": "NASDAQ 100", "proname": "NDX"}],
+            "typespecs": ["common"],
+        },
     ]
 
     # Mock TradingView
@@ -20,18 +30,17 @@ async def test_sync_symbols_success():
         bucket = "test-bucket"
 
         # Test sync with explicit dependencies
-        count = await sync_symbols(fs=mfs, bucket=bucket)
+        symbols = await sync_symbols(fs=mfs, bucket=bucket)
 
-        assert count == 2
+        assert len(symbols) == 2
         instance.scanner.fetch_symbols.assert_called_once()
-        assert mfs.exists(f"{bucket}/symbols/symbols.json")
 
 
 @pytest.mark.asyncio
 async def test_sync_symbols_no_bucket():
     """
-    ValueError is raised by persist_symbols if bucket is empty.
+    Bucket check logic is moved up to router or handled by providers.
     """
     mock_fs = MagicMock()
-    with pytest.raises(ValueError, match="OCI_BUCKET environment variable is not set"):
-        await sync_symbols(fs=mock_fs, bucket="")
+    symbols = await sync_symbols(fs=mock_fs, bucket="")
+    assert isinstance(symbols, list)

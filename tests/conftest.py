@@ -3,7 +3,8 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlmodel import Session, create_engine, SQLModel
 from terminal.main import api
-from terminal.database import get_session
+from terminal.dependencies import get_session
+from terminal.database.manage import init_db
 from dotenv import load_dotenv
 from testcontainers.postgres import PostgresContainer
 
@@ -24,13 +25,15 @@ def session_fixture(postgres_container):
     # Use psycopg (v3) dialect
     url = postgres_container.get_connection_url().replace("+psycopg2", "+psycopg")
     engine = create_engine(url)
-    SQLModel.metadata.create_all(engine)
+
+    # Use init_db to ensure all models are registered and tables created
+    init_db(engine)
+
     with Session(engine) as session:
         yield session
-        # Cleanup: Truncate all tables to ensure test isolation
-        for table in reversed(SQLModel.metadata.sorted_tables):
-            session.execute(table.delete())
-        session.commit()
+        # Cleanup: Drop all tables to ensure test isolation
+        session.rollback()  # Ensure no pending transaction
+        SQLModel.metadata.drop_all(engine)
 
 
 @pytest_asyncio.fixture(name="client")

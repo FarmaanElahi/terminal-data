@@ -9,7 +9,9 @@ class List(PrimaryKeyModel, TimeStampMixin, table=True):
     Unified List model for Simple, Color, and Combo lists.
     """
 
-    user_id: str = Field(foreign_key="user.id", index=True)
+    __tablename__ = "lists"
+
+    user_id: str = Field(foreign_key="users.id", index=True)
     name: str
     type: ListType
     color: str | None = None  # e.g., "red", "green", "purple"

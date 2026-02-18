@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Query, Depends
 from typing import Any
-from terminal.dependencies import get_symbol_provider, get_fs, get_settings
-from terminal.symbols.service import SymbolProvider
+from sqlmodel import Session
+from terminal.dependencies import get_fs, get_settings, get_session
+from terminal.symbols import service as symbol_service
 from terminal.symbols.tasks import sync_symbols
 from terminal.config import Settings
 
@@ -19,38 +20,45 @@ async def get_symbols(
     ),
     index: str | None = Query(None, description="Filter by index name"),
     limit: int = Query(100, ge=1, le=500),
-    provider: SymbolProvider = Depends(get_symbol_provider),
+    session: Session = Depends(get_session),
 ):
     """
     Search for symbols with optional filters.
     """
-    return await provider.search(
-        query=q, market=market, item_type=symbol_type, index=index, limit=limit
+    return await symbol_service.search(
+        session=session,
+        query=q,
+        market=market,
+        item_type=symbol_type,
+        index=index,
+        limit=limit,
     )
 
 
 @router.get("/search_metadata")
-async def get_metadata(provider: SymbolProvider = Depends(get_symbol_provider)):
+async def get_metadata(
+    session: Session = Depends(get_session),
+):
     """
     Returns available filter options (markets, indexes, types).
     """
-    return provider.get_metadata()
+    return symbol_service.get_metadata(session=session)
 
 
 @router.post("/sync")
 async def trigger_sync(
-    provider: SymbolProvider = Depends(get_symbol_provider),
     fs: Any = Depends(get_fs),
     settings: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
 ):
     """
     Trigger a manual sync of symbols from TradingView.
     Synchronous (foreground) execution.
     """
-    # 1. Fetch from TradingView and persist to storage
-    count = await sync_symbols(fs=fs, bucket=settings.oci_bucket)
+    # 1. Fetch from TradingView
+    symbols = await sync_symbols(fs=fs, bucket=settings.oci_bucket)
 
-    # 2. Refresh the provider from storage
-    await provider.refresh(trigger_sync=False)
+    # 2. Refresh the database-backed storage
+    count = await symbol_service.refresh(session=session, symbols=symbols)
 
     return {"status": "Sync complete", "count": count}
