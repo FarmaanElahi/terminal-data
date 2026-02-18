@@ -1,15 +1,6 @@
-import pytest
-from sqlmodel import Session, create_engine, SQLModel
+from sqlmodel import Session
 from terminal.auth import service as auth_service
 from terminal.auth.models import UserCreate
-
-
-@pytest.fixture(name="session")
-def session_fixture():
-    engine = create_engine("sqlite:///:memory:")
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        yield session
 
 
 def test_register_user(session: Session):

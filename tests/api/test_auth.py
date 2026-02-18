@@ -1,29 +1,4 @@
 import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlmodel import Session, create_engine, SQLModel
-from terminal.main import api
-from terminal.database import get_session
-
-
-@pytest.fixture(name="session")
-def session_fixture():
-    engine = create_engine("sqlite:///:memory:")
-    SQLModel.metadata.create_all(engine)
-    with Session(engine) as session:
-        yield session
-
-
-@pytest_asyncio.fixture(name="client")
-async def client_fixture(session):
-    def get_session_override():
-        yield session
-
-    api.dependency_overrides[get_session] = get_session_override
-    transport = ASGITransport(app=api)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-    api.dependency_overrides.clear()
 
 
 @pytest.mark.asyncio

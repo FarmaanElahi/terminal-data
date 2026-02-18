@@ -22,6 +22,7 @@ async def get_all_lists(
     current_user: User = Depends(get_current_user),
 ):
     """List all lists owned by the current user."""
+    lists_service.ensure_default_lists(session, current_user.id)
     return lists_service.get_all(session, current_user.id)
 
 
