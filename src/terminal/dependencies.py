@@ -4,7 +4,7 @@ from terminal.config import settings as global_settings, Settings
 from terminal.storage.service import OCIClient
 
 from terminal.database import get_session as db_get_session
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from terminal.market_feed.tradingview import TradingViewDataProvider
 from terminal.market_feed import OHLCStore, MarketDataManager
 

@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 import jwt
 
 from terminal.dependencies import get_session
-from terminal.auth.models import User, UserCreate, Token
+from terminal.auth.models import User, UserCreate, Token, UserPublic
 from terminal.auth import service as auth_service
 from terminal.auth.security import create_access_token, SECRET_KEY, ALGORITHM
 
@@ -39,7 +39,7 @@ async def get_current_user(
     return user
 
 
-@auth_router.post("/register", response_model=User)
+@auth_router.post("/register", response_model=UserPublic)
 async def register(
     data: UserCreate,
     session: Session = Depends(get_session),
@@ -75,7 +75,7 @@ async def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@user_router.get("/me", response_model=User)
+@user_router.get("/me", response_model=UserPublic)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user details."""
     return current_user

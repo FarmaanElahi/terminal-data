@@ -1,7 +1,9 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlmodel import Session, create_engine, SQLModel
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from terminal.models import Base
 from terminal.main import api
 from terminal.dependencies import get_session
 from terminal.database.manage import init_db
@@ -21,7 +23,7 @@ def postgres_container():
 
 @pytest.fixture(name="session")
 def session_fixture(postgres_container):
-    """Provide a SQLModel session using the PostgreSQL container."""
+    """Provide a SQLAlchemy session using the PostgreSQL container."""
     # Use psycopg (v3) dialect
     url = postgres_container.get_connection_url().replace("+psycopg2", "+psycopg")
     engine = create_engine(url)
@@ -33,7 +35,7 @@ def session_fixture(postgres_container):
         yield session
         # Cleanup: Drop all tables to ensure test isolation
         session.rollback()  # Ensure no pending transaction
-        SQLModel.metadata.drop_all(engine)
+        Base.metadata.drop_all(engine)
 
 
 @pytest_asyncio.fixture(name="client")

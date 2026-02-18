@@ -1,46 +1,44 @@
-from typing import Any
-from sqlmodel import Field, Column
+from typing import Any, List, Dict
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Computed, Index
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
-from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
+from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
-class Symbol(PrimaryKeyModel, TimeStampMixin, table=True):
+class Symbol(Base, PrimaryKeyModel, TimeStampMixin):
     """
     Symbol model for storing ticker information with Full-Text Search.
     """
 
     __tablename__ = "symbols"
 
-    ticker: str = Field(index=True, unique=True)
-    name: str = Field(index=True)
-    type: str = Field(index=True)  # stock, fund, etc.
-    market: str = Field(index=True)  # india, america, etc.
-    isin: str | None = Field(default=None, index=True)
+    ticker: Mapped[str] = mapped_column(index=True, unique=True)
+    name: Mapped[str] = mapped_column(index=True)
+    type: Mapped[str] = mapped_column(index=True)  # stock, fund, etc.
+    market: Mapped[str] = mapped_column(index=True)  # india, america, etc.
+    isin: Mapped[str | None] = mapped_column(default=None, index=True)
 
     # Store list of indexes (e.g., [{"name": "Nifty 50", "proname": "NSE:NIFTY"}])
-    indexes: list[dict[str, str]] = Field(
-        default_factory=list,
-        sa_column=Column(JSONB),
+    indexes: Mapped[List[Dict[str, str]]] = mapped_column(
+        JSONB,
+        default=list,
     )
 
     # Store list of strings (e.g., ["common"])
-    typespecs: list[str] = Field(
-        default_factory=list,
-        sa_column=Column(JSONB),
+    typespecs: Mapped[List[str]] = mapped_column(
+        JSONB,
+        default=list,
     )
 
     # Full-Text Search Vector
     # Automatically updated when ticker or name changes
     # Postgres specific: GENERATED ALWAYS AS (to_tsvector('english', ticker || ' ' || name)) STORED
-    search_vector: Any = Field(
-        sa_column=Column(
-            TSVECTOR,
-            Computed(
-                "to_tsvector('english', ticker || ' ' || name)",
-                persisted=True,
-            ),
-        )
+    search_vector: Mapped[Any] = mapped_column(
+        TSVECTOR,
+        Computed(
+            "to_tsvector('english', ticker || ' ' || name)",
+            persisted=True,
+        ),
     )
 
     __table_args__ = (
@@ -63,6 +61,7 @@ class SymbolCreate(TerminalBase):
 
 
 class SymbolSearchResponse(TerminalBase):
+    id: str
     ticker: str
     name: str
     type: str

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 from terminal.dependencies import get_session
 from terminal.lists.models import (
@@ -7,6 +7,7 @@ from terminal.lists.models import (
     ListUpdate,
     SymbolsUpdate,
     SourceListsUpdate,
+    ListPublic,
 )
 from terminal.lists import service as lists_service
 from terminal.lists.enums import ListType
@@ -16,7 +17,7 @@ from terminal.auth.models import User
 router = APIRouter(prefix="/list", tags=["List"])
 
 
-@router.get("/")
+@router.get("/", response_model=list[ListPublic])
 async def get_all_lists(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -26,7 +27,7 @@ async def get_all_lists(
     return lists_service.get_all(session, current_user.id)
 
 
-@router.post("/")
+@router.post("/", response_model=ListPublic)
 async def create_list(
     data: ListCreate,
     session: Session = Depends(get_session),
@@ -40,7 +41,7 @@ async def create_list(
     )
 
 
-@router.get("/{id}")
+@router.get("/{id}", response_model=ListPublic)
 async def get_list(
     id: str,
     session: Session = Depends(get_session),
@@ -54,6 +55,7 @@ async def get_list(
     symbols = lists_service.get_symbols(session, lst, user_id=current_user.id)
     return {
         "id": lst.id,
+        "user_id": lst.user_id,
         "name": lst.name,
         "type": lst.type,
         "color": lst.color,
@@ -62,7 +64,7 @@ async def get_list(
     }
 
 
-@router.put("/{id}")
+@router.put("/{id}", response_model=ListPublic)
 async def update_list(
     id: str,
     data: ListUpdate,
@@ -77,7 +79,7 @@ async def update_list(
     return lists_service.update(session, lst, data)
 
 
-@router.post("/{id}/append_symbols")
+@router.post("/{id}/append_symbols", response_model=ListPublic)
 async def append_symbols(
     id: str,
     data: SymbolsUpdate,
@@ -97,7 +99,7 @@ async def append_symbols(
     return lists_service.append_symbols(session, lst, current_user.id, data)
 
 
-@router.post("/{id}/bulk_remove_symbols")
+@router.post("/{id}/bulk_remove_symbols", response_model=ListPublic)
 async def bulk_remove_symbols(
     id: str,
     data: SymbolsUpdate,
@@ -117,7 +119,7 @@ async def bulk_remove_symbols(
     return lists_service.bulk_remove_symbols(session, lst, data)
 
 
-@router.post("/{id}/append_source_lists")
+@router.post("/{id}/append_source_lists", response_model=ListPublic)
 async def append_source_lists(
     id: str,
     data: SourceListsUpdate,
@@ -137,7 +139,7 @@ async def append_source_lists(
     return lists_service.append_source_lists(session, lst, data)
 
 
-@router.post("/{id}/bulk_remove_source_lists")
+@router.post("/{id}/bulk_remove_source_lists", response_model=ListPublic)
 async def bulk_remove_source_lists(
     id: str,
     data: SourceListsUpdate,

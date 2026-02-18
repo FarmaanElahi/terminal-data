@@ -1,12 +1,15 @@
 import pytest
 from unittest.mock import patch
-from sqlmodel import select, SQLModel, Field, create_engine
+from sqlalchemy import select, create_engine
+from sqlalchemy.orm import Session, Mapped, mapped_column
 from terminal.database import get_session, init_db
+from terminal.models import Base
 
 
-class Hero(SQLModel, table=True):
-    id: int | None = Field(default=None, primary_key=True)
-    name: str
+class Hero(Base):
+    __tablename__ = "heroes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
 
 
 def test_database_lifecycle():
@@ -35,7 +38,7 @@ def test_database_lifecycle():
 
         # 3. Query
         statement = select(Hero).where(Hero.name == "Antigravity")
-        results = session.exec(statement).all()
+        results = list(session.execute(statement).scalars().all())
 
         assert len(results) == 1
         assert results[0].name == "Antigravity"

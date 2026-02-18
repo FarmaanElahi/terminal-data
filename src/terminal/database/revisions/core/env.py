@@ -2,7 +2,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlmodel import SQLModel
+from terminal.models import Base
 from alembic import context
 from terminal.config import settings
 
@@ -15,7 +15,7 @@ config.set_section_option(section, "sqlalchemy.url", settings.database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = SQLModel.metadata
+target_metadata = Base.metadata
 
 
 # other values from the config, defined by the needs of env.py,

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 

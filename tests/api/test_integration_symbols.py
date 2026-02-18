@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch, AsyncMock
 from terminal.symbols.models import Symbol
-from sqlmodel import select
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -32,7 +32,7 @@ async def test_full_sync_and_search_flow(client, session):
         assert sync_resp.json()["count"] == 1
 
         # 2. Verify data in DB
-        symbols_in_db = session.exec(select(Symbol)).all()
+        symbols_in_db = list(session.execute(select(Symbol)).scalars().all())
         assert len(symbols_in_db) == 1
         assert symbols_in_db[0].ticker == "NSE:RELIANCE"
         assert symbols_in_db[0].indexes[0]["name"] == "NIFTY 50"

@@ -1,4 +1,5 @@
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 from terminal.lists.models import (
     List,
     ListCreate,
@@ -14,20 +15,26 @@ def get(session: Session, list_id: str, user_id: str | None = None) -> List | No
     statement = select(List).where(List.id == list_id)
     if user_id:
         statement = statement.where(List.user_id == user_id)
-    return session.exec(statement).first()
+    return session.execute(statement).scalars().first()
 
 
 def get_all(session: Session, user_id: str) -> list[List]:
     """Get all lists for a user."""
-    return session.exec(select(List).where(List.user_id == user_id)).all()
+    return list(
+        session.execute(select(List).where(List.user_id == user_id)).scalars().all()
+    )
 
 
 def ensure_default_lists(session: Session, user_id: str):
     """Ensure default COLOR lists exist for the user."""
     # Check if any COLOR lists exist
-    existing = session.exec(
-        select(List).where(List.user_id == user_id, List.type == ListType.color)
-    ).first()
+    existing = (
+        session.execute(
+            select(List).where(List.user_id == user_id, List.type == ListType.color)
+        )
+        .scalars()
+        .first()
+    )
 
     if not existing:
         defaults = [
@@ -85,13 +92,17 @@ def append_symbols(
     """Append symbols to a list."""
     # If it's a COLOR list, ensure symbols are removed from other COLOR lists for the same user
     if lst.type == ListType.color:
-        color_lists = session.exec(
-            select(List).where(
-                List.type == ListType.color,
-                List.user_id == user_id,
-                List.id != lst.id,
+        color_lists = (
+            session.execute(
+                select(List).where(
+                    List.type == ListType.color,
+                    List.user_id == user_id,
+                    List.id != lst.id,
+                )
             )
-        ).all()
+            .scalars()
+            .all()
+        )
         for other_lst in color_lists:
             other_lst.symbols = [s for s in other_lst.symbols if s not in data.symbols]
             session.add(other_lst)
@@ -148,11 +159,15 @@ def get_symbols(session: Session, lst: List, user_id: str) -> list[str]:
     if lst.type == ListType.combo:
         # Aggregate symbols from all source lists owned by the same user
         all_symbols = set()
-        source_lists = session.exec(
-            select(List).where(
-                List.id.in_(lst.source_list_ids), List.user_id == user_id
+        source_lists = (
+            session.execute(
+                select(List).where(
+                    List.id.in_(lst.source_list_ids), List.user_id == user_id
+                )
             )
-        ).all()  # type: ignore
+            .scalars()
+            .all()
+        )
         for sl in source_lists:
             all_symbols.update(sl.symbols)
         return list(all_symbols)

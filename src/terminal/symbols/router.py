@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Query, Depends
 from typing import Any
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from terminal.dependencies import get_fs, get_settings, get_session
 from terminal.symbols import service as symbol_service
+from terminal.symbols.models import SymbolSearchResponse
 from terminal.symbols.tasks import sync_symbols
 from terminal.config import Settings
 
 router = APIRouter(prefix="/symbols", tags=["Symbol"])
 
 
-@router.get("/")
+@router.get("/", response_model=list[SymbolSearchResponse])
 async def get_symbols(
     q: str | None = Query(None, description="Search by ticker, name or ISIN"),
     market: str | None = Query(

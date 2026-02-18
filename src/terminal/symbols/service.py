@@ -1,5 +1,6 @@
 from typing import Any
-from sqlmodel import Session, select, func
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func
 from terminal.symbols.models import Symbol
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -41,7 +42,7 @@ async def search(
             )
 
     statement = statement.limit(limit)
-    return list(session.exec(statement).all())
+    return list(session.execute(statement).scalars().all())
 
 
 async def refresh(session: Session, symbols: list[dict[str, Any]]) -> int:
@@ -89,11 +90,11 @@ def get_metadata(session: Session) -> dict[str, list[str]]:
     """
     Returns available filter options (markets, indexes, types).
     """
-    markets = session.exec(select(Symbol.market).distinct()).all()
-    types = session.exec(select(Symbol.type).distinct()).all()
+    markets = session.execute(select(Symbol.market).distinct()).scalars().all()
+    types = session.execute(select(Symbol.type).distinct()).scalars().all()
 
     # Indexes are in a JSON column, so we might need a different approach for distinct values
-    all_symbols = session.exec(select(Symbol.indexes)).all()
+    all_symbols = session.execute(select(Symbol.indexes)).scalars().all()
     unique_indexes = set()
     for idxs in all_symbols:
         if isinstance(idxs, list):

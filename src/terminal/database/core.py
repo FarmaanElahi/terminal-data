@@ -1,5 +1,6 @@
 from collections.abc import Generator
-from sqlmodel import Session, create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
 from terminal.config import settings
 from terminal.database.logging import SessionTracker
 

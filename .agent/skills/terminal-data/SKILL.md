@@ -13,7 +13,7 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 
 - **Services (`src/terminal/*/service.py`)**:
   - Should contain standalone functions, not classes.
-  - Accept `SQLModel` objects and Pydantic schemas as arguments.
+  - Accept `SQLAlchemy` models and Pydantic schemas as arguments.
   - Return `Optional` or business objects.
   - Avoid HTTP-level exceptions (raise business exceptions or return `None`).
 - **Routers (`src/terminal/*/router.py`)**:
@@ -32,9 +32,9 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 
 ### Data Models
 
-- Use `SQLModel` for database entities.
+- Use `SQLAlchemy 2.0` (DeclarativeBase) for database entities.
 - Use `Pydantic` (via `TerminalBase`) for API request/response schemas.
-- Ensure strict separation between DB models and API schemas.
+- Ensure strict separation between DB models (SQLAlchemy) and API schemas (Pydantic).
 
 ## Common Tasks
 

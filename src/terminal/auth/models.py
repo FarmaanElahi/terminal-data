@@ -1,17 +1,17 @@
-from sqlmodel import Field
-from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
+from sqlalchemy.orm import Mapped, mapped_column
+from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
-class User(PrimaryKeyModel, TimeStampMixin, table=True):
+class User(Base, PrimaryKeyModel, TimeStampMixin):
     """
     User model for authentication.
     """
 
     __tablename__ = "users"
 
-    username: str = Field(unique=True, index=True)
-    hashed_password: str
-    is_active: bool = Field(default=True)
+    username: Mapped[str] = mapped_column(unique=True, index=True)
+    hashed_password: Mapped[str]
+    is_active: Mapped[bool] = mapped_column(default=True)
 
     def verify_password(self, password: str) -> bool:
         """Check if the provided password matches the stored hash."""
@@ -29,6 +29,12 @@ class User(PrimaryKeyModel, TimeStampMixin, table=True):
 class UserCreate(TerminalBase):
     username: str
     password: str
+
+
+class UserPublic(TerminalBase):
+    id: str
+    username: str
+    is_active: bool
 
 
 class Token(TerminalBase):

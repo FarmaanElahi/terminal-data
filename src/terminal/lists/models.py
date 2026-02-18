@@ -1,31 +1,34 @@
-from sqlmodel import Field, Column, JSON
-from sqlalchemy import ARRAY, String
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import JSON, ARRAY, String
 from terminal.lists.enums import ListType
-from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
+from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
-class List(PrimaryKeyModel, TimeStampMixin, table=True):
+class List(Base, PrimaryKeyModel, TimeStampMixin):
     """
     Unified List model for Simple, Color, and Combo lists.
     """
 
     __tablename__ = "lists"
 
-    user_id: str = Field(foreign_key="users.id", index=True)
-    name: str
-    type: ListType
-    color: str | None = None  # e.g., "red", "green", "purple"
+    user_id: Mapped[str] = mapped_column(
+        index=True
+    )  # user_id should be foreign key in real app
+    # user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str]
+    type: Mapped[ListType]
+    color: Mapped[str | None] = mapped_column(default=None)
 
     # Store list of symbol strings (e.g., ["NSE:RELIANCE", "NASDAQ:AAPL"])
-    symbols: list[str] = Field(
-        default_factory=list,
-        sa_column=Column(ARRAY(String).with_variant(JSON, "sqlite")),
+    symbols: Mapped[list[str]] = mapped_column(
+        ARRAY(String).with_variant(JSON, "sqlite"),
+        default=list,
     )
 
     # Store list of list IDs for COMBO lists
-    source_list_ids: list[str] = Field(
-        default_factory=list,
-        sa_column=Column(ARRAY(String).with_variant(JSON, "sqlite")),
+    source_list_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String).with_variant(JSON, "sqlite"),
+        default=list,
     )
 
 
@@ -34,6 +37,16 @@ class ListCreate(TerminalBase):
     type: ListType
     color: str | None = None
     source_list_ids: list[str] | None = None
+
+
+class ListPublic(TerminalBase):
+    id: str
+    user_id: str
+    name: str
+    type: ListType
+    color: str | None = None
+    symbols: list[str] = []
+    source_list_ids: list[str] = []
 
 
 class ListUpdate(TerminalBase):

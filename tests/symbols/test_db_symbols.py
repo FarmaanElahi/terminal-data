@@ -1,5 +1,6 @@
 import pytest
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 from terminal.symbols.models import Symbol
 from terminal.symbols import service as symbol_service
 
@@ -114,7 +115,9 @@ async def test_symbol_upsert_logic(session: Session):
     ]
     await symbol_service.refresh(session, initial_symbols)
 
-    symbol = session.exec(select(Symbol).where(Symbol.ticker == "AAPL")).first()
+    symbol = (
+        session.execute(select(Symbol).where(Symbol.ticker == "AAPL")).scalars().first()
+    )
     assert symbol.name == "Apple"
 
     # 2. Sync with updated name for same ticker
@@ -129,7 +132,7 @@ async def test_symbol_upsert_logic(session: Session):
     await symbol_service.refresh(session, updated_symbols)
 
     # 3. Verify total count and updated data
-    all_symbols = session.exec(select(Symbol)).all()
+    all_symbols = list(session.execute(select(Symbol)).scalars().all())
     assert len(all_symbols) == 1
     assert all_symbols[0].ticker == "AAPL"
     assert all_symbols[0].name == "Apple Inc."

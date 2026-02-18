@@ -1,5 +1,6 @@
 from typing import Optional
-from sqlmodel import Session, select
+from sqlalchemy.orm import Session
+from sqlalchemy import select
 from terminal.auth.models import User, UserCreate
 
 
@@ -11,7 +12,7 @@ def get(session: Session, user_id: str) -> Optional[User]:
 def get_by_username(session: Session, username: str) -> Optional[User]:
     """Get user by username."""
     statement = select(User).where(User.username == username)
-    return session.exec(statement).first()
+    return session.execute(statement).scalars().first()
 
 
 def create(session: Session, user_in: UserCreate) -> Optional[User]:

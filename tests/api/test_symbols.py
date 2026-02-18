@@ -80,9 +80,9 @@ async def test_sync_symbols_api(client, session):
         assert data["count"] == 1
 
         # Verify data was actually refreshed in DB
-        from sqlmodel import select
+        from sqlalchemy import select
 
-        symbols_in_db = session.exec(select(Symbol)).all()
+        symbols_in_db = list(session.execute(select(Symbol)).scalars().all())
         assert len(symbols_in_db) == 1
         assert symbols_in_db[0].ticker == "MOCK:TICKER"
         assert symbols_in_db[0].indexes[0]["name"] == "MOCK INDEX"
