@@ -5,20 +5,32 @@ from sqlmodel import Session, create_engine, SQLModel
 from terminal.main import api
 from terminal.database import get_session
 from dotenv import load_dotenv
+from testcontainers.postgres import PostgresContainer
 
 # Load .env file at the start of testing
 load_dotenv()
 
 
+@pytest.fixture(scope="session")
+def postgres_container():
+    """Start a PostgreSQL container for the entire test session."""
+    with PostgresContainer("postgres:16-alpine") as postgres:
+        yield postgres
+
+
 @pytest.fixture(name="session")
-def session_fixture():
-    # Use SQLite for testing
-    engine = create_engine(
-        "sqlite:///:memory:", connect_args={"check_same_thread": False}
-    )
+def session_fixture(postgres_container):
+    """Provide a SQLModel session using the PostgreSQL container."""
+    # Use psycopg (v3) dialect
+    url = postgres_container.get_connection_url().replace("+psycopg2", "+psycopg")
+    engine = create_engine(url)
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         yield session
+        # Cleanup: Truncate all tables to ensure test isolation
+        for table in reversed(SQLModel.metadata.sorted_tables):
+            session.execute(table.delete())
+        session.commit()
 
 
 @pytest_asyncio.fixture(name="client")

@@ -9,8 +9,20 @@ from terminal.lists.models import (
 )
 from terminal.lists.enums import ListType
 
+from terminal.auth.models import User
+
 USER_ID = "test-user-id"
 OTHER_USER_ID = "other-user-id"
+
+
+@pytest.fixture(autouse=True)
+def setup_users(session: Session):
+    """Seed users for foreign key constraints."""
+    if not session.get(User, USER_ID):
+        session.add(User(id=USER_ID, username="testuser", hashed_password="..."))
+    if not session.get(User, OTHER_USER_ID):
+        session.add(User(id=OTHER_USER_ID, username="otheruser", hashed_password="..."))
+    session.commit()
 
 
 def test_create_list(session: Session):

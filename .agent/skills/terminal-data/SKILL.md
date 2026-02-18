@@ -41,6 +41,7 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 ### Testing
 
 - Run tests using `uv run pytest tests`.
+- Tests use **PostgreSQL** via `testcontainers`. Ensure Docker is running.
 - Ensure all tests pass before committing.
 
 ### Linting
