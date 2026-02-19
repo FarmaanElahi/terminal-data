@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional
 import numpy as np
-from .types import CANDLE_DTYPE
+from .models import CANDLE_DTYPE
 
 
 class OHLCStore:

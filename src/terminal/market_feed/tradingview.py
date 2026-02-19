@@ -4,7 +4,7 @@ import numpy as np
 from typing import List
 
 from .provider import DataProvider
-from .types import CANDLE_DTYPE
+from .models import CANDLE_DTYPE
 from terminal.tradingview import TradingView
 
 logger = logging.getLogger(__name__)

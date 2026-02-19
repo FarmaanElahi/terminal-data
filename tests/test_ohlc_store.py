@@ -1,7 +1,7 @@
 import numpy as np
 import time
 from terminal.market_feed import OHLCStore
-from terminal.market_feed.types import CANDLE_DTYPE
+from terminal.market_feed.models import CANDLE_DTYPE
 
 
 def test_ohlc_store_init():

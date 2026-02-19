@@ -4,7 +4,7 @@ import numpy as np
 import time
 from unittest.mock import AsyncMock, patch, MagicMock
 from terminal.market_feed import OHLCStore, MarketDataManager, TradingViewDataProvider
-from terminal.market_feed.types import CANDLE_DTYPE
+from terminal.market_feed.models import CANDLE_DTYPE
 
 
 class MockDataProvider(TradingViewDataProvider):
