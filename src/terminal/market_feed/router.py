@@ -1,6 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from terminal.market_feed.manager import MarketDataManager
-from terminal.dependencies import get_market_manager
+from terminal.dependencies import (
+    get_market_manager,
+    get_session,
+    get_tradingview_provider,
+)
+from terminal.market_feed.models import MarketFeedRefreshResponse
+from terminal.symbols import service as symbol_service
+from terminal.market_feed.tradingview import TradingViewDataProvider
+from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/market-feed", tags=["Market Feed"])
 
@@ -34,3 +42,38 @@ async def get_ohlcv(
             )
 
     return {"data": data}
+
+
+@router.post("/refresh", response_model=MarketFeedRefreshResponse)
+async def refresh_market_feed(
+    market: str = Query("india", description="Market to refresh symbols for"),
+    provider: TradingViewDataProvider = Depends(get_tradingview_provider),
+    session: Session = Depends(get_session),
+):
+    """
+    Trigger a refresh of the market feed candles from TradingView.
+    This mirrors the 'market-data refresh-daily' CLI command.
+    """
+
+    try:
+        # Fetch symbols from database
+        symbols_info = await symbol_service.search(session, market=market, limit=20000)
+        tickers = [s.ticker for s in symbols_info]
+
+        if not tickers:
+            return MarketFeedRefreshResponse(
+                status="success",
+                count=0,
+                message=f"No symbols found for market: {market}",
+            )
+
+        # Trigger refresh
+        await provider.refresh_cache(tickers)
+
+        return MarketFeedRefreshResponse(
+            status="success",
+            count=len(tickers),
+            message=f"Successfully refreshed candles for {len(tickers)} symbols.",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
