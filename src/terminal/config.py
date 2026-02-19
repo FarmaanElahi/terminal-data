@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # logging
     log_level: LogLevels = LogLevels.info
 
+    # Auth
+    secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24  # 1 day
+
     @property
     def is_oci_configured(self) -> bool:
         return all([self.oci_config, self.oci_key, self.oci_bucket])

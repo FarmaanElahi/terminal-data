@@ -3,10 +3,7 @@ from typing import Union
 import jwt
 import bcrypt
 
-# Security constants (In a real app, these should be in config/env)
-SECRET_KEY = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 day
+from terminal.config import settings
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -31,9 +28,11 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(
-            minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+            minutes=settings.access_token_expire_minutes
         )
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(
+        to_encode, settings.secret_key, algorithm=settings.algorithm
+    )
     return encoded_jwt
