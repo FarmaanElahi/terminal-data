@@ -3,7 +3,7 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
-from terminal.models import Base
+from terminal.database.core import Base
 from terminal.main import api
 from terminal.dependencies import get_session
 from terminal.database.manage import init_db

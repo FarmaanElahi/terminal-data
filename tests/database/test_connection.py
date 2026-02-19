@@ -1,9 +1,9 @@
 import pytest
 from unittest.mock import patch
 from sqlalchemy import select, create_engine
-from sqlalchemy.orm import Session, Mapped, mapped_column
-from terminal.database import get_session, init_db
-from terminal.models import Base
+from sqlalchemy.orm import Mapped, mapped_column
+from terminal.database import get_session
+from terminal.database.core import Base
 
 
 class Hero(Base):
