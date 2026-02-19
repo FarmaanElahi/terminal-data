@@ -23,8 +23,10 @@ async def test_full_sync_and_search_flow(client, session):
     ]
 
     # Patch the external client in tasks.py
-    with patch("terminal.symbols.tasks.TradingView") as MockTV:
-        MockTV.return_value.scanner.fetch_symbols = AsyncMock(return_value=mock_symbols)
+    with patch(
+        "terminal.symbols.service.get_all_symbols_external", new_callable=AsyncMock
+    ) as mocked_get_symbols:
+        mocked_get_symbols.return_value = mock_symbols
 
         # 1. Trigger Sync via API
         sync_resp = await client.post("/api/v1/symbols/sync")

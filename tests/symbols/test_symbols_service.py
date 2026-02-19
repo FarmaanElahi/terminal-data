@@ -1,11 +1,11 @@
 import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
-from terminal.symbols.tasks import sync_symbols
+from terminal.symbols.service import get_all_symbols_external
 from fsspec.implementations.memory import MemoryFileSystem
 
 
 @pytest.mark.asyncio
-async def test_sync_symbols_success():
+async def test_get_all_symbols_external_success():
     mock_symbols = [
         {
             "ticker": "NSE:RELIANCE",
@@ -22,7 +22,7 @@ async def test_sync_symbols_success():
     ]
 
     # Mock TradingView
-    with patch("terminal.symbols.tasks.TradingView") as MockClient:
+    with patch("terminal.symbols.service.TradingView") as MockClient:
         instance = MockClient.return_value
         instance.scanner.fetch_symbols = AsyncMock(return_value=mock_symbols)
 
@@ -30,17 +30,17 @@ async def test_sync_symbols_success():
         bucket = "test-bucket"
 
         # Test sync with explicit dependencies
-        symbols = await sync_symbols(fs=mfs, bucket=bucket)
+        symbols = await get_all_symbols_external(fs=mfs, bucket=bucket)
 
         assert len(symbols) == 2
         instance.scanner.fetch_symbols.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_sync_symbols_no_bucket():
+async def test_get_all_symbols_external_no_bucket():
     """
     Bucket check logic is moved up to router or handled by providers.
     """
     mock_fs = MagicMock()
-    symbols = await sync_symbols(fs=mock_fs, bucket="")
+    symbols = await get_all_symbols_external(fs=mock_fs, bucket="")
     assert isinstance(symbols, list)

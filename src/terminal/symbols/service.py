@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from terminal.symbols.models import Symbol
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from terminal.tradingview import TradingView
 
 
 async def search(
@@ -109,3 +110,10 @@ def get_metadata(session: Session) -> dict[str, list[str]]:
         "types": sorted(list(types)),
         "indexes": sorted(list(unique_indexes)),
     }
+
+
+async def get_all_symbols_external(fs: Any, bucket: str) -> list[dict[str, Any]]:
+    """
+    Syncs symbols from TradingView.
+    """
+    return await TradingView().scanner.fetch_symbols()

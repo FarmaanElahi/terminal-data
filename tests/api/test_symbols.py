@@ -69,7 +69,7 @@ async def test_sync_symbols_api(client, session):
 
     # Patch sync_symbols in the router module
     with patch(
-        "terminal.symbols.router.sync_symbols", new_callable=AsyncMock
+        "terminal.symbols.service.get_all_symbols_external", new_callable=AsyncMock
     ) as mocked_sync:
         mocked_sync.return_value = mock_symbols
 

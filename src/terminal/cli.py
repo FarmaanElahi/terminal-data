@@ -119,11 +119,10 @@ def refresh_symbols(
     import asyncio
     from terminal.database import get_session
     from terminal.symbols import service as symbol_service
-    from terminal.symbols.tasks import sync_symbols
 
     async def _run():
         typer.echo(f"Fetching symbols for market '{market}' from TradingView...")
-        symbols = await sync_symbols(fs=None, bucket="")
+        symbols = await symbol_service.get_all_symbols_external(fs=None, bucket="")
 
         if not symbols:
             typer.echo("No symbols returned from TradingView.")

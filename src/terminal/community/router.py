@@ -3,7 +3,7 @@ from typing import Literal
 from .client import StockTwitsClient
 from .models import GlobalFeedParam, SymbolFeedParam
 
-router = APIRouter(prefix="/social_feeds", tags=["Social Feed"])
+router = APIRouter(prefix="/community", tags=["Community"])
 
 client = StockTwitsClient()
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from terminal.dependencies import get_fs, get_settings, get_session
 from terminal.symbols import service as symbol_service
 from terminal.symbols.models import SymbolSearchResponse
-from terminal.symbols.tasks import sync_symbols
+
 from terminal.config import Settings
 
 router = APIRouter(prefix="/symbols", tags=["Symbol"])
@@ -57,7 +57,7 @@ async def trigger_sync(
     Synchronous (foreground) execution.
     """
     # 1. Fetch from TradingView
-    symbols = await sync_symbols(fs=fs, bucket=settings.oci_bucket)
+    symbols = await symbol_service.get_all_symbols_external()
 
     # 2. Refresh the database-backed storage
     count = await symbol_service.refresh(session=session, symbols=symbols)
