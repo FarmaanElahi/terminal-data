@@ -1,10 +1,16 @@
 from collections.abc import Generator
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, DeclarativeBase
 from sqlalchemy import create_engine
 from terminal.config import settings
 from terminal.database.logging import SessionTracker
 
 engine = create_engine(settings.database_url, echo=True)
+
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
 
 
 def get_session() -> Generator[Session, None, None]:

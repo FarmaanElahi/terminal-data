@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
-from typing import Generic, TypeVar, List
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from typing import Generic, TypeVar, List as TypingList
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import DateTime
 from pydantic import ConfigDict, BaseModel
 from uuid import uuid7
@@ -8,12 +8,6 @@ from uuid import uuid7
 
 def uuid7_str() -> str:
     return str(uuid7())
-
-
-class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy models."""
-
-    pass
 
 
 class TerminalBase(BaseModel):
@@ -56,7 +50,7 @@ T = TypeVar("T")
 
 
 class Pagination(TerminalBase, Generic[T]):
-    items: List[T]
+    items: TypingList[T]
     itemsPerPage: int
     total: int
     page: int

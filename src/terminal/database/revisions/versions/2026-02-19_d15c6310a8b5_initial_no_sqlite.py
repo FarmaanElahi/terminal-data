@@ -1,8 +1,8 @@
-"""initial schema
+"""initial_no_sqlite
 
-Revision ID: 83ec8c6e50f0
+Revision ID: d15c6310a8b5
 Revises: 
-Create Date: 2026-02-18 12:50:02.272003
+Create Date: 2026-02-19 11:41:02.138402
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '83ec8c6e50f0'
+revision: str = 'd15c6310a8b5'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -26,8 +26,8 @@ def upgrade() -> None:
     sa.Column('name', sa.String(), nullable=False),
     sa.Column('type', sa.Enum('simple', 'color', 'combo', name='listtype'), nullable=False),
     sa.Column('color', sa.String(), nullable=True),
-    sa.Column('symbols', sa.ARRAY(sa.String()).with_variant(sa.JSON(), 'sqlite'), nullable=False),
-    sa.Column('source_list_ids', sa.ARRAY(sa.String()).with_variant(sa.JSON(), 'sqlite'), nullable=False),
+    sa.Column('symbols', sa.ARRAY(sa.String()), nullable=False),
+    sa.Column('source_list_ids', sa.ARRAY(sa.String()), nullable=False),
     sa.Column('id', sa.String(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),

@@ -6,7 +6,7 @@ from pathlib import Path
 app = typer.Typer()
 
 
-def get_alembic_config(name: str = "core"):
+def get_alembic_config(name: str = "alembic"):
     # Helper to load alembic.ini from the package directory
     current_dir = Path(__file__).parent
     alembic_cfg_path = current_dir / "alembic.ini"
@@ -17,16 +17,6 @@ def get_alembic_config(name: str = "core"):
     alembic_cfg = Config(str(alembic_cfg_path))
     if name != "alembic":
         alembic_cfg.config_ini_section = name
-        if name == "core":
-            script_dir = current_dir / "database/revisions/core"
-            version_dir = script_dir / "versions"
-            alembic_cfg.set_section_option(name, "script_location", str(script_dir))
-            alembic_cfg.set_section_option(name, "version_locations", str(version_dir))
-        elif name == "tenant":
-            script_dir = current_dir / "database/revisions/tenant"
-            version_dir = script_dir / "versions"
-            alembic_cfg.set_section_option(name, "script_location", str(script_dir))
-            alembic_cfg.set_section_option(name, "version_locations", str(version_dir))
 
     return alembic_cfg
 
@@ -38,7 +28,7 @@ app.add_typer(database_app, name="database")
 @database_app.command()
 def upgrade(
     revision: str = typer.Argument("head", help="Revision to upgrade to"),
-    name: str = typer.Option("core", "-n", "--name", help="Database name"),
+    name: str = typer.Option("alembic", "-n", "--name", help="Database name"),
 ):
     """
     Upgrade to a later version.
@@ -50,7 +40,7 @@ def upgrade(
 @database_app.command()
 def downgrade(
     revision: str = typer.Argument("base", help="Revision to downgrade to"),
-    name: str = typer.Option("core", "-n", "--name", help="Database name"),
+    name: str = typer.Option("alembic", "-n", "--name", help="Database name"),
 ):
     """
     Revert to a previous version.
@@ -92,7 +82,7 @@ def revision(
     autogenerate: bool = typer.Option(
         False, "--autogenerate", help="Autogenerate revision"
     ),
-    name: str = typer.Option("core", "-n", "--name", help="Database name"),
+    name: str = typer.Option("alembic", "-n", "--name", help="Database name"),
 ):
     """
     Create a new revision file.
@@ -104,7 +94,7 @@ def revision(
 @database_app.command("make-migrations")
 def make_migrations(
     message: str = typer.Option(..., "-m", "--message", help="Migration message"),
-    name: str = typer.Option("core", "-n", "--name", help="Database name"),
+    name: str = typer.Option("alembic", "-n", "--name", help="Database name"),
 ):
     """
     Autogenerate a new revision file (shortcut for revision --autogenerate).

@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import JSON, ARRAY, String
+from sqlalchemy import ARRAY, String
 from terminal.lists.enums import ListType
-from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
+from terminal.database.core import Base
+from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
 class List(Base, PrimaryKeyModel, TimeStampMixin):
@@ -21,13 +22,13 @@ class List(Base, PrimaryKeyModel, TimeStampMixin):
 
     # Store list of symbol strings (e.g., ["NSE:RELIANCE", "NASDAQ:AAPL"])
     symbols: Mapped[list[str]] = mapped_column(
-        ARRAY(String).with_variant(JSON, "sqlite"),
+        ARRAY(String),
         default=list,
     )
 
     # Store list of list IDs for COMBO lists
     source_list_ids: Mapped[list[str]] = mapped_column(
-        ARRAY(String).with_variant(JSON, "sqlite"),
+        ARRAY(String),
         default=list,
     )
 

@@ -1,12 +1,6 @@
 from sqlalchemy import text
 from sqlalchemy_utils import database_exists, create_database, drop_database
-from .core import engine
-
-# Import all models here to ensure they are registered in Base.metadata
-from terminal.models import Base
-from terminal.auth.models import User
-from terminal.lists.models import List
-from terminal.symbols.models import Symbol
+from terminal.database.core import Base, engine
 
 
 def init_db(engine_input=None):
@@ -17,6 +11,11 @@ def init_db(engine_input=None):
     with use_engine.begin() as conn:
         if use_engine.dialect.name == "postgresql":
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+
+    # Import all models here to ensure they are registered in Base.metadata
+    from terminal.auth.models import User  # noqa: F401
+    from terminal.lists.models import List  # noqa: F401
+    from terminal.symbols.models import Symbol  # noqa: F401
 
     Base.metadata.create_all(use_engine)
 

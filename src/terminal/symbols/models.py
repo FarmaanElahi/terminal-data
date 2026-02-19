@@ -2,7 +2,8 @@ from typing import Any, List, Dict
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Computed, Index
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
-from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
+from terminal.database.core import Base
+from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
 class Symbol(Base, PrimaryKeyModel, TimeStampMixin):

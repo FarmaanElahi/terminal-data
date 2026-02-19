@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Mapped, mapped_column
-from terminal.models import Base, PrimaryKeyModel, TimeStampMixin, TerminalBase
+from terminal.database.core import Base
+from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
 
 
 class User(Base, PrimaryKeyModel, TimeStampMixin):

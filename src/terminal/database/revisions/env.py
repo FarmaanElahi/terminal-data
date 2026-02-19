@@ -1,33 +1,30 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
-from terminal.models import Base
 from alembic import context
-from terminal.config import settings
 
-# Import all models to register them with Base.metadata for autogenerate
-from terminal.auth.models import User  # noqa: F401
-from terminal.lists.models import List  # noqa: F401
-from terminal.symbols.models import Symbol  # noqa: F401
-
-
+# this is the Alembic Config object, which provides
+# access to the values within the .ini file in use.
 config = context.config
 
-section = config.config_ini_section
-config.set_section_option(section, "sqlalchemy.url", settings.database_url)
-
+# Interpret the config file for Python logging.
+# This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+# --- Project-specific setup ---
+# Set sqlalchemy.url from project settings so we don't hardcode it in alembic.ini
+from terminal.config import settings  # noqa: E402
+
+config.set_main_option("sqlalchemy.url", settings.database_url)
+
+# Import Base from core
+from terminal.database.core import Base  # noqa: E402
+
+# import terminal is not needed because importing terminal.database.core triggers terminal/__init__.py
+
 target_metadata = Base.metadata
-
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
 
 
 def run_migrations_offline() -> None:

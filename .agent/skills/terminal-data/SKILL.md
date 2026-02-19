@@ -54,3 +54,4 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 - **Timing**: Only generate Alembic migrations once the entire feature is complete and approved.
 - **Avoid Intermediate Diffing**: Do not generate intermediate schema diff migrations during the active development phase.
 - Use `alembic revision --autogenerate -m "description"` only for finalized schema changes.
+- **Model Registration**: All database models must be imported in `src/terminal/__init__.py` (wrapped in try/except). This allows `env.py` to auto-discover models by simply importing the `terminal` package.
