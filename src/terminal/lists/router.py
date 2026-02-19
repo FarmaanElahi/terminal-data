@@ -14,7 +14,7 @@ from terminal.lists.enums import ListType
 from terminal.auth.router import get_current_user
 from terminal.auth.models import User
 
-router = APIRouter(prefix="/list", tags=["List"])
+router = APIRouter(prefix="/lists", tags=["List"])
 
 
 @router.get("/", response_model=list[ListPublic])

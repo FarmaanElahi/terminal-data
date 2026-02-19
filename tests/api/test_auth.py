@@ -23,7 +23,7 @@ async def test_register_and_login(client):
     # Protected route /me
     token = token_data["access_token"]
     resp = await client.get(
-        "/api/v1/user/me", headers={"Authorization": f"Bearer {token}"}
+        "/api/v1/users/me", headers={"Authorization": f"Bearer {token}"}
     )
     assert resp.status_code == 200
     assert resp.json()["username"] == "testuser"

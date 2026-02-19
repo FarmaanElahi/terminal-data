@@ -22,6 +22,13 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
   - Handle HTTP-level exceptions (e.g., `raise HTTPException(status_code=404)`).
   - Delegate business logic to services by passing loaded objects and schemas.
 
+## Naming Conventions
+
+### API Paths
+
+- All API endpoint paths should be **plural** (e.g., `/api/v1/symbols`, `/api/v1/lists`).
+- Use kebab-case for multi-word segments if necessary (e.g., `/api/v1/market-feeds`).
+
 ## Coding Standards
 
 ### Type Annotations

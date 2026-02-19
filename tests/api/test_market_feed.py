@@ -30,7 +30,7 @@ def test_get_ohlcv_success(mock_ohlc_data):
     ) as mock_get:
         mock_get.return_value = mock_ohlc_data.tolist()
 
-        response = client.get("/market-feed/NSE:RELIANCE")
+        response = client.get("/market-feeds/NSE:RELIANCE")
 
         assert response.status_code == 200
         json_resp = response.json()
@@ -52,7 +52,7 @@ def test_get_ohlcv_not_found():
         ) as mock_load:
             mock_load.return_value = None
 
-            response = client.get("/market-feed/UNKNOWN")
+            response = client.get("/market-feeds/UNKNOWN")
 
             assert response.status_code == 404
             assert "No data found" in response.json()["detail"]
@@ -67,7 +67,7 @@ def test_get_ohlcv_refresh():
         ) as mock_get:
             mock_get.return_value = [[1, 1, 1, 1, 1, 1]]
 
-            response = client.get("/market-feed/NSE:RELIANCE?refresh=true")
+            response = client.get("/market-feeds/NSE:RELIANCE?refresh=true")
 
             assert response.status_code == 200
             mock_load.assert_called_once_with(["NSE:RELIANCE"])

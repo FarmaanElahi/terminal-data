@@ -10,7 +10,7 @@ from terminal.auth import service as auth_service
 from terminal.auth.security import create_access_token
 
 auth_router = APIRouter(prefix="/auth", tags=["Auth"])
-user_router = APIRouter(prefix="/user", tags=["User"])
+user_router = APIRouter(prefix="/users", tags=["Users"])
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 

@@ -10,7 +10,7 @@ from terminal.symbols import service as symbol_service
 from terminal.market_feed.tradingview import TradingViewDataProvider
 from sqlalchemy.orm import Session
 
-router = APIRouter(prefix="/market-feed", tags=["Market Feed"])
+router = APIRouter(prefix="/market-feeds", tags=["Market Feed"])
 
 
 @router.get("/{symbol}")
