@@ -46,11 +46,7 @@ class PrimaryKeyModel:
     )
 
 
-T = TypeVar("T")
-
-
-class Pagination(TerminalBase, Generic[T]):
-    items: TypingList[T]
+class Pagination(TerminalBase):
     itemsPerPage: int
     total: int
     page: int

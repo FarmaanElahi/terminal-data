@@ -1,13 +1,39 @@
 import pytest
 import pytest_asyncio
-from sqlmodel import Session
 from terminal.symbols import service as symbol_service
+from terminal.config import Settings
+from fsspec.implementations.memory import MemoryFileSystem
+
+
+@pytest.fixture
+def mock_fs():
+    return MemoryFileSystem()
+
+
+@pytest.fixture
+def mock_settings():
+    return Settings(
+        env="dev",
+        database_url="sqlite:///./test.db",
+        oci_bucket="test-bucket",
+        oci_config="config",
+        oci_key="key",
+        upstox_api_key="mock",
+        upstox_api_secret="mock",
+        upstox_redirect_uri="mock",
+    )
+
+
+@pytest.fixture(autouse=True)
+def setup_teardown():
+    yield
+    symbol_service._symbols_df = None
 
 
 @pytest_asyncio.fixture
-async def seeded_session(session: Session):
+async def seeded_fs_settings(mock_fs, mock_settings):
     """
-    Creates a session with mock data for testing search logic.
+    Creates a memory filesystem with mock data for testing search logic.
     """
     mock_data = [
         {
@@ -61,65 +87,65 @@ async def seeded_session(session: Session):
         },
     ]
 
-    await symbol_service.refresh(session, mock_data)
-    return session
+    await symbol_service.refresh(mock_fs, mock_settings, mock_data)
+    return mock_fs, mock_settings
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_query(seeded_session):
+async def test_search_symbols_query(seeded_fs_settings):
+    fs, settings = seeded_fs_settings
     # Search by ticker
-    results = await symbol_service.search(
-        seeded_session, query="NVDA", market="america"
-    )
+    results = await symbol_service.search(fs, settings, text="NVDA", market="america")
     assert len(results) == 1
-    assert results[0].ticker == "NASDAQ:NVDA"
+    assert results[0]["ticker"] == "NASDAQ:NVDA"
 
     # Search by name
-    results = await symbol_service.search(
-        seeded_session, query="RELIANCE", market="india"
-    )
+    results = await symbol_service.search(fs, settings, text="RELIANCE", market="india")
     assert len(results) == 1
-    assert "RELIANCE" in results[0].name
+    assert "RELIANCE" in results[0]["name"]
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_type(seeded_session):
+async def test_search_symbols_type(seeded_fs_settings):
+    fs, settings = seeded_fs_settings
     results = await symbol_service.search(
-        seeded_session, item_type="fund", market="america"
+        fs, settings, item_type="fund", market="america"
     )
     assert len(results) == 1
-    assert results[0].ticker == "NYSE:SPY"
+    assert results[0]["ticker"] == "NYSE:SPY"
 
     results = await symbol_service.search(
-        seeded_session, item_type="stock", market="america"
+        fs, settings, item_type="stock", market="america"
     )
     assert len(results) == 1
-    assert results[0].ticker == "NASDAQ:NVDA"
+    assert results[0]["ticker"] == "NASDAQ:NVDA"
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_market_default(seeded_session):
-    results = await symbol_service.search(seeded_session, query="TCS")
+async def test_search_symbols_market_default(seeded_fs_settings):
+    fs, settings = seeded_fs_settings
+    results = await symbol_service.search(fs, settings, text="TCS")
     assert len(results) == 1
-    assert results[0].ticker == "NSE:TCS"
+    assert results[0]["ticker"] == "NSE:TCS"
 
 
 @pytest.mark.asyncio
-async def test_search_symbols_index(seeded_session):
+async def test_search_symbols_index(seeded_fs_settings):
+    fs, settings = seeded_fs_settings
     results = await symbol_service.search(
-        seeded_session, index="NIFTY 50", market="india"
+        fs, settings, index="NIFTY 50", market="india"
     )
     assert len(results) == 2  # RELIANCE and TCS
 
-    results = await symbol_service.search(
-        seeded_session, index="CNX IT", market="india"
-    )
+    results = await symbol_service.search(fs, settings, index="CNX IT", market="india")
     assert len(results) == 1
-    assert results[0].ticker == "NSE:TCS"
+    assert results[0]["ticker"] == "NSE:TCS"
 
 
-def test_get_search_metadata(seeded_session):
-    metadata = symbol_service.get_metadata(seeded_session)
+@pytest.mark.asyncio
+async def test_get_search_metadata(seeded_fs_settings):
+    fs, settings = seeded_fs_settings
+    metadata = await symbol_service.get_filter_metadata(fs, settings)
     assert "india" in metadata["markets"]
     assert "america" in metadata["markets"]
     assert "stock" in metadata["types"]

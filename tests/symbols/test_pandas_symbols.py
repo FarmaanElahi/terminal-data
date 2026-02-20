@@ -1,12 +1,36 @@
 import pytest
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from terminal.symbols.models import Symbol
 from terminal.symbols import service as symbol_service
+from terminal.config import Settings
+from fsspec.implementations.memory import MemoryFileSystem
+
+
+@pytest.fixture
+def mock_fs():
+    return MemoryFileSystem()
+
+
+@pytest.fixture
+def mock_settings():
+    return Settings(
+        env="dev",
+        database_url="sqlite:///./test.db",
+        oci_bucket="test-bucket",
+        oci_config="config",
+        oci_key="key",
+        upstox_api_key="mock",
+        upstox_api_secret="mock",
+        upstox_redirect_uri="mock",
+    )
+
+
+@pytest.fixture(autouse=True)
+def setup_teardown():
+    yield
+    symbol_service._symbols_df = None
 
 
 @pytest.mark.asyncio
-async def test_symbol_fts_search(session: Session):
+async def test_symbol_fts_search(mock_fs, mock_settings):
     # 1. Seed some symbols
     symbols = [
         {
@@ -42,38 +66,49 @@ async def test_symbol_fts_search(session: Session):
             "typespecs": ["common"],
         },
     ]
-    await symbol_service.refresh(session, symbols)
+    await symbol_service.refresh(mock_fs, mock_settings, symbols)
 
-    # 2. Search by ticker (prefix)
-    results = await symbol_service.search(session, query="AA", market="america")
+    # 2. Search by ticker (prefix) -> now regex/substring depending on implementation
+    # Implementation uses str.contains
+    results = await symbol_service.search(
+        mock_fs, mock_settings, text="AA", market="america"
+    )
     assert len(results) == 1
-    assert results[0].ticker == "AAPL"
+    assert results[0]["ticker"] == "AAPL"
 
     # 3. Search by name
-    results = await symbol_service.search(session, query="Microsoft", market="america")
+    results = await symbol_service.search(
+        mock_fs, mock_settings, text="Microsoft", market="america"
+    )
     assert len(results) == 1
-    assert results[0].ticker == "MSFT"
+    assert results[0]["ticker"] == "MSFT"
 
     # 4. Search by partial name prefix
-    results = await symbol_service.search(session, query="Relia", market="india")
+    results = await symbol_service.search(
+        mock_fs, mock_settings, text="Relia", market="india"
+    )
     assert len(results) == 1
-    assert results[0].ticker == "RELIANCE"
+    assert results[0]["ticker"] == "RELIANCE"
 
     # 5. Search with multiple terms
-    results = await symbol_service.search(session, query="Tata Consu", market="india")
+    results = await symbol_service.search(
+        mock_fs, mock_settings, text="Tata Consu", market="india"
+    )
     assert len(results) == 1
-    assert results[0].ticker == "TCS"
+    assert results[0]["ticker"] == "TCS"
 
     # 6. Filter by index
-    results = await symbol_service.search(session, index="NIFTY 50", market="india")
+    results = await symbol_service.search(
+        mock_fs, mock_settings, index="NIFTY 50", market="india"
+    )
     assert len(results) == 2
-    tickers = {r.ticker for r in results}
+    tickers = {r["ticker"] for r in results}
     assert "RELIANCE" in tickers
     assert "TCS" in tickers
 
 
 @pytest.mark.asyncio
-async def test_get_metadata(session: Session):
+async def test_get_metadata(mock_fs, mock_settings):
     symbols = [
         {
             "ticker": "AAPL",
@@ -92,9 +127,9 @@ async def test_get_metadata(session: Session):
             "typespecs": ["common"],
         },
     ]
-    await symbol_service.refresh(session, symbols)
+    await symbol_service.refresh(mock_fs, mock_settings, symbols)
 
-    metadata = symbol_service.get_metadata(session)
+    metadata = await symbol_service.get_filter_metadata(mock_fs, mock_settings)
     assert "america" in metadata["markets"]
     assert "india" in metadata["markets"]
     assert "NASDAQ 100" in metadata["indexes"]
@@ -103,7 +138,7 @@ async def test_get_metadata(session: Session):
 
 
 @pytest.mark.asyncio
-async def test_symbol_upsert_logic(session: Session):
+async def test_symbol_upsert_logic(mock_fs, mock_settings):
     # 1. Initial sync
     initial_symbols = [
         {
@@ -113,14 +148,15 @@ async def test_symbol_upsert_logic(session: Session):
             "market": "america",
         }
     ]
-    await symbol_service.refresh(session, initial_symbols)
+    await symbol_service.refresh(mock_fs, mock_settings, initial_symbols)
 
-    symbol = (
-        session.execute(select(Symbol).where(Symbol.ticker == "AAPL")).scalars().first()
-    )
-    assert symbol.name == "Apple"
+    symbol_data_1 = await symbol_service._ensure_data_loaded(mock_fs, mock_settings)
+    assert len(symbol_data_1) == 1
+    assert symbol_data_1.iloc[0]["name"] == "Apple"
 
     # 2. Sync with updated name for same ticker
+    # Note: refresh with provided symbols completely overwrites CSV, it doesnt do merge in current implementation
+    # since it assumes external source has the state of truth
     updated_symbols = [
         {
             "ticker": "AAPL",
@@ -129,10 +165,10 @@ async def test_symbol_upsert_logic(session: Session):
             "market": "america",
         }
     ]
-    await symbol_service.refresh(session, updated_symbols)
+    await symbol_service.refresh(mock_fs, mock_settings, updated_symbols)
 
     # 3. Verify total count and updated data
-    all_symbols = list(session.execute(select(Symbol)).scalars().all())
-    assert len(all_symbols) == 1
-    assert all_symbols[0].ticker == "AAPL"
-    assert all_symbols[0].name == "Apple Inc."
+    symbol_data_2 = await symbol_service._ensure_data_loaded(mock_fs, mock_settings)
+    assert len(symbol_data_2) == 1
+    assert symbol_data_2.iloc[0]["ticker"] == "AAPL"
+    assert symbol_data_2.iloc[0]["name"] == "Apple Inc."

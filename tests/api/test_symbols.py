@@ -1,11 +1,42 @@
 import pytest
-from terminal.symbols.models import Symbol
+from terminal.main import api
+from terminal.dependencies import get_fs, get_settings
 from terminal.symbols import service as symbol_service
+from terminal.config import Settings
 from unittest.mock import AsyncMock, patch
+from fsspec.implementations.memory import MemoryFileSystem
+
+
+@pytest.fixture
+def mock_fs():
+    return MemoryFileSystem()
+
+
+@pytest.fixture
+def mock_settings():
+    return Settings(
+        env="dev",
+        database_url="sqlite:///./test.db",
+        oci_bucket="test-bucket",
+        oci_config="config",
+        oci_key="key",
+        upstox_api_key="mock",
+        upstox_api_secret="mock",
+        upstox_redirect_uri="mock",
+    )
+
+
+@pytest.fixture(autouse=True)
+def override_deps(mock_fs, mock_settings):
+    api.dependency_overrides[get_fs] = lambda: mock_fs
+    api.dependency_overrides[get_settings] = lambda: mock_settings
+    yield
+    api.dependency_overrides.clear()
+    symbol_service._symbols_df = None  # clear cache between tests
 
 
 @pytest.mark.asyncio
-async def test_get_symbols_api(client, session):
+async def test_get_symbols_api(client, mock_fs, mock_settings):
     # 1. Seed data
     mock_data = [
         {
@@ -17,19 +48,19 @@ async def test_get_symbols_api(client, session):
             "typespecs": ["common"],
         }
     ]
-    await symbol_service.refresh(session, mock_data)
+    await symbol_service.refresh(mock_fs, mock_settings, mock_data)
 
     # 2. Test search via API
-    response = await client.get("/api/v1/symbols/?q=NVDA&market=america")
+    response = await client.get("/api/v1/symbols/q?q=NVDA&market=america")
     assert response.status_code == 200
     data = response.json()
-    assert len(data) == 1
-    assert data[0]["ticker"] == "NASDAQ:NVDA"
-    assert data[0]["indexes"][0]["name"] == "NASDAQ 100"
+    items = data["items"]
+    assert len(items) == 1
+    assert items[0]["ticker"] == "NASDAQ:NVDA"
 
 
 @pytest.mark.asyncio
-async def test_get_symbols_metadata_api(client, session):
+async def test_get_symbols_metadata_api(client, mock_fs, mock_settings):
     # 1. Seed data
     mock_data = [
         {
@@ -41,7 +72,7 @@ async def test_get_symbols_metadata_api(client, session):
             "typespecs": ["common"],
         }
     ]
-    await symbol_service.refresh(session, mock_data)
+    await symbol_service.refresh(mock_fs, mock_settings, mock_data)
 
     # 2. Test metadata via API
     response = await client.get("/api/v1/symbols/search_metadata")
@@ -52,7 +83,7 @@ async def test_get_symbols_metadata_api(client, session):
 
 
 @pytest.mark.asyncio
-async def test_sync_symbols_api(client, session):
+async def test_sync_symbols_api(client, mock_fs, mock_settings):
     """
     Test the sync API endpoint with mock sync logic.
     """
@@ -79,11 +110,12 @@ async def test_sync_symbols_api(client, session):
         assert data["status"] == "Sync complete"
         assert data["count"] == 1
 
-        # Verify data was actually refreshed in DB
-        from sqlalchemy import select
+        # Verify data was actually refreshed in memory FS
+        import pandas as pd
 
-        symbols_in_db = list(session.execute(select(Symbol)).scalars().all())
-        assert len(symbols_in_db) == 1
-        assert symbols_in_db[0].ticker == "MOCK:TICKER"
-        assert symbols_in_db[0].indexes[0]["name"] == "MOCK INDEX"
-        assert symbols_in_db[0].typespecs == ["common"]
+        file_path = mock_settings.abs_file_path("symbols.parquet")
+        assert mock_fs.exists(file_path)
+        with mock_fs.open(file_path, "rb") as f:
+            df = pd.read_parquet(f)
+            assert len(df) == 1
+            assert df.iloc[0]["ticker"] == "MOCK:TICKER"

@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from fsspec import AbstractFileSystem
 from functools import lru_cache
 from terminal.config import settings as global_settings, Settings
 from terminal.storage.service import OCIClient
@@ -59,7 +60,7 @@ def _get_market_manager_instance() -> MarketDataManager:
 # Dependencies for FastAPI
 
 
-async def get_fs():
+async def get_fs() -> AbstractFileSystem:
     """
     Provides the OCI filesystem instance.
     """

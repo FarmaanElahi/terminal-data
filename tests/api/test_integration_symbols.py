@@ -1,13 +1,45 @@
 import pytest
 from unittest.mock import patch, AsyncMock
-from terminal.symbols.models import Symbol
-from sqlalchemy import select
+from terminal.main import api
+from terminal.dependencies import get_fs, get_settings
+from terminal.config import Settings
+from terminal.symbols import service as symbol_service
+from fsspec.implementations.memory import MemoryFileSystem
+import pandas as pd
+
+
+@pytest.fixture
+def mock_fs():
+    return MemoryFileSystem()
+
+
+@pytest.fixture
+def mock_settings():
+    return Settings(
+        env="dev",
+        database_url="sqlite:///./test.db",
+        oci_bucket="test-bucket",
+        oci_config="config",
+        oci_key="key",
+        upstox_api_key="mock",
+        upstox_api_secret="mock",
+        upstox_redirect_uri="mock",
+    )
+
+
+@pytest.fixture(autouse=True)
+def override_deps(mock_fs, mock_settings):
+    api.dependency_overrides[get_fs] = lambda: mock_fs
+    api.dependency_overrides[get_settings] = lambda: mock_settings
+    yield
+    api.dependency_overrides.clear()
+    symbol_service._symbols_df = None
 
 
 @pytest.mark.asyncio
-async def test_full_sync_and_search_flow(client, session):
+async def test_full_sync_and_search_flow(client, mock_fs, mock_settings):
     """
-    Tests the full flow from fetching (mocked) to search via API with DB.
+    Tests the full flow from fetching (mocked) to search via API with Pandas.
     """
     mock_symbols = [
         {
@@ -33,18 +65,21 @@ async def test_full_sync_and_search_flow(client, session):
         assert sync_resp.status_code == 200
         assert sync_resp.json()["count"] == 1
 
-        # 2. Verify data in DB
-        symbols_in_db = list(session.execute(select(Symbol)).scalars().all())
-        assert len(symbols_in_db) == 1
-        assert symbols_in_db[0].ticker == "NSE:RELIANCE"
-        assert symbols_in_db[0].indexes[0]["name"] == "NIFTY 50"
+        # 2. Verify data in mock FS
+        file_path = mock_settings.abs_file_path("symbols.parquet")
+        assert mock_fs.exists(file_path)
+        with mock_fs.open(file_path, "rb") as f:
+            df = pd.read_parquet(f)
+            assert len(df) == 1
+            assert df.iloc[0]["ticker"] == "NSE:RELIANCE"
 
         # 3. Search for the symbol via API
-        search_resp = await client.get("/api/v1/symbols/?q=RELIANCE&market=india")
+        search_resp = await client.get("/api/v1/symbols/q?q=RELIANCE&market=india")
         assert search_resp.status_code == 200
         results = search_resp.json()
-        assert len(results) == 1
-        assert results[0]["ticker"] == "NSE:RELIANCE"
+        items = results["items"]
+        assert len(items) == 1
+        assert items[0]["ticker"] == "NSE:RELIANCE"
 
         # 4. Check metadata via API
         meta_resp = await client.get("/api/v1/symbols/search_metadata")

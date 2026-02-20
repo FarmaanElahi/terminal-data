@@ -1,103 +1,173 @@
+import pandas as pd
+import json
+import logging
+from fsspec import AbstractFileSystem
 from typing import Any
-from sqlalchemy.orm import Session
-from sqlalchemy import select, func
-from terminal.symbols.models import Symbol
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from terminal.tradingview import TradingView
+from terminal.config import Settings
+
+logger = logging.getLogger(__name__)
+
+# Global cache for the dataframe
+_symbols_df: pd.DataFrame | None = None
+symbol_file_path = "symbols.parquet"
 
 
 async def search(
-    session: Session,
-    query: str | None = None,
+    fs: AbstractFileSystem,
+    settings: Settings,
+    text: str | None = None,
     market: str | None = "india",
     item_type: str | None = None,
     index: str | None = None,
     limit: int = 100,
-) -> list[Symbol]:
+) -> list[dict[str, Any]]:
     """
-    Search symbols using PostgreSQL Full-Text Search or basic filters.
+    Search symbols using Pandas DataFrame.
     """
-    statement = select(Symbol)
+    df = await _ensure_data_loaded(fs, settings)
+
+    if df.empty:
+        return []
+
+    # Apply filters
+    filtered_df = df.copy()
 
     if market:
-        statement = statement.where(Symbol.market == market)
+        filtered_df = filtered_df[filtered_df["market"] == market]
 
     if item_type:
-        statement = statement.where(Symbol.type == item_type)
+        filtered_df = filtered_df[filtered_df["type"] == item_type]
 
     if index:
-        # PostgreSQL JSONB containment check (@>)
-        # We search for an object with matching name within the indexes array
-        statement = statement.where(Symbol.indexes.contains([{"name": index}]))
-
-    if query:
-        # Clean query and prepare for prefix matching
-        # e.g. "aa pl" -> "aa:* & pl:*"
-        clean_query = " & ".join([f"{term}:*" for term in query.split() if term])
-        if clean_query:
-            ts_query = func.to_tsquery("english", clean_query)
-            statement = statement.where(Symbol.search_vector.op("@@")(ts_query))
-            # Sort by rank descending
-            statement = statement.order_by(
-                func.ts_rank(Symbol.search_vector, ts_query).desc()
+        # Check if the list of dicts in 'indexes' contains a dict with name == index
+        def has_index(indexes_list):
+            if not isinstance(indexes_list, list):
+                return False
+            return any(
+                isinstance(idx, dict) and idx.get("name") == index
+                for idx in indexes_list
             )
 
-    statement = statement.limit(limit)
-    return list(session.execute(statement).scalars().all())
+        filtered_df = filtered_df[filtered_df["indexes"].apply(has_index)]
+
+    if text:
+        query_lower = text.lower()
+        terms = [t for t in query_lower.split() if t]
+
+        # Combine ticker and name for searching, using lower case
+        search_series = (
+            filtered_df["ticker"].fillna("") + " " + filtered_df["name"].fillna("")
+        ).str.lower()
+
+        # For each term in the query, it must be present in the search string
+        for term in terms:
+            filtered_df = filtered_df[search_series.str.contains(term, regex=False)]
+            search_series = search_series[
+                filtered_df.index
+            ]  # update the series to match filtered_df
+
+    if limit:
+        filtered_df = filtered_df.head(limit)
+
+    # Convert to list of dicts matching SymbolSearchResponse
+    results = []
+
+    for _, row in filtered_df.iterrows():
+        r = row.to_dict()
+        # id is required by SymbolSearchResponse, generate it from ticker
+        r["id"] = str(r.get("ticker", ""))
+        # Ensure isin is None instead of NaN
+        if pd.isna(r.get("isin")):
+            r["isin"] = None
+        results.append(r)
+
+    return results
 
 
-async def refresh(session: Session, symbols: list[dict[str, Any]]) -> int:
+async def refresh(
+    fs: AbstractFileSystem,
+    settings: Settings,
+    symbols: list[dict[str, Any]] | None = None,
+) -> int:
     """
-    Syncs a list of symbols into the database using an efficient upsert strategy.
-    Existing symbols (matched by ticker) are updated, others are inserted.
+    Syncs a list of symbols to Parquet in OCIFS, or fetches all if none provided.
     """
+    global _symbols_df
+
+    if symbols is None:
+        symbols = await get_all_symbols_external()
+
     if not symbols:
         return 0
 
-    # Prepare symbol data (strip non-model fields if any)
-    data_list = [
-        {
-            "ticker": s.get("ticker"),
-            "name": s.get("name"),
-            "type": s.get("type"),
-            "market": s.get("market"),
-            "isin": s.get("isin"),
-            "indexes": s.get("indexes", []),
-            "typespecs": s.get("typespecs", []),
-        }
-        for s in symbols
-    ]
+    # Ensure arrays are serialized to JSON strings for Parquet to avoid nested array schema issues
+    df = pd.DataFrame(symbols)
 
-    # Optimized idiomatic bulk upsert for PostgreSQL using Session.execute(stmt, params)
-    # This is the native SQLAlchemy 2.0 pattern for batch execution
-    stmt = pg_insert(Symbol)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ticker"],
-        set_={
-            "name": stmt.excluded.name,
-            "type": stmt.excluded.type,
-            "market": stmt.excluded.market,
-            "isin": stmt.excluded.isin,
-            "indexes": stmt.excluded.indexes,
-            "typespecs": stmt.excluded.typespecs,
-        },
-    )
-    session.execute(stmt, data_list)
-    session.commit()
+    for col in ["indexes", "typespecs"]:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: json.dumps(x))
+
+    # Save to OCIFS
+    file_path = settings.abs_file_path(symbol_file_path)
+    with fs.open(file_path, "wb") as f:
+        # Pandas can write parquet buffer, ocifs handles it
+        df.to_parquet(f, index=False)
+
+    # Reset cache
+    _symbols_df = None
+
     return len(symbols)
 
 
-def get_metadata(session: Session) -> dict[str, list[str]]:
+async def _ensure_data_loaded(fs: Any, settings: Settings) -> pd.DataFrame:
+    global _symbols_df
+    if _symbols_df is not None:
+        return _symbols_df
+
+    file_path = settings.abs_file_path(symbol_file_path)
+
+    # Check if file exists
+    if not fs.exists(file_path):
+        logger.info(
+            f"Symbols Parquet not found at {file_path}. Fetching from external source."
+        )
+        await refresh(fs, settings)
+
+    # Load from Parquet using pandas via OCIFS
+    logger.info(f"Loading symbols from {file_path}")
+    with fs.open(file_path, "rb") as f:
+        _symbols_df = pd.read_parquet(f)
+
+    # Process JSON fields if they are strings.
+    if not _symbols_df.empty:
+        for col in ["indexes", "typespecs"]:
+            if col in _symbols_df.columns:
+                _symbols_df[col] = _symbols_df[col].apply(
+                    lambda x: (
+                        json.loads(x)
+                        if isinstance(x, str)
+                        else (x if pd.notna(x) else [])
+                    )
+                )
+
+    return _symbols_df
+
+
+async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str]]:
     """
     Returns available filter options (markets, indexes, types).
     """
-    markets = session.execute(select(Symbol.market).distinct()).scalars().all()
-    types = session.execute(select(Symbol.type).distinct()).scalars().all()
+    df = await _ensure_data_loaded(fs, settings)
 
-    # Indexes are in a JSON column, so we might need a different approach for distinct values
-    all_symbols = session.execute(select(Symbol.indexes)).scalars().all()
+    if df.empty:
+        return {"markets": [], "types": [], "indexes": []}
+
+    markets = [m for m in df["market"].dropna().unique().tolist() if m]
+    types = [t for t in df["type"].dropna().unique().tolist() if t]
+
     unique_indexes = set()
-    for idxs in all_symbols:
+    for idxs in df["indexes"].dropna():
         if isinstance(idxs, list):
             for idx in idxs:
                 if isinstance(idx, dict) and "name" in idx:

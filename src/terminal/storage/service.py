@@ -1,6 +1,7 @@
 import os
 import tempfile
 import ocifs
+from fsspec import AbstractFileSystem
 
 
 class OCIClient:
@@ -18,17 +19,9 @@ class OCIClient:
         Sets up OCI configuration files from provided strings.
         Returns the path to the temporary configuration file.
         """
-
-        def clean_val(val: str) -> str:
-            val = val.strip()
-            if (val.startswith('"') and val.endswith('"')) or (
-                val.startswith("'") and val.endswith("'")
-            ):
-                val = val[1:-1]
-            return val.encode().decode("unicode_escape").strip()
-
-        config_content = clean_val(self.oci_config)
-        key_content = clean_val(self.oci_key)
+        # Pydantic Settings automatically decoded the base64 content
+        config_content = self.oci_config.strip()
+        key_content = self.oci_key.strip()
 
         # Create a temporary directory to store credentials
         temp_dir = tempfile.mkdtemp(prefix="oci_config_")
@@ -47,7 +40,7 @@ class OCIClient:
 
         return config_path
 
-    def get_fs(self) -> ocifs.OCIFileSystem:
+    def get_fs(self) -> AbstractFileSystem:
         """
         Returns an initialized OCIFileSystem object.
         """

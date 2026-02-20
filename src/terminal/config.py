@@ -1,6 +1,9 @@
+import base64
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from terminal.enums import LogLevels
+import os
 
 # Resolve project root: config.py is at src/terminal/config.py → parents[2] = project root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +26,19 @@ class Settings(BaseSettings):
     oci_config: str
     oci_key: str
 
+    @field_validator("oci_config", "oci_key", mode="before")
+    @classmethod
+    def decode_base64_credentials(cls, v: str) -> str:
+        if v:
+            try:
+                # Attempt to parse as base64 string
+                decoded_bytes = base64.b64decode(v, validate=True)
+                return decoded_bytes.decode("utf-8")
+            except Exception:
+                # Fallback mechanism if the string is not actually base64
+                return v.strip(" \"'")
+        return v
+
     # logging
     log_level: LogLevels = LogLevels.info
 
@@ -34,6 +50,9 @@ class Settings(BaseSettings):
     @property
     def is_oci_configured(self) -> bool:
         return all([self.oci_config, self.oci_key, self.oci_bucket])
+
+    def abs_file_path(self, file_path: str) -> str:
+        return os.path.join(self.oci_bucket, "v2", file_path)
 
 
 # Settings instance will be created here
