@@ -38,7 +38,7 @@ class ScanCreate(TerminalBase):
     """Schema for creating a new scan."""
 
     name: str
-    sources: str
+    source: str | None = None
     conditions: list[ConditionParam] = []
     conditional_logic: Literal["and", "or"] = "and"
     columns: list[ColumnDef] = []
@@ -48,7 +48,7 @@ class ScanUpdate(TerminalBase):
     """Schema for updating an existing scan."""
 
     name: str | None = None
-    sources: str | None = None
+    source: str | None = None
     conditions: list[ConditionParam] | None = None
     conditional_logic: Literal["and", "or"] | None = None
     columns: list[ColumnDef] | None = None
@@ -59,7 +59,7 @@ class ScanPublic(TerminalBase):
 
     id: str
     name: str
-    sources: str
+    source: str | None = None
     conditions: list[ConditionParam] = []
     conditional_logic: Literal["and", "or"] = "and"
     columns: list[ColumnDef] = []
@@ -72,7 +72,7 @@ class Scan(Base, PrimaryKeyModel, TimeStampMixin):
 
     user_id: Mapped[str] = mapped_column(index=True)
     name: Mapped[str]
-    sources: Mapped[str] = mapped_column(ForeignKey("lists.id"))
+    source: Mapped[str | None] = mapped_column(ForeignKey("lists.id"), nullable=True)
 
     # Store conditions as JSONB
     conditions: Mapped[list[ConditionParam]] = mapped_column(JSONB, default=list)

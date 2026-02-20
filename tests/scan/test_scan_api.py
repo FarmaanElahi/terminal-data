@@ -21,7 +21,7 @@ async def test_create_and_get_scan(client: AsyncClient, token: str):
         headers=headers,
         json={
             "name": "My First Scan",
-            "sources": list_id,
+            "source": list_id,
             "conditions": [
                 {
                     "formula": "MACD > 0",
@@ -56,7 +56,7 @@ async def test_create_and_get_scan(client: AsyncClient, token: str):
     assert response.status_code == 200
     scan = response.json()
     assert scan["name"] == "My First Scan"
-    assert scan["sources"] == list_id
+    assert scan["source"] == list_id
     assert len(scan["conditions"]) == 1
     assert scan["conditions"][0]["formula"] == "MACD > 0"
     assert len(scan["columns"]) == 1

@@ -112,7 +112,7 @@ def get_metadata(session: Session) -> dict[str, list[str]]:
     }
 
 
-async def get_all_symbols_external(fs: Any, bucket: str) -> list[dict[str, Any]]:
+async def get_all_symbols_external() -> list[dict[str, Any]]:
     """
     Syncs symbols from TradingView.
     """

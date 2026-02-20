@@ -70,7 +70,7 @@ async def test_run_scan_engine(client: AsyncClient, token: str, mock_market_mana
         headers=headers,
         json={
             "name": "Up-trending Scan",
-            "sources": list_id,
+            "source": list_id,
             "conditions": [
                 {
                     # Condition: Close must be greater than Open

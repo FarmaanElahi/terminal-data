@@ -29,7 +29,7 @@ def create_scan(session: Session, user_id: str, scan_in: ScanCreate) -> Scan:
         id=str(uuid4()),
         user_id=user_id,
         name=scan_in.name,
-        sources=scan_in.sources,
+        source=scan_in.source,
         conditions=[c.model_dump() for c in scan_in.conditions],
         conditional_logic=scan_in.conditional_logic,
         columns=[c.model_dump() for c in scan_in.columns],
