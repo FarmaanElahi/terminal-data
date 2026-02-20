@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from .api import api_router as api_router
 from .logging import configure_logging
+from .realtime.handler import router as realtime_router
 
 # Filter out Pydantic migration warnings
 warnings.filterwarnings("ignore", message=".*has been moved to.*")
@@ -25,3 +26,4 @@ api.include_router(api_router)
 
 app = FastAPI(title="Terminal App")
 app.mount("/api", api)
+app.include_router(realtime_router)

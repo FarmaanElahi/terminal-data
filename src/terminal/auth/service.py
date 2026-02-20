@@ -1,7 +1,21 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import select
+import jwt
+
 from terminal.auth.models import User, UserCreate
+from terminal.config import settings
+
+
+def verify_token(token: str) -> str | None:
+    """Decode a JWT and return the ``sub`` claim, or ``None`` if invalid."""
+    try:
+        payload = jwt.decode(
+            token, settings.secret_key, algorithms=[settings.algorithm]
+        )
+        return payload.get("sub")
+    except jwt.PyJWTError:
+        return None
 
 
 def get(session: Session, user_id: str) -> Optional[User]:

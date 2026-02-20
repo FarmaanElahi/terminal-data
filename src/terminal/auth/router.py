@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-import jwt
 
-from terminal.config import settings
 from terminal.dependencies import get_session
 from terminal.auth.models import User, UserCreate, Token, UserPublic
 from terminal.auth import service as auth_service
@@ -26,14 +24,9 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(
-            token, settings.secret_key, algorithms=[settings.algorithm]
-        )
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except jwt.PyJWTError:
+
+    username = auth_service.verify_token(token)
+    if username is None:
         raise credentials_exception
 
     user = auth_service.get_by_username(session, username)
