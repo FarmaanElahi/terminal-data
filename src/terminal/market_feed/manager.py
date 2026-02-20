@@ -1,7 +1,9 @@
 import asyncio
 import logging
 from typing import List, Optional
+
 import numpy as np
+import pandas as pd
 from .store import OHLCStore
 from .provider import DataProvider
 from .tradingview import TradingViewDataProvider
@@ -99,22 +101,65 @@ class MarketDataManager:
         """
         return self.store.get_data(symbol)
 
-    def get_ohlcv(self, symbol: str) -> Optional[dict[str, np.ndarray]]:
+    def get_ohlcv(
+        self, symbol: str, timeframe: str = "D"
+    ) -> Optional[dict[str, np.ndarray]]:
         """
         Returns OHLCV data as a dictionary of separate numpy columns.
         Each column is a 1D numpy array ordered by timestamp.
+        Resamples the data if a higher timeframe (W, M, Y) is requested.
         """
         data = self.store.get_data(symbol)
         if data is None:
             return None
 
-        return {
+        # Base dictionary
+        res = {
             "timestamp": data["timestamp"],
             "open": data["open"],
             "high": data["high"],
             "low": data["low"],
             "close": data["close"],
             "volume": data["volume"],
+        }
+
+        if timeframe == "D":
+            return res
+
+        # Resample logic using pandas
+        df = pd.DataFrame(res)
+        # Assuming timestamps are unix seconds or milliseconds
+        # Based on MarketDataManager, timestamps are typically in seconds.
+        # Convert to datetime index
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
+        df.set_index("datetime", inplace=True)
+
+        # Resample mapping
+        tf_map = {"W": "W", "M": "ME", "Y": "YE"}
+        pandas_tf = tf_map.get(timeframe, "D")
+
+        resampled = (
+            df.resample(pandas_tf)
+            .agg(
+                {
+                    "timestamp": "last",  # keeping the end of period timestamp roughly
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna()
+        )
+
+        return {
+            "timestamp": resampled["timestamp"].values,
+            "open": resampled["open"].values,
+            "high": resampled["high"].values,
+            "low": resampled["low"].values,
+            "close": resampled["close"].values,
+            "volume": resampled["volume"].values,
         }
 
     def get_ohlcv_series(self, symbol: str) -> Optional[List[List]]:
