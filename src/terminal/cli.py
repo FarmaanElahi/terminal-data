@@ -114,25 +114,25 @@ def refresh_symbols(
     market: str = typer.Option("india", help="Market to sync symbols for"),
 ):
     """
-    Fetch symbols from TradingView and upsert them into the database.
+    Fetch symbols from TradingView and upsert them into OCIFS.
     """
     import asyncio
-    from terminal.database import get_session
+    from terminal.config import settings
+    from terminal.dependencies import get_fs
     from terminal.symbols import service as symbol_service
 
     async def _run():
         typer.echo(f"Fetching symbols for market '{market}' from TradingView...")
-        symbols = await symbol_service.get_all_symbols_external(fs=None, bucket="")
+        fs = await get_fs()
+        symbols = await symbol_service.get_all_symbols_external()
 
         if not symbols:
             typer.echo("No symbols returned from TradingView.")
             return
 
-        typer.echo(f"Syncing {len(symbols)} symbols to database...")
-        for session in get_session():
-            count = await symbol_service.refresh(session, symbols)
-            typer.echo(f"Successfully upserted {count} symbols.")
-            break
+        typer.echo(f"Syncing {len(symbols)} symbols to OCIFS...")
+        count = await symbol_service.refresh(fs, settings, symbols)
+        typer.echo(f"Successfully upserted {count} symbols.")
 
     asyncio.run(_run())
 
@@ -147,34 +147,31 @@ def refresh_candle_day():
     Refresh 1D candle data from TradingView and save to OCI cache.
     """
     import asyncio
+    from terminal.config import settings
     from terminal.dependencies import (
         _get_tradingview_provider_instance,
+        get_fs,
     )
-    from terminal.database import get_session
     from terminal.symbols import service as symbol_service
 
     async def _run():
         typer.echo("Initializing providers...")
         tv_provider = _get_tradingview_provider_instance()
 
-        typer.echo("Fetching symbol list from database...")
-        # Get a session from the generator
-        # Since get_session yields a session and handles commit/rollback/close, we iterate
-        for session in get_session():
-            symbols_info = await symbol_service.search(
-                session, limit=20000
-            )  # Get all primary symbols
-            tickers = [s.ticker for s in symbols_info]
+        typer.echo("Fetching symbol list from OCIFS...")
+        fs = await get_fs()
+        symbols_info = await symbol_service.search(
+            fs=fs, settings=settings, limit=20000
+        )  # Get all primary symbols
+        tickers = [s["ticker"] for s in symbols_info]
 
-            if not tickers:
-                typer.echo("No symbols found to refresh.")
-                return
+        if not tickers:
+            typer.echo("No symbols found to refresh.")
+            return
 
-            typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
-            await tv_provider.refresh_cache(tickers)
-            typer.echo("Refresh complete.")
-            # Break after one use since get_session yields once
-            break
+        typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
+        await tv_provider.refresh_cache(tickers)
+        typer.echo("Refresh complete.")
 
     asyncio.run(_run())
 
