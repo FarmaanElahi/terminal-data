@@ -21,7 +21,7 @@ class TradingViewScanner:
     }
 
     async def fetch_symbols(
-        self, markets: list[str] = ["india", "america"]
+        self, markets: list[str] = ["india"]
     ) -> list[dict[str, Any]]:
         """
         Fetches symbols from TradingView for the specified markets.
@@ -191,9 +191,7 @@ class TradingViewScanner:
 
             return all_symbols
 
-    async def fetch_ohlc(
-        self, markets: list[str] = ["india", "america"]
-    ) -> list[dict[str, Any]]:
+    async def fetch_ohlc(self, markets: list[str] = ["india"]) -> list[dict[str, Any]]:
         """
         Fetches the latest OHLC data for symbols in the specified markets.
         """

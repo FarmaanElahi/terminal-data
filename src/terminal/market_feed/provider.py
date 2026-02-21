@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 import numpy as np
+from fsspec import AbstractFileSystem
 
 
 from pathlib import Path
@@ -11,7 +12,11 @@ class DataProvider(ABC):
     """
 
     def __init__(
-        self, fs: any, bucket: str, cache_dir: str = "data", provider_name: str = "tv"
+        self,
+        fs: AbstractFileSystem,
+        bucket: str,
+        cache_dir: str = "data",
+        provider_name: str = "tv",
     ):
         self.fs = fs
         self.bucket = bucket
