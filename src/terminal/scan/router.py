@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from fsspec import AbstractFileSystem
 from terminal.auth.router import get_current_user
-from terminal.dependencies import get_market_manager, get_session
+from terminal.dependencies import get_market_manager, get_session, get_fs, get_settings
 from terminal.lists import service as lists_service
 from terminal.market_feed.manager import MarketDataManager
 from terminal.scan import engine, service
+from terminal.config import Settings
 from terminal.scan.models import (
     ScanCreate,
     ScanPublic,
@@ -77,7 +78,9 @@ def delete(
 async def run_scan(
     scan_id: str,
     user: dict = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
     session: Session = Depends(get_session),
+    fs: AbstractFileSystem = Depends(get_fs),
     market_manager: "MarketDataManager" = Depends(get_market_manager),
 ):
 
@@ -90,8 +93,8 @@ async def run_scan(
     if not scan.source:
         from terminal.symbols import service as symbols_service
 
-        raw_symbols = await symbols_service.search(session, limit=100000)
-        symbols = [s.ticker for s in raw_symbols]
+        raw_symbols = await symbols_service.search(fs, settings, limit=100000)
+        symbols = [s["ticker"] for s in raw_symbols]
     else:
         lst = lists_service.get(session, scan.source, user_id=user.id)
         if not lst:
