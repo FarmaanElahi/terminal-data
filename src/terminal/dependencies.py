@@ -31,14 +31,14 @@ def _get_market_manager_instance() -> MarketDataManager:
 # Dependencies for FastAPI
 
 
-async def get_fs() -> AbstractFileSystem:
+def get_fs() -> AbstractFileSystem:
     """
     Provides the OCI filesystem instance.
     """
     return fs
 
 
-async def get_settings():
+def get_settings():
     """
     Provides the application settings.
     """

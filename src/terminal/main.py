@@ -24,11 +24,22 @@ configure_logging()
 async def lifespan(application: FastAPI):
     # Startup: Start the market data manager to stream real-time updates
     manager = await get_market_manager()
-    fs = await get_fs()
-    settings = get_settings()
+    fs_instance = get_fs()
+    settings_instance = get_settings()
 
     logger.info("Initializing MarketDataManager in the background...")
-    application.state.md_startup_task = asyncio.create_task(manager.start(fs, settings))
+
+    def handle_startup_task(task: asyncio.Task):
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Background md_startup_task failed")
+
+    task = asyncio.create_task(manager.start(fs_instance, settings_instance))
+    task.add_done_callback(handle_startup_task)
+    application.state.md_startup_task = task
 
     yield
 

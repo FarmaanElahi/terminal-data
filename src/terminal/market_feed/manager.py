@@ -39,26 +39,29 @@ class MarketDataManager:
         Proactively loads all symbols from the symbol service, loads their history from cache,
         fetches any missing history from the provider, and starts realtime streaming.
         """
-        logger.info("Starting MarketDataManager...")
-        # 1. Fetch all symbols
-        symbols_info = await symbol_service.search(
-            fs, settings, market=None, limit=20000
-        )
+        try:
+            logger.info("Starting MarketDataManager...")
+            # 1. Fetch all symbols
+            symbols_info = await symbol_service.search(
+                fs, settings, market=None, limit=20000
+            )
 
-        tickers = [s["ticker"] for s in symbols_info]
+            tickers = [s["ticker"] for s in symbols_info]
 
-        if not tickers:
-            logger.warning("No symbols found from symbol service.")
-            return
+            if not tickers:
+                logger.warning("No symbols found from symbol service.")
+                return
 
-        logger.info(f"Loaded {len(tickers)} symbols from symbol service.")
+            logger.info(f"Loaded {len(tickers)} symbols from symbol service.")
 
-        # 2. Load history (this uses cache or provider fallback)
-        await self.load_history(tickers)
+            # 2. Load history (this uses cache or provider fallback)
+            await self.load_history(tickers)
 
-        # 3. Start realtime streaming and cache updater
-        await self.start_realtime_streaming(tickers)
-        self._start_periodic_cache_updater()
+            # 3. Start realtime streaming and cache updater
+            await self.start_realtime_streaming(tickers)
+            self._start_periodic_cache_updater()
+        except Exception as e:
+            logger.error(f"Failed to start MarketDataManager: {e}", exc_info=True)
 
     async def load_history(self, symbols: List[str]):
         """
