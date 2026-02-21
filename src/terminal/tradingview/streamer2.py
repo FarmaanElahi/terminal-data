@@ -21,7 +21,7 @@ class TradingViewWorker:
     WSS_URL = "wss://data-wdc.tradingview.com/socket.io/websocket?type=chart"
     ORIGIN = "https://in.tradingview.com"
 
-    def __init__(self, worker_id: int):
+    def __init__(self, worker_id: int, on_idle: Optional[callable] = None):
         self.worker_id = worker_id
         self.socket: Optional[ClientConnection] = None
         self._listen_task: Optional[asyncio.Task] = None
@@ -29,6 +29,9 @@ class TradingViewWorker:
         # session_id -> metadata needed for message routing/state tracking
         self._sessions: Dict[str, Dict] = {}
         self.active_session_count = 0
+        self.quote_symbols_count = 0
+        self.bar_sessions_count = 0
+        self.on_idle = on_idle
         self._connected = asyncio.Event()
 
     async def start(self):
@@ -84,12 +87,29 @@ class TradingViewWorker:
         self._queues[session_id] = queue
         self._sessions[session_id] = session_data
         self.active_session_count += 1
+        if session_id.startswith("qs_"):
+            self.quote_symbols_count += len(session_data.get("tickers", []))
+        elif session_id.startswith("cs_"):
+            self.bar_sessions_count += 1
 
     async def unregister_session(self, session_id: str):
         """Cleans up a session."""
+        session_data = self._sessions.get(session_id, {})
+        if session_id.startswith("qs_"):
+            self.quote_symbols_count -= len(session_data.get("tickers", []))
+        elif session_id.startswith("cs_"):
+            self.bar_sessions_count -= 1
+
         self._queues.pop(session_id, None)
         self._sessions.pop(session_id, None)
         self.active_session_count -= 1
+
+        if self.active_session_count == 0 and self.on_idle:
+            # Notify client that this worker can be shut down
+            if asyncio.iscoroutinefunction(self.on_idle):
+                await self.on_idle(self)
+            else:
+                self.on_idle(self)
 
     async def get_session_data(self, session_id: str) -> dict:
         return self._sessions.get(session_id, {})
@@ -298,18 +318,62 @@ class TradingViewClient:
         self._started = False
 
     async def start(self):
-        if self._started:
-            return
-        self.workers = [TradingViewWorker(i) for i in range(self.pool_size)]
-        await asyncio.gather(*(w.start() for w in self.workers))
+        """Marks the client as started. Workers will be spawned on demand."""
         self._started = True
-        logger.info(f"TradingViewClient started with {self.pool_size} workers.")
+        logger.info(f"TradingViewClient initialized (Max {self.pool_size} workers).")
 
     async def stop(self):
-        await asyncio.gather(*(w.stop() for w in self.workers))
+        """Stops all active workers."""
+        active_workers = list(self.workers)
+        await asyncio.gather(*(w.stop() for w in active_workers))
+        self.workers = []
         self._started = False
 
-    def _get_least_loaded_worker(self) -> TradingViewWorker:
+    async def _handle_worker_idle(self, worker: TradingViewWorker):
+        """Called when a worker has no active sessions."""
+        if worker.active_session_count == 0:
+            logger.info(f"Worker {worker.worker_id} is idle. Shutting down...")
+            await worker.stop()
+            if worker in self.workers:
+                self.workers.remove(worker)
+
+    async def _get_least_loaded_worker(self, type: str = "quote") -> TradingViewWorker:
+        """
+        Finds the best worker or spawns a new one based on load thresholds.
+        Thresholds:
+        - Quote: 1000 symbols
+        - Bar: 1 active session
+        """
+        if not self._started:
+            await self.start()
+
+        # Try to find a worker that isn't busy
+        available_workers = []
+        for w in self.workers:
+            if type == "quote" and w.quote_symbols_count < 1000:
+                available_workers.append(w)
+            elif type == "bar" and w.bar_sessions_count == 0:
+                available_workers.append(w)
+
+        if available_workers:
+            return min(available_workers, key=lambda w: w.active_session_count)
+
+        # If no available workers and we can spawn more, do so
+        if len(self.workers) < self.pool_size:
+            worker_id = len(self.workers)
+            # Find a non-conflicting ID if some were removed
+            existing_ids = {w.worker_id for w in self.workers}
+            for i in range(self.pool_size):
+                if i not in existing_ids:
+                    worker_id = i
+                    break
+
+            new_worker = TradingViewWorker(worker_id, on_idle=self._handle_worker_idle)
+            self.workers.append(new_worker)
+            await new_worker.start()
+            return new_worker
+
+        # Fallback to least loaded among all workers
         return min(self.workers, key=lambda w: w.active_session_count)
 
     def _gen_session_id(self, prefix: str):
@@ -348,7 +412,7 @@ class TradingViewClient:
 
         for chunk in ticker_chunks:
             session_id = self._gen_session_id("qs")
-            worker = self._get_least_loaded_worker()
+            worker = await self._get_least_loaded_worker(type="quote")
 
             session_data = {"tickers": chunk, "fields": fields}
             await worker.register_session(session_id, queue, session_data)
@@ -424,7 +488,7 @@ class TradingViewClient:
         self, tickers: List[str], timeframe: str
     ) -> AsyncGenerator[dict, None]:
         session_id = self._gen_session_id("cs")
-        worker = self._get_least_loaded_worker()
+        worker = await self._get_least_loaded_worker(type="bar")
         queue = asyncio.Queue()
 
         keys = {
