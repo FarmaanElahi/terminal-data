@@ -303,10 +303,12 @@ class MarketDataManager:
             "volume": resampled["volume"].values,
         }
 
-    def get_ohlcv_series(self, symbol: str) -> Optional[List[List]]:
+    def get_ohlcv_series(
+        self, symbol: str, limit: Optional[int] = None
+    ) -> Optional[List[List]]:
         """
         Returns OHLCV data as a list of [t, o, h, l, c, v] rows.
-        Ordered chronologically by timestamp.
+        Ordered chronologically by timestamp (latest first).
         """
         data = self.store.get_data(symbol)
         if data is None:
@@ -314,4 +316,9 @@ class MarketDataManager:
 
         # Convert structured numpy array to list of tuples (JSON serializes tuples as lists)
         # We use [::-1] to reverse the order so the latest candle is first
-        return data[::-1].tolist()
+        series = data[::-1]
+
+        if limit is not None and limit > 0:
+            series = series[:limit]
+
+        return series.tolist()

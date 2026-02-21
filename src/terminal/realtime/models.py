@@ -151,6 +151,42 @@ class ErrorMessage(ServerMessage):
     p: tuple[str]
 
 
+class QuoteData(BaseModel):
+    """Payload for full_quote."""
+
+    timestamp: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class FullQuoteResponse(ServerMessage):
+    """Initial full quote data emission."""
+
+    m: Literal["full_quote"] = "full_quote"
+    p: tuple[str, str, QuoteData]  # session_id, symbol, data
+
+
+class QuoteUpdateData(BaseModel):
+    """Payload for quote_update (only changed fields)."""
+
+    timestamp: int | None = None
+    open: float | None = None
+    high: float | None = None
+    low: float | None = None
+    close: float | None = None
+    volume: float | None = None
+
+
+class QuoteUpdateResponse(ServerMessage):
+    """Partial quote data emission."""
+
+    m: Literal["quote_update"] = "quote_update"
+    p: tuple[str, str, QuoteUpdateData]  # session_id, symbol, data
+
+
 # ------------------------------------------------------------------
 # Dispatch helper
 # ------------------------------------------------------------------

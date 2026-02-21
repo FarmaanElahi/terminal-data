@@ -12,7 +12,10 @@ if TYPE_CHECKING:
 
 from .models import (
     QuoteRequest,
-    ServerMessage,
+    FullQuoteResponse,
+    QuoteUpdateResponse,
+    QuoteData,
+    QuoteUpdateData,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +41,18 @@ class QuoteSession:
         self.realtime = realtime
         self.manager = manager
         self.subscribed_symbols: Set[str] = set()
+        self._last_emitted: dict[str, dict] = {}
         self._streaming_task: Optional[asyncio.Task] = None
+
+    def _candle_to_dict(self, candle: tuple) -> dict:
+        return {
+            "timestamp": int(candle[0]),
+            "open": float(candle[1]),
+            "high": float(candle[2]),
+            "low": float(candle[3]),
+            "close": float(candle[4]),
+            "volume": float(candle[5]),
+        }
 
     async def handle(self, msg: QuoteRequest) -> None:
         """Handle a quote request forwarded from the RealtimeSession."""
@@ -67,7 +81,13 @@ class QuoteSession:
         for symbol in new_symbols:
             latest = self.manager.get_ohlcv_series(symbol, limit=1)
             if latest:
-                await self._send_update(symbol, latest[0])
+                candle_dict = self._candle_to_dict(latest[0])
+                self._last_emitted[symbol] = candle_dict
+                await self.realtime.send(
+                    FullQuoteResponse(
+                        p=(self.session_id, symbol, QuoteData(**candle_dict)),
+                    )
+                )
 
         # 2. Ensure streaming task is running
         if self._streaming_task is None or self._streaming_task.done():
@@ -84,22 +104,37 @@ class QuoteSession:
             async for update in self.manager.subscribe():
                 symbol = update["symbol"]
                 if symbol in self.subscribed_symbols:
-                    await self._send_update(symbol, update["candle"])
+                    candle_dict = self._candle_to_dict(update["candle"])
+
+                    if symbol not in self._last_emitted:
+                        self._last_emitted[symbol] = candle_dict
+                        await self.realtime.send(
+                            FullQuoteResponse(
+                                p=(self.session_id, symbol, QuoteData(**candle_dict)),
+                            )
+                        )
+                    else:
+                        last_dict = self._last_emitted[symbol]
+                        diff = {}
+                        for k, v in candle_dict.items():
+                            if last_dict.get(k) != v:
+                                diff[k] = v
+
+                        if diff:
+                            self._last_emitted[symbol] = candle_dict
+                            await self.realtime.send(
+                                QuoteUpdateResponse(
+                                    p=(
+                                        self.session_id,
+                                        symbol,
+                                        QuoteUpdateData(**diff),
+                                    ),
+                                )
+                            )
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Error in QuoteSession {self.session_id} stream loop: {e}")
-
-    async def _send_update(self, symbol: str, candle: tuple) -> None:
-        """Helper to send a quote update to the client."""
-        # Format prescribed by user: quote_session_wise_update
-        # p structure: (session_id, symbol, candle_data)
-        await self.realtime.send(
-            ServerMessage(
-                m="quote_session_wise_update",
-                p=(self.session_id, symbol, candle),
-            )
-        )
 
     def stop(self) -> None:
         """Stop the streaming task."""

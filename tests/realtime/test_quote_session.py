@@ -6,7 +6,10 @@ from terminal.realtime.models import (
     CreateQuoteSessionRequest,
     SubscribeSymbolsRequest,
     UnsubscribeSymbolsRequest,
-    ServerMessage,
+    FullQuoteResponse,
+    QuoteUpdateResponse,
+    QuoteData,
+    QuoteUpdateData,
 )
 
 
@@ -27,7 +30,19 @@ async def test_quote_session_initial_emit():
             "symbol": symbol,
             "candle": (1600000001, 102.5, 103.0, 102.0, 102.8, 500.0),
         }
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.02)
+        yield {
+            "symbol": symbol,
+            "candle": (
+                1600000002,
+                102.5,
+                103.0,
+                102.0,
+                102.9,
+                500.0,
+            ),  # only time and close change
+        }
+        await asyncio.sleep(0.02)
 
     manager.subscribe.return_value = mock_subscribe()
 
@@ -39,10 +54,19 @@ async def test_quote_session_initial_emit():
 
     # Verify initial emit
     manager.get_ohlcv_series.assert_called_with(symbol, limit=1)
+
+    expected_full_dict = {
+        "timestamp": 1600000000,
+        "open": 100.0,
+        "high": 105.0,
+        "low": 95.0,
+        "close": 102.0,
+        "volume": 1000.0,
+    }
+
     realtime.send.assert_any_call(
-        ServerMessage(
-            m="quote_session_wise_update",
-            p=(session_id, symbol, candle),
+        FullQuoteResponse(
+            p=(session_id, symbol, QuoteData(**expected_full_dict)),
         )
     )
 
@@ -50,10 +74,27 @@ async def test_quote_session_initial_emit():
     await asyncio.sleep(0.05)
 
     # Verify stream update
+    expected_diff_dict = {
+        "timestamp": 1600000001,
+        "open": 102.5,
+        "high": 103.0,
+        "low": 102.0,
+        "close": 102.8,
+        "volume": 500.0,
+    }
     realtime.send.assert_any_call(
-        ServerMessage(
-            m="quote_session_wise_update",
-            p=(session_id, symbol, (1600000001, 102.5, 103.0, 102.0, 102.8, 500.0)),
+        QuoteUpdateResponse(
+            p=(session_id, symbol, QuoteUpdateData(**expected_diff_dict)),
+        )
+    )
+
+    expected_diff_dict_2 = {
+        "timestamp": 1600000002,
+        "close": 102.9,
+    }
+    realtime.send.assert_any_call(
+        QuoteUpdateResponse(
+            p=(session_id, symbol, QuoteUpdateData(**expected_diff_dict_2)),
         )
     )
 
