@@ -18,13 +18,13 @@ router = APIRouter(prefix="/lists", tags=["List"])
 
 
 @router.get("/", response_model=list[ListPublic])
-async def get_all_lists(
+async def all(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
     """List all lists owned by the current user."""
     lists_service.ensure_default_lists(session, current_user.id)
-    return lists_service.get_all(session, current_user.id)
+    return lists_service.all(session, current_user.id)
 
 
 @router.post("/", response_model=ListPublic)
@@ -42,7 +42,7 @@ async def create_list(
 
 
 @router.get("/{id}", response_model=ListPublic)
-async def get_list(
+async def get(
     id: str,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),

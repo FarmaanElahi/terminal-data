@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 router = APIRouter(prefix="/market-feeds", tags=["Market Feed"])
 
 
-@router.get("/{symbol}")
+@router.get("/candles/{symbol}")
 async def get_ohlcv(
     symbol: str,
     refresh: bool = Query(

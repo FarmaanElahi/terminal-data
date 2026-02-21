@@ -93,3 +93,6 @@ class OHLCStore:
         for symbol in self._buffers:
             result[symbol] = self.get_data(symbol)
         return result
+
+
+ohlc_store = OHLCStore()

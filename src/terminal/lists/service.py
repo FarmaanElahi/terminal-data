@@ -18,7 +18,7 @@ def get(session: Session, list_id: str, user_id: str | None = None) -> List | No
     return session.execute(statement).scalars().first()
 
 
-def get_all(session: Session, user_id: str) -> list[List]:
+def all(session: Session, user_id: str) -> list[List]:
     """Get all lists for a user."""
     return list(
         session.execute(select(List).where(List.user_id == user_id)).scalars().all()

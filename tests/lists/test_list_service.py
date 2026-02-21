@@ -43,7 +43,7 @@ def test_get_list(session: Session):
 def test_get_all_lists(session: Session):
     lists_service.create(session, USER_ID, ListCreate(name="L1", type=ListType.simple))
     lists_service.create(session, USER_ID, ListCreate(name="L2", type=ListType.simple))
-    all_lists = lists_service.get_all(session, USER_ID)
+    all_lists = lists_service.all(session, USER_ID)
     assert len(all_lists) == 2
 
 
@@ -110,8 +110,8 @@ def test_cross_user_security(session: Session):
     fetched = lists_service.get(session, l1.id, user_id=OTHER_USER_ID)
     assert fetched is None
 
-    # User 2's get_all should be empty
-    assert lists_service.get_all(session, OTHER_USER_ID) == []
+    # User 2's all should be empty
+    assert lists_service.all(session, OTHER_USER_ID) == []
 
 
 def test_combo_source_list_management(session: Session):

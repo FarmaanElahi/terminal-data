@@ -10,13 +10,13 @@ from terminal.scan.models import (
 )
 
 
-def get_scans(session: Session, user_id: str) -> list[Scan]:
+def all(session: Session, user_id: str) -> list[Scan]:
     return list(
         session.execute(select(Scan).where(Scan.user_id == user_id)).scalars().all()
     )
 
 
-def get_scan(session: Session, user_id: str, scan_id: str) -> Scan | None:
+def get(session: Session, user_id: str, scan_id: str) -> Scan | None:
     return (
         session.execute(select(Scan).where(Scan.user_id == user_id, Scan.id == scan_id))
         .scalars()
@@ -24,7 +24,7 @@ def get_scan(session: Session, user_id: str, scan_id: str) -> Scan | None:
     )
 
 
-def create_scan(session: Session, user_id: str, scan_in: ScanCreate) -> Scan:
+def create(session: Session, user_id: str, scan_in: ScanCreate) -> Scan:
     scan = Scan(
         id=str(uuid4()),
         user_id=user_id,
@@ -40,10 +40,10 @@ def create_scan(session: Session, user_id: str, scan_in: ScanCreate) -> Scan:
     return scan
 
 
-def update_scan(
+def update(
     session: Session, user_id: str, scan_id: str, scan_in: ScanUpdate
 ) -> Scan | None:
-    scan = get_scan(session, user_id, scan_id)
+    scan = get(session, user_id, scan_id)
     if not scan:
         return None
 
@@ -65,8 +65,8 @@ def update_scan(
     return scan
 
 
-def delete_scan(session: Session, user_id: str, scan_id: str) -> bool:
-    scan = get_scan(session, user_id, scan_id)
+def delete(session: Session, user_id: str, scan_id: str) -> bool:
+    scan = get(session, user_id, scan_id)
     if not scan:
         return False
 
