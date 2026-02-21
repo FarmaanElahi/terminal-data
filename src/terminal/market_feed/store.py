@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 import numpy as np
 from .models import CANDLE_DTYPE
 
@@ -13,6 +13,7 @@ class OHLCStore:
         self.capacity = capacity_per_symbol
         self._buffers: Dict[str, np.ndarray] = {}
         self._pointers: Dict[str, int] = {}
+        self.is_dirty = False
 
     def _initialize_symbol(self, symbol: str):
         """Allocates buffer for a symbol if it doesn't exist."""
@@ -35,6 +36,7 @@ class OHLCStore:
 
         self._buffers[symbol][:count] = history_data
         self._pointers[symbol] = count
+        self.is_dirty = True
 
     def add_realtime(self, symbol: str, candle: tuple):
         """
@@ -54,11 +56,15 @@ class OHLCStore:
             new_timestamp = candle[0]  # Assuming timestamp is the first element
 
             if new_timestamp == last_timestamp:
-                # Update existing candle
-                buffer[last_idx] = candle
+                old_candle = tuple(buffer[last_idx])
+                if old_candle != candle:
+                    self.is_dirty = True
+                    # Update existing candle
+                    buffer[last_idx] = candle
                 return
 
         # Append new candle
+        self.is_dirty = True
         if ptr < self.capacity:
             buffer[ptr] = candle
             self._pointers[symbol] += 1

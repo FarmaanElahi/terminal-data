@@ -84,4 +84,4 @@ async def test_refresh_cache_flow(tv_provider, mock_fs):
 
     # Verify FS.put was called to OCI
     mock_fs.put.assert_called_once()
-    assert "candles_1d.parquet" in mock_fs.put.call_args[0][1]
+    assert "candles_tv.parquet" in mock_fs.put.call_args[0][1]
