@@ -2,10 +2,12 @@
 
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from starlette.websockets import WebSocketState
 
 from terminal.auth import service as auth_service
+from terminal.dependencies import get_market_manager
+from terminal.market_feed.manager import MarketDataManager
 
 from .session import RealtimeSession
 
@@ -18,6 +20,7 @@ router = APIRouter()
 async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(default=None),
+    manager: MarketDataManager = Depends(get_market_manager),
 ) -> None:
     """
     Main realtime WebSocket endpoint.
@@ -41,7 +44,7 @@ async def websocket_endpoint(
 
     # --- Accept & run ---
     await websocket.accept()
-    session = RealtimeSession(websocket, user_id=user_id)
+    session = RealtimeSession(websocket, user_id=user_id, manager=manager)
     logger.info("Realtime connection opened for user=%s", user_id)
 
     try:

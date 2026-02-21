@@ -1,6 +1,6 @@
 """Unit tests for RealtimeSession."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -16,8 +16,13 @@ def ws_mock() -> AsyncMock:
 
 
 @pytest.fixture
-def session(ws_mock: AsyncMock) -> RealtimeSession:
-    return RealtimeSession(ws_mock, user_id="test_user")
+def manager_mock() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture
+def session(ws_mock: AsyncMock, manager_mock: MagicMock) -> RealtimeSession:
+    return RealtimeSession(ws_mock, user_id="test_user", manager=manager_mock)
 
 
 # ------------------------------------------------------------------

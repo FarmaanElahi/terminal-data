@@ -91,6 +91,48 @@ class ModifyScreenerRequest(ScreenerRequest):
 
 
 # ------------------------------------------------------------------
+# Quote requests
+# ------------------------------------------------------------------
+
+
+class QuoteRequest(ClientMessage):
+    """Base class for all quote-related requests.
+
+    Any message whose typed model inherits from this class will be
+    forwarded to the ``QuoteSession.handle()`` method.
+    """
+
+    p: tuple[str, list[str]]  # p[0] is the session_id, p[1] is list of symbols
+
+
+class CreateQuoteSessionRequest(QuoteRequest):
+    """Create a new quote session.
+
+    p structure: (session_id, symbols)
+    """
+
+    m: Literal["create_quote_session"]
+
+
+class SubscribeSymbolsRequest(QuoteRequest):
+    """Subscribe to more symbols in a quote session.
+
+    p structure: (session_id, symbols)
+    """
+
+    m: Literal["subscribe_symbols"]
+
+
+class UnsubscribeSymbolsRequest(QuoteRequest):
+    """Unsubscribe symbols from a quote session.
+
+    p structure: (session_id, symbols)
+    """
+
+    m: Literal["unsubscribe_symbols"]
+
+
+# ------------------------------------------------------------------
 # Server → Client
 # ------------------------------------------------------------------
 
@@ -118,4 +160,7 @@ MESSAGE_TYPES: dict[str, type[ClientMessage]] = {
     "ping": PingRequest,
     "create_screener": CreateScreenerRequest,
     "modify_screener": ModifyScreenerRequest,
+    "create_quote_session": CreateQuoteSessionRequest,
+    "subscribe_symbols": SubscribeSymbolsRequest,
+    "unsubscribe_symbols": UnsubscribeSymbolsRequest,
 }

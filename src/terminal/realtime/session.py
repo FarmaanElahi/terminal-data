@@ -1,7 +1,7 @@
 """Per-connection realtime session with multiplexed sub-sessions."""
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from fastapi import WebSocket
 from pydantic import ValidationError
@@ -11,8 +11,13 @@ from .models import (
     MESSAGE_TYPES,
     ScreenerRequest,
     ServerMessage,
+    QuoteRequest,
 )
 from .screener import ScreenerSession
+from .quote import QuoteSession
+
+if TYPE_CHECKING:
+    from terminal.market_feed.manager import MarketDataManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +33,14 @@ class RealtimeSession:
     The WebSocket handler delegates **all** messages here via :meth:`handle`.
     """
 
-    def __init__(self, websocket: WebSocket, *, user_id: str) -> None:
+    def __init__(
+        self, websocket: WebSocket, *, user_id: str, manager: "MarketDataManager"
+    ) -> None:
         self.websocket = websocket
         self.user_id = user_id
+        self.manager = manager
         self._screeners: dict[str, ScreenerSession] = {}
+        self._quotes: dict[str, QuoteSession] = {}
 
     # ------------------------------------------------------------------
     # Message dispatch
@@ -60,6 +69,8 @@ class RealtimeSession:
         # --- Route ---
         if isinstance(msg, ScreenerRequest):
             await self._route_screener(msg)
+        elif isinstance(msg, QuoteRequest):
+            await self._route_quote(msg)
         else:
             match msg.m:
                 case "ping":
@@ -98,6 +109,34 @@ class RealtimeSession:
             return
 
         await screener.handle(msg)
+
+    async def _route_quote(self, msg: QuoteRequest) -> None:
+        """Route a quote request — create session or forward to it."""
+        session_id = msg.p[0]
+
+        if msg.m == "create_quote_session":
+            if session_id in self._quotes:
+                # User asked to create, if it exists we just proceed or error?
+                # Usually create_quote_session might be called to reset or just start.
+                # Let's stop if exists and recreate to be safe.
+                self._quotes[session_id].stop()
+
+            quote_session = QuoteSession(
+                session_id, realtime=self, manager=self.manager
+            )
+            self._quotes[session_id] = quote_session
+            logger.info(
+                "Created quote session %s for user=%s", session_id, self.user_id
+            )
+            # User didn't specify a "session_created" message for quotes, but it's good practice.
+            # However I will follow the user's specific emit instructions.
+
+        quote_session = self._quotes.get(session_id)
+        if quote_session is None:
+            await self.send_error(f"Quote session {session_id!r} not found")
+            return
+
+        await quote_session.handle(msg)
 
     # ------------------------------------------------------------------
     # Messaging helpers
