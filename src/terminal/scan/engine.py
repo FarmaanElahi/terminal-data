@@ -63,6 +63,7 @@ def run_scan_engine(
     Returns a dictionary contains columns and rows matching the columns.
     """
     values = []
+    tickers = []
 
     # Columns definition
     # We use scan.columns to determine the list of extra columns.
@@ -151,6 +152,12 @@ def run_scan_engine(
                 logger.warning(f"Failed to evaluate column '{col_def.expression}': {e}")
                 row.append(None)
 
-        values.append({"n": symbol, "v": row})
+        tickers.append(symbol)
+        values.append(row)
 
-    return {"columns": column_ids, "values": values}
+    return {
+        "total": len(values),
+        "columns": column_ids,
+        "tickers": tickers,
+        "values": values,
+    }
