@@ -62,8 +62,9 @@ class TradingViewDataProvider(DataProvider):
         logger.info(f"Refreshing TV cache for {len(symbols)} symbols...")
         dfs = []
 
-        async for quotes, bars in self._tv.streamer.fetch_bulk(symbols, mode="bar"):
-            for ticker, bar_list in bars.items():
+        async for bar_dict in self._tv.streamer.stream_bars(symbols, timeframe="1D"):
+            # Output is like: {"NSE:TCS": [{}, {}, ...]}
+            for ticker, bar_list in bar_dict.items():
                 df = self._process_bars(bar_list)
                 df["symbol"] = ticker
                 dfs.append(df.reset_index())

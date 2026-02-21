@@ -1,6 +1,6 @@
 import pytest
 import pandas as pd
-import numpy as np
+
 from unittest.mock import MagicMock, patch, PropertyMock
 from pathlib import Path
 from terminal.market_feed.tradingview import TradingViewDataProvider
@@ -19,24 +19,23 @@ def tv_provider(mock_fs, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_streamer_fetch_bulk_mock(tv_provider):
-    # Mock the internal streamer's fetch_bulk call
-    mock_quotes = {}
+async def test_streamer_stream_bars_mock(tv_provider):
+    # Mock the internal streamer's stream_bars call
     mock_bars = {"AAPL": [[1672531200, 100.0, 105.0, 95.0, 102.0, 1000.0]]}
 
-    async def mock_fetch_bulk(tickers, mode="all"):
-        yield mock_quotes, mock_bars
+    async def mock_stream_bars(tickers, timeframe="1D"):
+        yield mock_bars
 
     with patch.object(
         type(tv_provider._tv), "streamer", new_callable=PropertyMock
     ) as mock_streamer_prop:
         mock_streamer = MagicMock()
-        mock_streamer.fetch_bulk.side_effect = mock_fetch_bulk
+        mock_streamer.stream_bars.side_effect = mock_stream_bars
         mock_streamer_prop.return_value = mock_streamer
 
-        async for quotes, bars in tv_provider._tv.streamer.fetch_bulk(["AAPL"]):
-            assert "AAPL" in bars
-            assert bars["AAPL"][0][4] == 102.0
+        async for bar_dict in tv_provider._tv.streamer.stream_bars(["AAPL"]):
+            assert "AAPL" in bar_dict
+            assert bar_dict["AAPL"][0][4] == 102.0
 
 
 def test_save_load_cache(tv_provider):
@@ -67,17 +66,16 @@ def test_save_load_cache(tv_provider):
 
 @pytest.mark.asyncio
 async def test_refresh_cache_flow(tv_provider, mock_fs):
-    mock_quotes = {}
     mock_bars = {"AAPL": [[1672531200, 100.0, 105.0, 95.0, 102.0, 1000.0]]}
 
-    async def mock_fetch_bulk_iter(tickers, mode="all"):
-        yield mock_quotes, mock_bars
+    async def mock_stream_bars_iter(tickers, timeframe="1D"):
+        yield mock_bars
 
     with patch.object(
         type(tv_provider._tv), "streamer", new_callable=PropertyMock
     ) as mock_streamer_prop:
         mock_streamer = MagicMock()
-        mock_streamer.fetch_bulk.side_effect = mock_fetch_bulk_iter
+        mock_streamer.stream_bars.side_effect = mock_stream_bars_iter
         mock_streamer_prop.return_value = mock_streamer
         await tv_provider.refresh_cache(["AAPL"])
 

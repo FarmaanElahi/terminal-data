@@ -15,9 +15,9 @@ class TradingView:
 
     @cached_property
     def streamer(self):
-        from .streamer import TradingViewStreamer
+        from .streamer2 import streamer as global_streamer
 
-        return TradingViewStreamer()
+        return global_streamer
 
 
-__all__ = ["TradingView", "TradingViewScanner", "TradingViewStreamer"]
+__all__ = ["TradingView", "TradingViewScanner", "TradingViewClient"]
