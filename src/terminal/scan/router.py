@@ -11,6 +11,7 @@ from terminal.scan.models import (
     ScanCreate,
     ScanPublic,
     ScanUpdate,
+    ScanStatelessRequest,
 )
 
 scans = APIRouter(prefix="/scans", tags=["scans"])
@@ -89,22 +90,50 @@ async def run_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    # 2. Get the target list and symbols
-    if not scan.source:
-        from terminal.symbols import service as symbols_service
-
-        raw_symbols = await symbols_service.search(fs, settings, limit=100000)
-        symbols = [s["ticker"] for s in raw_symbols]
-    else:
-        lst = lists_service.get(session, scan.source, user_id=user.id)
-        if not lst:
-            raise HTTPException(status_code=404, detail="Source list not found")
-
-        symbols = lists_service.get_symbols(session, lst, user_id=user.id)
-
+    symbols = await _resolve_symbols(scan.source, user.id, session, fs, settings)
     if not symbols:
-        return []
+        return {"total": 0, "columns": [], "tickers": [], "values": []}
 
     # 3. Process the engine
     results = engine.run_scan_engine(scan, symbols, market_manager)
     return results
+
+
+@scans.post("/run_stateless")
+async def run_stateless(
+    scan_in: ScanStatelessRequest,
+    user: dict = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+    session: Session = Depends(get_session),
+    fs: AbstractFileSystem = Depends(get_fs),
+    market_manager: "MarketDataManager" = Depends(get_market_manager),
+):
+    """Run a scan without persisting it."""
+    symbols = await _resolve_symbols(scan_in.source, user.id, session, fs, settings)
+    if not symbols:
+        return {"total": 0, "columns": [], "tickers": [], "values": []}
+
+    # Process the engine
+    results = engine.run_scan_engine(scan_in, symbols, market_manager)
+    return results
+
+
+async def _resolve_symbols(
+    source: str | None,
+    user_id: str,
+    session: Session,
+    fs: AbstractFileSystem,
+    settings: Settings,
+) -> list[str]:
+    """Helper to resolve symbols from a source list or search all."""
+    if not source:
+        from terminal.symbols import service as symbols_service
+
+        raw_symbols = await symbols_service.search(fs, settings, limit=100000)
+        return [s["ticker"] for s in raw_symbols]
+    else:
+        lst = lists_service.get(session, source, user_id=user_id)
+        if not lst:
+            raise HTTPException(status_code=404, detail="Source list not found")
+
+        return lists_service.get_symbols(session, lst, user_id=user_id)

@@ -44,6 +44,15 @@ class ScanCreate(TerminalBase):
     columns: list[ColumnDef] = []
 
 
+class ScanStatelessRequest(TerminalBase):
+    """Schema for running a stateless scan."""
+
+    source: str | None = None
+    conditions: list[ConditionParam] = []
+    conditional_logic: Literal["and", "or"] = "and"
+    columns: list[ColumnDef] = []
+
+
 class ScanUpdate(TerminalBase):
     """Schema for updating an existing scan."""
 
