@@ -1,41 +1,61 @@
+import pandas as pd
 from typing import Dict, Optional
 import numpy as np
-from .models import CANDLE_DTYPE
 
 
 class OHLCStore:
     """
-    Efficient store for OHLC data using preallocated numpy arrays.
+    Efficient store for OHLC data using pandas DataFrames.
     Supports historical data loading and realtime updates for multiple symbols.
+    Update happens by timestamp index.
     """
 
     def __init__(self, capacity_per_symbol: int = 10000):
         self.capacity = capacity_per_symbol
-        self._buffers: Dict[str, np.ndarray] = {}
-        self._pointers: Dict[str, int] = {}
+        self._buffers: Dict[str, pd.DataFrame] = {}
         self.is_dirty = False
 
     def _initialize_symbol(self, symbol: str):
-        """Allocates buffer for a symbol if it doesn't exist."""
+        """Allocates an empty DataFrame for a symbol if it doesn't exist."""
         if symbol not in self._buffers:
-            self._buffers[symbol] = np.zeros(self.capacity, dtype=CANDLE_DTYPE)
-            self._pointers[symbol] = 0
+            # Create an empty DataFrame with expected columns
+            # Using timestamp as index for fast updates
+            cols = ["open", "high", "low", "close", "volume"]
+            df = pd.DataFrame(columns=cols)
+            df.index.name = "timestamp"
+
+            # Pre-add aliases for scan engine
+            df["O"] = df["open"]
+            df["H"] = df["high"]
+            df["L"] = df["low"]
+            df["C"] = df["close"]
+            df["V"] = df["volume"]
+
+            self._buffers[symbol] = df
 
     def load_history(self, symbol: str, history_data: np.ndarray):
         """
         Loads historical data for a symbol.
-        Overwrites existing data and resets the pointer.
+        Overwrites existing data.
         """
         self._initialize_symbol(symbol)
 
-        count = len(history_data)
-        if count > self.capacity:
-            # If history is larger than capacity, take the latest 'capacity' elements
-            history_data = history_data[-self.capacity :]
-            count = self.capacity
+        # Convert structured numpy array to DataFrame
+        df = pd.DataFrame(history_data)
+        if "timestamp" in df.columns:
+            df.set_index("timestamp", inplace=True)
 
-        self._buffers[symbol][:count] = history_data
-        self._pointers[symbol] = count
+        # Ensure aliases are present
+        df["O"] = df["open"]
+        df["H"] = df["high"]
+        df["L"] = df["low"]
+        df["C"] = df["close"]
+        df["V"] = df["volume"]
+
+        if len(df) > self.capacity:
+            df = df.iloc[-self.capacity :]
+
+        self._buffers[symbol] = df
         self.is_dirty = True
 
     def add_realtime(self, symbol: str, candle: tuple):
@@ -45,54 +65,55 @@ class OHLCStore:
         Otherwise, it appends a new entry.
         """
         self._initialize_symbol(symbol)
+        df = self._buffers[symbol]
 
-        ptr = self._pointers[symbol]
-        buffer = self._buffers[symbol]
+        timestamp = candle[0]
+        # candle tuple: (timestamp, open, high, low, close, volume)
+        data = {
+            "open": float(candle[1]),
+            "high": float(candle[2]),
+            "low": float(candle[3]),
+            "close": float(candle[4]),
+            "volume": float(candle[5]),
+            "O": float(candle[1]),
+            "H": float(candle[2]),
+            "L": float(candle[3]),
+            "C": float(candle[4]),
+            "V": float(candle[5]),
+        }
 
-        # Check if we have any data
-        if ptr > 0:
-            last_idx = ptr - 1
-            last_timestamp = buffer[last_idx]["timestamp"]
-            new_timestamp = candle[0]  # Assuming timestamp is the first element
+        # Update or append
+        # pandas .loc can do both: if index exists it updates, if not it appends
+        # However, we want to maintain the capacity limit and ensure order
 
-            if new_timestamp == last_timestamp:
-                old_candle = tuple(buffer[last_idx])
-                if old_candle != candle:
-                    self.is_dirty = True
-                    # Update existing candle
-                    buffer[last_idx] = candle
-                return
-
-        # Append new candle
-        self.is_dirty = True
-        if ptr < self.capacity:
-            buffer[ptr] = candle
-            self._pointers[symbol] += 1
+        if timestamp in df.index:
+            # Check if values actually changed to set dirty flag
+            # This is a bit expensive, maybe just set dirty = True
+            df.loc[timestamp] = data
+            self.is_dirty = True
         else:
-            # Buffer full, shift data (expensive, but hopefully rare with large capacity)
-            # For now, shift left and append
-            buffer[:-1] = buffer[1:]
-            buffer[-1] = candle
-            # Pointer stays at capacity
+            # Append new row
+            new_row = pd.Series(data, name=timestamp)
+            df = pd.concat([df, pd.DataFrame([new_row])])
 
-    def get_data(self, symbol: str) -> Optional[np.ndarray]:
+            # Maintain capacity
+            if len(df) > self.capacity:
+                df = df.iloc[-self.capacity :]
+
+            self._buffers[symbol] = df
+            self.is_dirty = True
+
+    def get_data(self, symbol: str) -> Optional[pd.DataFrame]:
         """
-        Returns a view of the valid data for a symbol.
+        Returns the DataFrame for a symbol.
         """
-        if symbol not in self._buffers:
-            return None
+        return self._buffers.get(symbol)
 
-        count = self._pointers[symbol]
-        return self._buffers[symbol][:count]
-
-    def get_all_data(self) -> Dict[str, np.ndarray]:
+    def get_all_data(self) -> Dict[str, pd.DataFrame]:
         """
         Returns data for all symbols.
         """
-        result = {}
-        for symbol in self._buffers:
-            result[symbol] = self.get_data(symbol)
-        return result
+        return self._buffers
 
 
 ohlc_store = OHLCStore()

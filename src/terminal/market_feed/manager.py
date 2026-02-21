@@ -3,7 +3,6 @@ import logging
 import weakref
 from typing import List, Optional, AsyncGenerator
 
-import numpy as np
 import pandas as pd
 from fsspec import AbstractFileSystem
 
@@ -42,11 +41,7 @@ class MarketDataManager:
         try:
             logger.info("Starting MarketDataManager...")
             # 1. Fetch all symbols
-            symbols_info = await symbol_service.search(
-                fs, settings, market=None, limit=20000
-            )
-
-            tickers = [s["ticker"] for s in symbols_info]
+            tickers = await symbol_service.all_ticker(fs, settings)
 
             if not tickers:
                 logger.warning("No symbols found from symbol service.")
@@ -186,12 +181,18 @@ class MarketDataManager:
 
                     # Convert store to DataFrame
                     dfs = []
-                    for ticker, data in all_data.items():
-                        if data is None or len(data) == 0:
+                    for ticker, df in all_data.items():
+                        if df is None or len(df) == 0:
                             continue
-                        df = pd.DataFrame(data)
-                        df["symbol"] = ticker
-                        dfs.append(df)
+
+                        # Copy to avoid modifying the original and add symbol column
+                        df_copy = df.copy()
+                        df_copy["symbol"] = ticker
+                        # We need to reset the index to include timestamp in the cache
+                        df_copy.reset_index(inplace=True)
+                        # Remove aliases before caching if they are not needed in storage
+                        # But for now, let's just keep whatever columns are there
+                        dfs.append(df_copy)
 
                     if dfs:
                         full_df = pd.concat(dfs, ignore_index=True)
@@ -245,48 +246,35 @@ class MarketDataManager:
         """
         return self.store.get_data(symbol)
 
-    def get_ohlcv(
-        self, symbol: str, timeframe: str = "D"
-    ) -> Optional[dict[str, np.ndarray]]:
+    def get_ohlcv(self, symbol: str, timeframe: str = "D") -> Optional[pd.DataFrame]:
         """
-        Returns OHLCV data as a dictionary of separate numpy columns.
-        Each column is a 1D numpy array ordered by timestamp.
+        Returns OHLCV data as a pandas DataFrame.
         Resamples the data if a higher timeframe (W, M, Y) is requested.
         """
-        data = self.store.get_data(symbol)
-        if data is None:
+        df = self.store.get_data(symbol)
+        if df is None:
             return None
 
-        # Base dictionary
-        res = {
-            "timestamp": data["timestamp"],
-            "open": data["open"],
-            "high": data["high"],
-            "low": data["low"],
-            "close": data["close"],
-            "volume": data["volume"],
-        }
-
         if timeframe == "D":
-            return res
+            return df
 
         # Resample logic using pandas
-        df = pd.DataFrame(res)
-        # Assuming timestamps are unix seconds or milliseconds
-        # Based on MarketDataManager, timestamps are typically in seconds.
-        # Convert to datetime index
-        df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
-        df.set_index("datetime", inplace=True)
+        # Ensure we don't modify the original buffer
+        df_to_resample = df.copy()
+
+        # Convert index to datetime for resampling
+        # If it's already datetime, no need to convert
+        if not isinstance(df_to_resample.index, pd.DatetimeIndex):
+            df_to_resample.index = pd.to_datetime(df_to_resample.index, unit="s")
 
         # Resample mapping
         tf_map = {"W": "W", "M": "ME", "Y": "YE"}
         pandas_tf = tf_map.get(timeframe, "D")
 
         resampled = (
-            df.resample(pandas_tf)
+            df_to_resample.resample(pandas_tf)
             .agg(
                 {
-                    "timestamp": "last",  # keeping the end of period timestamp roughly
                     "open": "first",
                     "high": "max",
                     "low": "min",
@@ -297,14 +285,16 @@ class MarketDataManager:
             .dropna()
         )
 
-        return {
-            "timestamp": resampled["timestamp"].values,
-            "open": resampled["open"].values,
-            "high": resampled["high"].values,
-            "low": resampled["low"].values,
-            "close": resampled["close"].values,
-            "volume": resampled["volume"].values,
-        }
+        # Add aliases back to resampled data
+        resampled["O"] = resampled["open"]
+        resampled["H"] = resampled["high"]
+        resampled["L"] = resampled["low"]
+        resampled["C"] = resampled["close"]
+        resampled["V"] = resampled["volume"]
+
+        # Optionally convert back to numeric index if needed,
+        # but scan engine should work fine with datetime index or we can convert it
+        return resampled
 
     def get_ohlcv_series(
         self, symbol: str, limit: Optional[int] = None
@@ -313,15 +303,20 @@ class MarketDataManager:
         Returns OHLCV data as a list of [t, o, h, l, c, v] rows.
         Ordered chronologically by timestamp (latest first).
         """
-        data = self.store.get_data(symbol)
-        if data is None:
+        df = self.store.get_data(symbol)
+        if df is None:
             return None
 
-        # Convert structured numpy array to list of tuples (JSON serializes tuples as lists)
-        # We use [::-1] to reverse the order so the latest candle is first
-        series = data[::-1]
+        # Prepare for series output: [timestamp, open, high, low, close, volume]
+        # Reset index to get timestamp column
+        export_df = df.reset_index()[
+            ["timestamp", "open", "high", "low", "close", "volume"]
+        ]
+
+        # Latest first
+        export_df = export_df.iloc[::-1]
 
         if limit is not None and limit > 0:
-            series = series[:limit]
+            export_df = export_df.iloc[:limit]
 
-        return series.tolist()
+        return export_df.values.tolist()

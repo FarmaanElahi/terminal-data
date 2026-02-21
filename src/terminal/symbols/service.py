@@ -182,6 +182,16 @@ async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str
     }
 
 
+async def all_ticker(fs: AbstractFileSystem, settings: Settings) -> list[str]:
+    """
+    Returns a list of all symbol tickers.
+    """
+    df = await _ensure_data_loaded(fs, settings)
+    if df.empty:
+        return []
+    return df["ticker"].dropna().unique().tolist()
+
+
 async def get_all_symbols_external() -> list[dict[str, Any]]:
     """
     Syncs symbols from TradingView.

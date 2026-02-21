@@ -1,30 +1,47 @@
-import numpy as np
 import pytest
 from httpx import AsyncClient
+
+
+import pandas as pd
 
 
 # Provide mock OHLCV arrays to simulate MarketDataManager.get_ohlcv
 # Daily mock data
 def get_mock_ohlcv(symbol: str, timeframe: str = "D"):
     if symbol == "AAPL":
-        return {
-            "timestamp": np.array([1000, 2000, 3000, 4000]),
-            "open": np.array([100, 105, 110, 108]),
-            "high": np.array([105, 112, 115, 120]),
-            "low": np.array([95, 100, 105, 105]),
-            "close": np.array([103, 108, 112, 115]),
-            "volume": np.array([1000, 1100, 1200, 1500]),
-        }
+        df = pd.DataFrame(
+            {
+                "open": [100, 105, 110, 108],
+                "high": [105, 112, 115, 120],
+                "low": [95, 100, 105, 105],
+                "close": [103, 108, 112, 115],
+                "volume": [1000, 1100, 1200, 1500],
+            },
+            index=[1000, 2000, 3000, 4000],
+        )
+        df.index.name = "timestamp"
     elif symbol == "MSFT":
-        return {
-            "timestamp": np.array([1000, 2000, 3000, 4000]),
-            "open": np.array([200, 205, 210, 208]),
-            "high": np.array([205, 212, 215, 210]),
-            "low": np.array([195, 200, 205, 200]),
-            "close": np.array([203, 208, 202, 205]),
-            "volume": np.array([5000, 5100, 5200, 5500]),
-        }
-    return None
+        df = pd.DataFrame(
+            {
+                "open": [200, 205, 210, 208],
+                "high": [205, 212, 215, 210],
+                "low": [195, 200, 205, 200],
+                "close": [203, 208, 202, 205],
+                "volume": [5000, 5100, 5200, 5500],
+            },
+            index=[1000, 2000, 3000, 4000],
+        )
+        df.index.name = "timestamp"
+    else:
+        return None
+
+    # Add aliases
+    df["O"] = df["open"]
+    df["H"] = df["high"]
+    df["L"] = df["low"]
+    df["C"] = df["close"]
+    df["V"] = df["volume"]
+    return df
 
 
 @pytest.fixture
@@ -114,18 +131,15 @@ async def test_run_scan_engine(client: AsyncClient, token: str, mock_market_mana
     # 3. Run the scan
     run_response = await client.post(f"/api/v1/scans/{scan_id}/run", headers=headers)
     assert run_response.status_code == 200
-
     results = run_response.json()
+    assert "columns" in results
+    assert "values" in results
+    assert results["columns"] == ["CurrentClose", "PreviousClose"]
+    assert len(results["values"]) == 1
 
-    # Let's check our mock data:
-    # AAPL: C = 115, O = 108. (C > O) is True. (C > 105) is True. Should pass.
-    # MSFT: C = 205, O = 208. (C > O) is False. Should fail.
-
-    assert len(results) == 1
-    aapl_res = results[0]
-    assert aapl_res["symbol"] == "AAPL"
-    assert aapl_res["CurrentClose"] == 115
-    assert aapl_res["PreviousClose"] == 112
+    aapl_row_dict = results["values"][0]
+    assert aapl_row_dict["n"] == "AAPL"
+    assert aapl_row_dict["v"] == [115, 112]
 
     # Clean up overrides
     api.dependency_overrides.clear()

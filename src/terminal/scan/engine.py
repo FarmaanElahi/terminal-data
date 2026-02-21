@@ -15,13 +15,6 @@ def evaluate_condition(df: pd.DataFrame, condition: ConditionParam) -> np.ndarra
     Evaluates a single condition against the OHLCV DataFrame and returns a boolean history array.
     """
     try:
-        # Assign short-hand variables directly to the DataFrame
-        df["O"] = df["open"]
-        df["H"] = df["high"]
-        df["L"] = df["low"]
-        df["C"] = df["close"]
-        df["V"] = df["volume"]
-
         # We need engine="python" to support more complex logic
         result_series = df.eval(condition.formula, engine="python")
 
@@ -64,31 +57,35 @@ def is_condition_met(bool_array: np.ndarray, condition: ConditionParam) -> bool:
 
 def run_scan_engine(
     scan: Scan, symbols: List[str], market_manager: MarketDataManager
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Executes the scan across the given symbols.
-    Returns a list of matching symbols along with their requested column values.
+    Returns a dictionary contains columns and rows matching the columns.
     """
-    results = []
+    values = []
 
-    # Map timeframes needed by conditions so we don't fetch D multiple times if they all want W
+    # Columns definition
+    # We use scan.columns to determine the list of extra columns.
+    # The first column is always 'symbol'
+    column_ids = []
+    col_definitions: List[ColumnDef] = []
+    for raw_col in scan.columns:
+        col_def = ColumnDef(**raw_col) if isinstance(raw_col, dict) else raw_col
+        column_ids.append(col_def.id)
+        col_definitions.append(col_def)
+
+    # 1. Evaluate Conditions (Foundational evaluate)
     # Usually, a single scan applies conditions to a specific timeframe, or we use the base one.
     # The user requirements didn't specify condition-level timeframe, only column-level timeframe.
     # But an implicit assumption is conditions might be meant for the same timeframe.
     # To be safe, we will just use timeframe="D" for the foundational evaluation of conditions,
     # unless conditions themselves gain a timeframe attribute later.
-    # Let's assess the columns. We can extract their requested timeframes.
-
-    # We will assume condition evaluation happens on the daily timeframe by default,
-    # since ConditionParam lacks a `timeframe` field.
     condition_tf = "D"
 
     for symbol in symbols:
-        data = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
-        if not data or len(data["close"]) == 0:
+        df = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
+        if df is None or len(df) == 0:
             continue
-
-        df = pd.DataFrame(data)
 
         # 1. Evaluate Conditions
         passes_scan = True
@@ -115,30 +112,21 @@ def run_scan_engine(
             continue
 
         # 2. It passed! Build the result row
-        row = {"symbol": symbol}
+        row = []
 
-        for raw_col in scan.columns:
-            col_def = ColumnDef(**raw_col) if isinstance(raw_col, dict) else raw_col
+        for col_def in col_definitions:
             # We must fetch data for the specific column's timeframe
             col_tf = col_def.timeframe or "D"
             if col_tf == condition_tf:
-                col_data = data
                 col_df = df
             else:
-                col_data = market_manager.get_ohlcv(symbol, timeframe=col_tf)
-                if not col_data or len(col_data["close"]) == 0:
-                    row[col_def.id] = None
+                col_df = market_manager.get_ohlcv(symbol, timeframe=col_tf)
+                if col_df is None or len(col_df) == 0:
+                    row.append(None)
                     continue
-                col_df = pd.DataFrame(col_data)
 
             try:
                 if col_def.type == "value" and col_def.expression:
-                    col_df["O"] = col_df["open"]
-                    col_df["H"] = col_df["high"]
-                    col_df["L"] = col_df["low"]
-                    col_df["C"] = col_df["close"]
-                    col_df["V"] = col_df["volume"]
-
                     res_series = col_df.eval(col_def.expression, engine="python")
                     res_arr = res_series.to_numpy()
 
@@ -155,12 +143,14 @@ def run_scan_engine(
                         elif isinstance(val, (np.bool_)):
                             val = bool(val)
 
-                    row[col_def.id] = val
+                    row.append(val)
+                else:
+                    row.append(None)
 
             except Exception as e:
                 logger.warning(f"Failed to evaluate column '{col_def.expression}': {e}")
-                row[col_def.id] = None
+                row.append(None)
 
-        results.append(row)
+        values.append({"n": symbol, "v": row})
 
-    return results
+    return {"columns": column_ids, "values": values}

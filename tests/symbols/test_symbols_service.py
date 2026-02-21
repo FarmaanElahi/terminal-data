@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 from unittest.mock import patch, AsyncMock
 from terminal.symbols.service import get_all_symbols_external
@@ -30,3 +31,16 @@ async def test_get_all_symbols_external_success():
 
         assert len(symbols) == 2
         instance.scanner.fetch_symbols.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_all_ticker():
+    mock_df = pd.DataFrame({"ticker": ["TICK1", "TICK2", "TICK1"]})
+    mock_fs = AsyncMock()
+    mock_settings = AsyncMock()
+
+    with patch("terminal.symbols.service._ensure_data_loaded", return_value=mock_df):
+        from terminal.symbols.service import all_ticker
+
+        tickers = await all_ticker(mock_fs, mock_settings)
+        assert tickers == ["TICK1", "TICK2"]
