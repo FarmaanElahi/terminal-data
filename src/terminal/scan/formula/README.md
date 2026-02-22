@@ -388,18 +388,17 @@ FormulaError: "PRICE" is not a recognised field. Valid fields: C (Close), O (Ope
 
 ---
 
-## Extending the Function Library
+## Extensibility
 
-Adding a new function (e.g. RSI) requires **zero parser changes**:
+Both functions and fields use a **registry pattern** — add new ones with a single call, zero parser changes.
+
+### Adding a Function
 
 ```python
 # In functions.py
-
-import numpy as np
-import pandas as pd
+from terminal.scan.formula.functions import register
 
 def _rsi(source: np.ndarray, period: int) -> np.ndarray:
-    """Relative Strength Index."""
     delta = pd.Series(source).diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -409,18 +408,55 @@ def _rsi(source: np.ndarray, period: int) -> np.ndarray:
     return (100 - 100 / (1 + rs)).to_numpy()
 
 register("RSI", 2, _rsi)
+# Users can now write: RSI(C, 14) > 70, RSIC14 > 70
 ```
 
-Users can immediately write `RSI(C, 14) > 70`.
+**Function contract**: accept `np.ndarray` source + numeric params, return `np.ndarray` of identical length, use `NaN` for insufficient history.
 
-### Function Contract
+### Adding a Column Field
 
-Every registered function must:
+If your DataFrame has a new column (e.g. `vwap`):
 
-1. Accept a `np.ndarray` as the first argument (source data)
-2. Accept numeric parameters for remaining arguments
-3. Return a `np.ndarray` of **identical length**
-4. Use `NaN` for rows where the result is undefined (insufficient history)
+```python
+# In fields.py
+from terminal.scan.formula.fields import register_column
+
+register_column("VWAP", "vwap", aliases=["VP"], shorthand=True)
+# Users can now write: VWAP > SMA(C, 20), or SMAVWAP50 if shorthand=True
+```
+
+### Adding a Derived Field
+
+Computed from existing fields (no DataFrame column needed):
+
+```python
+# In fields.py
+from terminal.scan.formula.fields import register_derived
+from terminal.scan.formula.ast_nodes import BinOp, FieldRef, NumberLiteral
+
+def _avghl3():
+    """Custom: (H + L) / 2 + C / 3"""
+    return BinOp("+",
+        BinOp("/", BinOp("+", FieldRef("H"), FieldRef("L")), NumberLiteral(2.0)),
+        BinOp("/", FieldRef("C"), NumberLiteral(3.0)),
+    )
+
+register_derived("AVGHL3", _avghl3, description="Custom Average")
+# Users can now write: AVGHL3 > 100, SMA(AVGHL3, 20), AVGHL3.5
+```
+
+### Module Files (updated)
+
+| File           | Responsibility                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| `__init__.py`  | Public API: `parse()`, `evaluate()`, `FormulaError`, `register_column()`, `register_derived()` |
+| `fields.py`    | **Field registry** — column fields (OHLCV) + derived fields (HLC3, HL2, OHLC4)                 |
+| `functions.py` | **Function registry** — SMA, EMA with extension pattern                                        |
+| `errors.py`    | `FormulaError` exception with position, expected, hint                                         |
+| `lexer.py`     | Tokenizer — formula string → `list[Token]`                                                     |
+| `ast_nodes.py` | Frozen dataclass AST nodes (immutable, cacheable)                                              |
+| `parser.py`    | Recursive-descent parser — tokens → AST                                                        |
+| `evaluator.py` | Tree-walking evaluator — AST × DataFrame → NumPy array                                         |
 
 ---
 

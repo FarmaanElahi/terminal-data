@@ -28,67 +28,9 @@ from terminal.scan.formula.ast_nodes import (
     UnaryOp,
 )
 from terminal.scan.formula.errors import FormulaError
+from terminal.scan.formula import fields
 from terminal.scan.formula.functions import get_func, registered_names
 from terminal.scan.formula.lexer import Token, TokenType, tokenize
-
-# Single-char field shorthands valid in compact syntax (SMAC126)
-_FIELD_SHORTHANDS = {"C", "O", "H", "L", "V"}
-
-# Canonical field-name mapping (uppercase → short form).
-_FIELD_ALIASES: dict[str, str] = {
-    "C": "C",
-    "CLOSE": "C",
-    "O": "O",
-    "OPEN": "O",
-    "H": "H",
-    "HIGH": "H",
-    "L": "L",
-    "LOW": "L",
-    "V": "V",
-    "VOLUME": "V",
-}
-
-# Reverse map for error messages
-_FIELD_HELP = (
-    "C (Close), O (Open), H (High), L (Low), V (Volume), "
-    "HLC3 (Typical Price), HL2 (Median Price), OHLC4 (Average Price)"
-)
-
-
-# Derived fields — identifiers that expand to AST expressions.
-# Each value is a callable that returns a fresh AST subtree.
-def _hlc3() -> Node:
-    """(H + L + C) / 3 — Typical Price."""
-    return BinOp(
-        "/",
-        BinOp("+", BinOp("+", FieldRef("H"), FieldRef("L")), FieldRef("C")),
-        NumberLiteral(3.0),
-    )
-
-
-def _hl2() -> Node:
-    """(H + L) / 2 — Median Price."""
-    return BinOp("/", BinOp("+", FieldRef("H"), FieldRef("L")), NumberLiteral(2.0))
-
-
-def _ohlc4() -> Node:
-    """(O + H + L + C) / 4 — Average Price."""
-    return BinOp(
-        "/",
-        BinOp(
-            "+",
-            BinOp("+", BinOp("+", FieldRef("O"), FieldRef("H")), FieldRef("L")),
-            FieldRef("C"),
-        ),
-        NumberLiteral(4.0),
-    )
-
-
-_DERIVED_FIELDS: dict[str, callable] = {
-    "HLC3": _hlc3,
-    "HL2": _hl2,
-    "OHLC4": _ohlc4,
-}
 
 
 def parse(formula: str) -> Node:
@@ -227,14 +169,15 @@ class _Parser:
                 node = self._parse_func_call(name, tok.pos)
                 return self._try_shift(node)
 
-            # Known field reference (possibly with shift)
-            if name in _FIELD_ALIASES:
-                return self._parse_field(name, tok.pos)
-
-            # Derived field: HLC3, HL2, OHLC4, etc.
-            if name in _DERIVED_FIELDS:
-                node = _DERIVED_FIELDS[name]()
-                return self._try_shift(node)
+            # Known field reference (column or derived)
+            canonical = fields.resolve(name)
+            if canonical is not None:
+                if fields.is_derived_field(canonical):
+                    builder = fields.get_derived_builder(canonical)
+                    node = builder()
+                    return self._try_shift(node)
+                # Column field (possibly with shift)
+                return self._parse_field(canonical, tok.pos)
 
             # Try shorthand: SMAC126 → SMA(C, 126)
             shorthand = self._try_parse_shorthand(name, tok.pos)
@@ -290,10 +233,10 @@ class _Parser:
         return ShiftExpr(node, periods)
 
     def _parse_field(self, name: str, pos: int) -> Node:
-        canonical = _FIELD_ALIASES.get(name)
-        if canonical is None:
+        canonical = fields.resolve(name)
+        if canonical is None or not fields.is_column_field(canonical):
             raise FormulaError(
-                f'"{name}" is not a recognised field. Valid fields: {_FIELD_HELP}',
+                f'"{name}" is not a recognised field. Valid fields: {fields.field_help()}',
                 formula=self.formula,
                 position=pos,
             )
@@ -371,7 +314,7 @@ class _Parser:
 
             # First char of rest must be a field shorthand
             field_char = rest[0]
-            if field_char not in _FIELD_SHORTHANDS:
+            if field_char not in fields.shorthand_chars():
                 continue
 
             period_str = rest[1:]  # e.g. "126" from "C126"

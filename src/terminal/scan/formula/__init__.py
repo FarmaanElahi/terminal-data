@@ -9,6 +9,7 @@ Public API:
 
 from terminal.scan.formula.errors import FormulaError
 from terminal.scan.formula.evaluator import evaluate
+from terminal.scan.formula.fields import register_column, register_derived
 from terminal.scan.formula.parser import parse
 
-__all__ = ["parse", "evaluate", "FormulaError"]
+__all__ = ["parse", "evaluate", "FormulaError", "register_column", "register_derived"]

@@ -19,16 +19,9 @@ from terminal.scan.formula.ast_nodes import (
     UnaryOp,
 )
 from terminal.scan.formula.errors import FormulaError
+from terminal.scan.formula import fields
 from terminal.scan.formula.functions import get_func
 
-# Map canonical field names to DataFrame column names.
-_COL_MAP: dict[str, str] = {
-    "C": "close",
-    "O": "open",
-    "H": "high",
-    "L": "low",
-    "V": "volume",
-}
 
 # NumPy ops for binary operators
 _ARITH_OPS: dict[str, np.ufunc] = {
@@ -72,7 +65,7 @@ def _eval(node: Node, df: pd.DataFrame) -> np.ndarray:
         return np.float64(node.value)
 
     if isinstance(node, FieldRef):
-        col = _COL_MAP.get(node.name)
+        col = fields.get_column(node.name)
         if col is None or col not in df.columns:
             raise FormulaError(
                 f'Cannot resolve field "{node.name}" to a DataFrame column'
@@ -140,7 +133,7 @@ def _eval(node: Node, df: pd.DataFrame) -> np.ndarray:
 def _eval_as_series(node: Node, df: pd.DataFrame) -> pd.Series:
     """Evaluate *node* and return a pandas Series (for shift support)."""
     if isinstance(node, FieldRef):
-        col = _COL_MAP.get(node.name)
+        col = fields.get_column(node.name)
         if col is None or col not in df.columns:
             raise FormulaError(
                 f'Cannot resolve field "{node.name}" to a DataFrame column'
