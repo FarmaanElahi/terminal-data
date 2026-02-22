@@ -82,6 +82,18 @@ def _ema(source: np.ndarray, period: int) -> np.ndarray:
     return pd.Series(source).ewm(span=int(period), adjust=False).mean().to_numpy()
 
 
+def _min(source: np.ndarray, period: int) -> np.ndarray:
+    """Minimum value in a window."""
+    return pd.Series(source).rolling(int(period)).min().to_numpy()
+
+
+def _max(source: np.ndarray, period: int) -> np.ndarray:
+    """Maximum value in a window."""
+    return pd.Series(source).rolling(int(period)).max().to_numpy()
+
+
 # Register builtins
 register("SMA", 2, _sma)
 register("EMA", 2, _ema)
+register("MIN", 2, _min)
+register("MAX", 2, _max)
