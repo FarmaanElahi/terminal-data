@@ -92,8 +92,20 @@ def _max(source: np.ndarray, period: int) -> np.ndarray:
     return pd.Series(source).rolling(int(period)).max().to_numpy()
 
 
+def _highest(source: np.ndarray, period: int) -> np.ndarray:
+    """Highest value in a window."""
+    return pd.Series(source).rolling(int(period)).max().to_numpy()
+
+
+def _lowest(source: np.ndarray, period: int) -> np.ndarray:
+    """Lowest value in a window."""
+    return pd.Series(source).rolling(int(period)).min().to_numpy()
+
+
 # Register builtins
 register("SMA", 2, _sma)
 register("EMA", 2, _ema)
 register("MIN", 2, _min)
 register("MAX", 2, _max)
+register("HIGHEST", 2, _highest)
+register("LOWEST", 2, _lowest)
