@@ -120,6 +120,14 @@ async def run_stateless(
     return results
 
 
+@scans.get("/formula/editor-config")
+def formula_editor_config():
+    """Return Monaco editor configuration for the formula language."""
+    from terminal.scan.formula.monaco import editor_config
+
+    return editor_config()
+
+
 @scans.post("/formula/validate", response_model=FormulaValidateResponse)
 def validate_formula(
     req: FormulaValidateRequest,

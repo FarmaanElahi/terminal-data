@@ -537,3 +537,124 @@ The index should be a timestamp (DatetimeIndex or numeric). The engine maps user
 - **AST caching**: Parse once, evaluate across 10,000+ symbols without re-parsing
 - **Vectorised evaluation**: Every operation maps to NumPy — no Python row loops
 - **Zero overhead**: No `df.eval()`, no Python `engine="python"` interpreter
+
+---
+
+## Monaco Editor Integration
+
+### Endpoint
+
+```
+GET /api/v1/scans/formula/editor-config
+```
+
+Returns a JSON object with everything needed to register the formula language in Monaco:
+
+```json
+{
+  "languageId": "formula",
+  "tokenizerRules": { ... },     // Monarch tokenizer (syntax highlighting)
+  "languageConfig": { ... },     // Brackets, auto-closing pairs
+  "completionItems": [ ... ]     // All fields, functions, keywords with snippets
+}
+```
+
+The config is **dynamic** — it reflects the live registry. Any newly registered function or field appears automatically.
+
+### Frontend Setup
+
+```javascript
+// 1. Fetch config from API
+const res = await fetch("/api/v1/scans/formula/editor-config");
+const config = await res.json();
+
+// 2. Register the language
+monaco.languages.register({ id: config.languageId });
+
+// 3. Set language configuration (brackets, auto-closing)
+monaco.languages.setLanguageConfiguration(
+  config.languageId,
+  config.languageConfig,
+);
+
+// 4. Set tokenizer for syntax highlighting
+monaco.languages.setMonarchTokensProvider(
+  config.languageId,
+  config.tokenizerRules,
+);
+
+// 5. Register autocompletion provider
+monaco.languages.registerCompletionItemProvider(config.languageId, {
+  provideCompletionItems: (model, position) => {
+    const word = model.getWordUntilPosition(position);
+    const range = {
+      startLineNumber: position.lineNumber,
+      endLineNumber: position.lineNumber,
+      startColumn: word.startColumn,
+      endColumn: word.endColumn,
+    };
+
+    const kindMap = {
+      keyword: monaco.languages.CompletionItemKind.Keyword,
+      field: monaco.languages.CompletionItemKind.Variable,
+      function: monaco.languages.CompletionItemKind.Function,
+    };
+
+    const suggestions = config.completionItems.map((item) => ({
+      label: item.label,
+      kind: kindMap[item.kind] || monaco.languages.CompletionItemKind.Text,
+      detail: item.detail,
+      documentation: item.documentation,
+      insertText: item.insertText,
+      insertTextRules:
+        item.insertTextRules === "insertAsSnippet"
+          ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
+          : undefined,
+      range,
+    }));
+
+    return { suggestions };
+  },
+});
+
+// 6. Define a theme with formula-specific token colors
+monaco.editor.defineTheme("formulaTheme", {
+  base: "vs-dark",
+  inherit: true,
+  rules: [
+    { token: "keyword", foreground: "C586C0" }, // AND, OR, NOT
+    { token: "function", foreground: "DCDCAA" }, // SMA, EMA
+    { token: "variable", foreground: "9CDCFE" }, // C, H, L, HLC3
+    { token: "number", foreground: "B5CEA8" },
+    { token: "number.float", foreground: "B5CEA8" },
+    { token: "operator.comparison", foreground: "D4D4D4" },
+    { token: "operator.arithmetic", foreground: "D4D4D4" },
+    { token: "delimiter", foreground: "808080" },
+    { token: "delimiter.parenthesis", foreground: "FFD700" },
+    { token: "identifier", foreground: "FF6B6B" }, // Unknown → red
+  ],
+  colors: {},
+});
+
+// 7. Create the editor
+const editor = monaco.editor.create(document.getElementById("formula-editor"), {
+  value: "C > SMA(C, 50) AND V > SMAV20 * 1.5",
+  language: config.languageId,
+  theme: "formulaTheme",
+  minimap: { enabled: false },
+  lineNumbers: "off",
+  glyphMargin: false,
+  folding: false,
+  wordWrap: "on",
+  fontSize: 14,
+  suggestOnTriggerCharacters: true,
+  quickSuggestions: true,
+});
+```
+
+### What Users Get
+
+- **Syntax highlighting** — fields (blue), functions (yellow), keywords (purple), numbers (green), unknown identifiers (red)
+- **Autocomplete** — type `SM` and get `SMA`, `SMAC`, `SMAH`, `SMAL`, `SMAO`, `SMAV` suggestions with snippet insertion
+- **Snippets** — selecting `SMA` inserts `SMA(|source|, |period|)` with tab stops
+- **Error highlighting** — unknown identifiers appear in red via the tokenizer
