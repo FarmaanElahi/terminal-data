@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from terminal.market_feed.manager import MarketDataManager
-from terminal.scan.formula import FormulaError, evaluate, parse
+from terminal.scan.formula import FormulaError, evaluate, parse, preprocess
 from terminal.scan.models import ColumnDef, ConditionParam, Scan
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,17 @@ def evaluate_condition(df: pd.DataFrame, condition: ConditionParam) -> np.ndarra
         return np.zeros(len(df), dtype=bool)
 
 
-def evaluate_expression(df: pd.DataFrame, expression: str) -> np.ndarray:
+def evaluate_expression(
+    df: pd.DataFrame,
+    expression: str,
+    user_functions: dict | None = None,
+) -> np.ndarray:
     """
     Evaluates a formula expression and returns the result array (float64 or bool).
-    Used for column value computation.
+    Supports multi-line formulas with param declarations and user-defined functions.
     """
-    ast = parse(expression)
+    body, params = preprocess(expression)
+    ast = parse(body, params=params, user_functions=user_functions)
     return evaluate(ast, df)
 
 

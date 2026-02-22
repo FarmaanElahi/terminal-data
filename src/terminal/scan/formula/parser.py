@@ -18,6 +18,8 @@ Grammar (lowest → highest precedence):
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from terminal.scan.formula.ast_nodes import (
     BinOp,
     FieldRef,
@@ -33,8 +35,26 @@ from terminal.scan.formula.functions import get_func, registered_names
 from terminal.scan.formula.lexer import Token, TokenType, tokenize
 
 
-def parse(formula: str) -> Node:
+@dataclass(frozen=True, slots=True)
+class UserFuncDef:
+    """Definition of a user-defined formula function."""
+
+    body: str  # expression body (no param lines)
+    defaults: dict[str, float]  # default param values (uppercase keys)
+
+
+def parse(
+    formula: str,
+    *,
+    params: dict[str, float] | None = None,
+    user_functions: dict[str, UserFuncDef] | None = None,
+) -> Node:
     """Parse a formula string and return an AST ``Node``.
+
+    Args:
+        formula: The formula expression string.
+        params: Optional dict of named constants (e.g. {"D": 10.0}).
+        user_functions: Optional dict of UDFs keyed by ID (uppercase).
 
     The result is cacheable — it can be re-evaluated against different DataFrames
     without re-parsing.
@@ -42,7 +62,7 @@ def parse(formula: str) -> Node:
     Raises ``FormulaError`` on any syntax or semantic error.
     """
     tokens = tokenize(formula)
-    parser = _Parser(tokens, formula)
+    parser = _Parser(tokens, formula, params=params, user_functions=user_functions)
     node = parser.or_expr()
     parser.expect(TokenType.EOF)
     return node
@@ -51,12 +71,21 @@ def parse(formula: str) -> Node:
 class _Parser:
     """Stateful recursive-descent parser."""
 
-    __slots__ = ("tokens", "pos", "formula")
+    __slots__ = ("tokens", "pos", "formula", "params", "user_functions")
 
-    def __init__(self, tokens: list[Token], formula: str) -> None:
+    def __init__(
+        self,
+        tokens: list[Token],
+        formula: str,
+        *,
+        params: dict[str, float] | None = None,
+        user_functions: dict[str, UserFuncDef] | None = None,
+    ) -> None:
         self.tokens = tokens
         self.pos = 0
         self.formula = formula
+        self.params: dict[str, float] = params or {}
+        self.user_functions: dict[str, UserFuncDef] = user_functions or {}
 
     # --- helpers --------------------------------------------------------
 
@@ -184,6 +213,15 @@ class _Parser:
             if shorthand is not None:
                 return self._try_shift(shorthand)
 
+            # User-defined parameter
+            if name in self.params:
+                return NumberLiteral(self.params[name])
+
+            # User-defined function (referenced by ID)
+            if name in self.user_functions:
+                node = self._expand_user_func(name, tok.pos)
+                return self._try_shift(node)
+
             # Nothing matched — fall through to field error
             return self._parse_field(name, tok.pos)
 
@@ -231,6 +269,65 @@ class _Parser:
                 position=num_tok.pos,
             )
         return ShiftExpr(node, periods)
+
+    def _expand_user_func(self, func_id: str, pos: int) -> Node:
+        """Expand a user-defined function reference into its AST.
+
+        Parses optional ``#key#value`` override pairs and merges with defaults.
+        """
+        udf = self.user_functions[func_id]
+        overrides: dict[str, float] = {}
+
+        # Parse #key#value pairs
+        while self._peek().type == TokenType.HASH:
+            self._advance()  # consume '#'
+
+            # Expect param name
+            name_tok = self._peek()
+            if name_tok.type != TokenType.IDENT:
+                raise FormulaError(
+                    "Expected parameter name after '#'",
+                    formula=self.formula,
+                    position=name_tok.pos,
+                )
+            self._advance()
+            param_name = name_tok.value  # already uppercased
+
+            # Expect '#' separator
+            if self._peek().type != TokenType.HASH:
+                raise FormulaError(
+                    f'Expected "#" and a value after parameter name "{param_name}"',
+                    formula=self.formula,
+                    position=self._peek().pos,
+                )
+            self._advance()
+
+            # Expect number value
+            val_tok = self._peek()
+            if val_tok.type != TokenType.NUMBER:
+                raise FormulaError(
+                    f'Expected a number value for parameter "{param_name}"',
+                    formula=self.formula,
+                    position=val_tok.pos,
+                )
+            self._advance()
+
+            if param_name not in udf.defaults:
+                raise FormulaError(
+                    f'"{param_name}" is not a parameter of this formula. '
+                    f"Available parameters: {', '.join(sorted(udf.defaults))}",
+                    formula=self.formula,
+                    position=name_tok.pos,
+                )
+
+            overrides[param_name] = float(val_tok.value)
+
+        # Merge defaults with overrides
+        merged = {**udf.defaults, **overrides}
+
+        # Recursively parse the UDF body with merged params
+        # Pass the same user_functions so UDFs can reference other UDFs
+        return parse(udf.body, params=merged, user_functions=self.user_functions)
 
     def _parse_field(self, name: str, pos: int) -> Node:
         canonical = fields.resolve(name)

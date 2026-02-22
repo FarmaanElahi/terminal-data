@@ -39,6 +39,8 @@ class TokenType(Enum):
     KW_OR = auto()
     KW_NOT = auto()
 
+    HASH = auto()  # param override separator in UDFs
+
     EOF = auto()
 
 
@@ -135,6 +137,10 @@ def tokenize(formula: str) -> list[Token]:
             continue
         if ch == ".":
             tokens.append(Token(TokenType.DOT, ".", i))
+            i += 1
+            continue
+        if ch == "#":
+            tokens.append(Token(TokenType.HASH, "#", i))
             i += 1
             continue
 

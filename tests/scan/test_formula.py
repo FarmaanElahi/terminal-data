@@ -559,3 +559,165 @@ def test_hlc3_case_insensitive():
     """hlc3 parses (lexer uppercases)."""
     ast = parse("hlc3")
     assert ast is not None
+
+
+# ---------------------------------------------------------------------------
+# User-defined parameters (param NAME = VALUE)
+# ---------------------------------------------------------------------------
+
+from terminal.scan.formula.params import preprocess
+
+
+def test_preprocess_basic():
+    """Extract param and body from multi-line formula."""
+    body, params = preprocess("param d = 10\nC / SMA(C, d)")
+    assert body == "C / SMA(C, d)"
+    assert params == {"D": 10.0}
+
+
+def test_preprocess_multiple_params():
+    body, params = preprocess("param d = 10\nparam th = 1.2\nC / SMA(C, d) > th")
+    assert body == "C / SMA(C, d) > th"
+    assert params == {"D": 10.0, "TH": 1.2}
+
+
+def test_preprocess_float_value():
+    body, params = preprocess("param x = 1.5\nC * x")
+    assert params == {"X": 1.5}
+
+
+def test_preprocess_no_params():
+    body, params = preprocess("C > SMA(C, 50)")
+    assert body == "C > SMA(C, 50)"
+    assert params == {}
+
+
+def test_preprocess_duplicate_raises():
+    with pytest.raises(FormulaError, match="defined more than once"):
+        preprocess("param d = 10\nparam d = 20\nC")
+
+
+def test_preprocess_reserved_name_raises():
+    with pytest.raises(FormulaError, match="reserved keyword"):
+        preprocess("param AND = 5\nC")
+
+
+def test_preprocess_field_collision_raises():
+    with pytest.raises(FormulaError, match="already a field name"):
+        preprocess("param C = 5\nC")
+
+
+def test_preprocess_function_collision_raises():
+    with pytest.raises(FormulaError, match="already a function name"):
+        preprocess("param SMA = 5\nC")
+
+
+def test_preprocess_invalid_syntax_raises():
+    with pytest.raises(FormulaError, match="Invalid param syntax"):
+        preprocess("param d = \nC")
+
+
+def test_param_in_parse(small_df: pd.DataFrame):
+    """Param resolves to NumberLiteral at parse time."""
+    ast = parse("C / SMA(C, d)", params={"D": 10.0})
+    result = evaluate(ast, small_df)
+    expected = evaluate(parse("C / SMA(C, 10)"), small_df)
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_param_end_to_end(sample_df: pd.DataFrame):
+    """Full pipeline: preprocess → parse → evaluate."""
+    formula = "param period = 50\nparam threshold = 1.0\nC / SMA(C, period) > threshold"
+    body, params = preprocess(formula)
+    ast = parse(body, params=params)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("C / SMA(C, 50) > 1.0"), sample_df)
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_param_case_insensitive(small_df: pd.DataFrame):
+    """Param names are case-insensitive."""
+    body, params = preprocess("param MyPeriod = 10\nSMA(C, myperiod)")
+    ast = parse(body, params=params)
+    result = evaluate(ast, small_df)
+    expected = evaluate(parse("SMA(C, 10)"), small_df)
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+# ---------------------------------------------------------------------------
+# User-defined functions (UDFs)
+# ---------------------------------------------------------------------------
+
+from terminal.scan.formula.parser import UserFuncDef
+
+
+def test_udf_basic(sample_df: pd.DataFrame):
+    """UDF expands to its body with default params."""
+    udf = UserFuncDef(body="C / SMA(C, d)", defaults={"D": 50.0})
+    user_funcs = {"MYFUNC": udf}
+    ast = parse("MYFUNC", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("C / SMA(C, 50)"), sample_df)
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_udf_with_override(sample_df: pd.DataFrame):
+    """UDF with #key#value param override."""
+    udf = UserFuncDef(body="SMA(C, d)", defaults={"D": 50.0})
+    user_funcs = {"MYFUNC": udf}
+    ast = parse("MYFUNC#D#20", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("SMA(C, 20)"), sample_df)
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_udf_multi_override(sample_df: pd.DataFrame):
+    """UDF with multiple param overrides."""
+    udf = UserFuncDef(
+        body="C / SMA(C, d) > threshold",
+        defaults={"D": 50.0, "THRESHOLD": 1.2},
+    )
+    user_funcs = {"MYFUNC": udf}
+    ast = parse("MYFUNC#D#20#THRESHOLD#1.0", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("C / SMA(C, 20) > 1.0"), sample_df)
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_udf_with_shift(sample_df: pd.DataFrame):
+    """UDF.N shift support."""
+    udf = UserFuncDef(body="SMA(C, d)", defaults={"D": 50.0})
+    user_funcs = {"MYFUNC": udf}
+    ast = parse("MYFUNC.1", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("SMA(C, 50).1"), sample_df)
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_udf_in_compound(sample_df: pd.DataFrame):
+    """UDF used in a compound expression."""
+    udf = UserFuncDef(body="SMA(C, d)", defaults={"D": 20.0})
+    user_funcs = {"MYFUNC": udf}
+    ast = parse("C > MYFUNC AND V > 100", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("C > SMA(C, 20) AND V > 100"), sample_df)
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_udf_unknown_param_raises():
+    """Override a param that doesn't exist in the UDF."""
+    udf = UserFuncDef(body="SMA(C, d)", defaults={"D": 50.0})
+    user_funcs = {"MYFUNC": udf}
+    with pytest.raises(FormulaError, match="not a parameter"):
+        parse("MYFUNC#NOPE#10", user_functions=user_funcs)
+
+
+def test_udf_references_another_udf(sample_df: pd.DataFrame):
+    """UDF body can reference another UDF."""
+    inner = UserFuncDef(body="SMA(C, d)", defaults={"D": 20.0})
+    outer = UserFuncDef(body="C > INNER", defaults={})
+    user_funcs = {"INNER": inner, "OUTER": outer}
+    ast = parse("OUTER", user_functions=user_funcs)
+    result = evaluate(ast, sample_df)
+    expected = evaluate(parse("C > SMA(C, 20)"), sample_df)
+    np.testing.assert_array_equal(result, expected)

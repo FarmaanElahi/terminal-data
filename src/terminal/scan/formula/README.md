@@ -126,6 +126,57 @@ Combine boolean arrays. `NOT` binds tightest, then `AND`, then `OR`.
 
 Parentheses override precedence: `(H - L) / C * 100`
 
+### User-Defined Parameters
+
+Define named constants at the top of a formula with `param NAME = VALUE`. Parameters are resolved at parse time — zero runtime cost.
+
+```
+param period = 50
+param threshold = 1.2
+
+C / SMA(C, period) > threshold
+```
+
+Multiple parameters, used freely in any expression:
+
+```
+param fast = 12
+param slow = 26
+
+EMA(C, fast) > EMA(C, slow)
+```
+
+**Rules:**
+
+- Case-insensitive: `param D = 10` and `param d = 10` both create param `D`
+- Values must be numbers (integer or decimal)
+- Cannot shadow reserved words (`AND`, `OR`, `NOT`), field names (`C`, `HLC3`), or function names (`SMA`)
+- Each param name must be unique
+- Param lines must come before the expression
+
+### User-Defined Functions (UDFs)
+
+Users can save parameterized formulas as reusable functions. Each UDF is referenced by its **ID** in formulas (so renaming the display name doesn't break anything).
+
+Given a UDF with ID `ABC123`, body `C / SMA(C, d) > threshold`, and defaults `d=10, threshold=1.2`:
+
+```
+ABC123                                   → use with defaults
+ABC123.1                                 → shifted 1 bar
+ABC123#D#5                               → override d=5, threshold stays 1.2
+ABC123#D#5#THRESHOLD#1.5                 → override both params
+C > ABC123#THRESHOLD#2.0 AND V > SMAV20  → in compound formula
+```
+
+**Override syntax**: `ID#PARAM_NAME#VALUE` pairs, repeatable in any order.
+
+**Rules:**
+
+- Every param always has a default — only override what you need
+- Unknown param names raise an error with available params listed
+- UDFs can reference other UDFs (nested expansion)
+- Supports `.N` shift after the ID (or after overrides)
+
 ### Built-in Functions
 
 #### `SMA(source, period)` — Simple Moving Average
