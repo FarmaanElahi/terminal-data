@@ -49,7 +49,46 @@ _FIELD_ALIASES: dict[str, str] = {
 }
 
 # Reverse map for error messages
-_FIELD_HELP = "C (Close), O (Open), H (High), L (Low), V (Volume)"
+_FIELD_HELP = (
+    "C (Close), O (Open), H (High), L (Low), V (Volume), "
+    "HLC3 (Typical Price), HL2 (Median Price), OHLC4 (Average Price)"
+)
+
+
+# Derived fields — identifiers that expand to AST expressions.
+# Each value is a callable that returns a fresh AST subtree.
+def _hlc3() -> Node:
+    """(H + L + C) / 3 — Typical Price."""
+    return BinOp(
+        "/",
+        BinOp("+", BinOp("+", FieldRef("H"), FieldRef("L")), FieldRef("C")),
+        NumberLiteral(3.0),
+    )
+
+
+def _hl2() -> Node:
+    """(H + L) / 2 — Median Price."""
+    return BinOp("/", BinOp("+", FieldRef("H"), FieldRef("L")), NumberLiteral(2.0))
+
+
+def _ohlc4() -> Node:
+    """(O + H + L + C) / 4 — Average Price."""
+    return BinOp(
+        "/",
+        BinOp(
+            "+",
+            BinOp("+", BinOp("+", FieldRef("O"), FieldRef("H")), FieldRef("L")),
+            FieldRef("C"),
+        ),
+        NumberLiteral(4.0),
+    )
+
+
+_DERIVED_FIELDS: dict[str, callable] = {
+    "HLC3": _hlc3,
+    "HL2": _hl2,
+    "OHLC4": _ohlc4,
+}
 
 
 def parse(formula: str) -> Node:
@@ -191,6 +230,11 @@ class _Parser:
             # Known field reference (possibly with shift)
             if name in _FIELD_ALIASES:
                 return self._parse_field(name, tok.pos)
+
+            # Derived field: HLC3, HL2, OHLC4, etc.
+            if name in _DERIVED_FIELDS:
+                node = _DERIVED_FIELDS[name]()
+                return self._try_shift(node)
 
             # Try shorthand: SMAC126 → SMA(C, 126)
             shorthand = self._try_parse_shorthand(name, tok.pos)

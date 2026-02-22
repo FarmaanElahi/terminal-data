@@ -121,7 +121,7 @@ def run_scan_engine(
         else:
             parsed_columns.append((col_def, None))
 
-    for symbol in symbols[:2200]:
+    for symbol in symbols:
         df = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
         if df is None or len(df) == 0:
             continue

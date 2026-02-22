@@ -492,3 +492,70 @@ def test_shorthand_shift_matches_func_shift(sample_df: pd.DataFrame):
     r1 = evaluate(parse("SMAC50.3"), sample_df)
     r2 = evaluate(parse("SMA(C, 50).3"), sample_df)
     np.testing.assert_allclose(r1, r2, equal_nan=True)
+
+
+# ---------------------------------------------------------------------------
+# Derived fields (HLC3, HL2, OHLC4)
+# ---------------------------------------------------------------------------
+
+
+def test_hlc3_value(small_df: pd.DataFrame):
+    """HLC3 = (H + L + C) / 3."""
+    result = evaluate(parse("HLC3"), small_df)
+    expected = (
+        small_df["high"].values + small_df["low"].values + small_df["close"].values
+    ) / 3
+    np.testing.assert_allclose(result, expected)
+
+
+def test_hl2_value(small_df: pd.DataFrame):
+    """HL2 = (H + L) / 2."""
+    result = evaluate(parse("HL2"), small_df)
+    expected = (small_df["high"].values + small_df["low"].values) / 2
+    np.testing.assert_allclose(result, expected)
+
+
+def test_ohlc4_value(small_df: pd.DataFrame):
+    """OHLC4 = (O + H + L + C) / 4."""
+    result = evaluate(parse("OHLC4"), small_df)
+    expected = (
+        small_df["open"].values
+        + small_df["high"].values
+        + small_df["low"].values
+        + small_df["close"].values
+    ) / 4
+    np.testing.assert_allclose(result, expected)
+
+
+def test_hlc3_with_shift(sample_df: pd.DataFrame):
+    """HLC3.5 shifts the typical price by 5 bars."""
+    result = evaluate(parse("HLC3.5"), sample_df)
+    expected = (
+        ((sample_df["high"] + sample_df["low"] + sample_df["close"]) / 3)
+        .shift(5)
+        .values
+    )
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_sma_of_hlc3(sample_df: pd.DataFrame):
+    """SMA(HLC3, 20) — function wrapping a derived field."""
+    result = evaluate(parse("SMA(HLC3, 20)"), sample_df)
+    hlc3 = (sample_df["high"] + sample_df["low"] + sample_df["close"]) / 3
+    expected = hlc3.rolling(20).mean().values
+    np.testing.assert_allclose(result, expected, equal_nan=True)
+
+
+def test_hlc3_in_comparison(small_df: pd.DataFrame):
+    """HLC3 > 100 produces correct boolean."""
+    result = evaluate(parse("HLC3 > 100"), small_df)
+    expected = (
+        small_df["high"].values + small_df["low"].values + small_df["close"].values
+    ) / 3 > 100
+    np.testing.assert_array_equal(result, expected)
+
+
+def test_hlc3_case_insensitive():
+    """hlc3 parses (lexer uppercases)."""
+    ast = parse("hlc3")
+    assert ast is not None

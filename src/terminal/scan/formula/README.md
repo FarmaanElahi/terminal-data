@@ -42,14 +42,36 @@ close > 100     ✓
 CLOSE > 100     ✓
 ```
 
-### Shift (Lookback) — `FIELD.N`
+### Shift (Lookback) — `.N`
 
-Reference a field N bars ago using dot notation. Produces NaN for the first N rows.
+Append `.N` to shift any value N bars into the past. Produces NaN for the first N rows.
+
+**On fields:**
 
 ```
 C.1       → Close from 1 bar ago
 C.21      → Close from 21 bars ago
 H.5       → High from 5 bars ago
+```
+
+**On function calls:**
+
+```
+SMA(C, 50).5      → 50-bar SMA shifted 5 bars back
+EMA(V, 20).10     → 20-bar EMA of Volume from 10 bars ago
+```
+
+**On shorthand:**
+
+```
+SMAC126.1         → SMA(C, 126) shifted 1 bar
+EMAC20.5          → EMA(C, 20) shifted 5 bars
+```
+
+**On parenthesised expressions:**
+
+```
+(H - L).3         → Bar range from 3 bars ago
 ```
 
 Internally maps to `pd.Series.shift(N)` — a single vectorised operation.
@@ -161,18 +183,46 @@ EMAC20 > EMAC50 AND V > SMAV20 * 1.5          // Fully compact compound
 - Only works for 2-arg functions with a single field as source
 - For complex sources like `SMA(H - L, 14)`, use the full syntax
 
+### Derived Fields
+
+Built-in computed fields that expand to their arithmetic equivalents at parse time.
+
+| Field   | Expands To            | Meaning       |
+| ------- | --------------------- | ------------- |
+| `HLC3`  | `(H + L + C) / 3`     | Typical Price |
+| `HL2`   | `(H + L) / 2`         | Median Price  |
+| `OHLC4` | `(O + H + L + C) / 4` | Average Price |
+
+They work everywhere — in comparisons, as function arguments, with shift:
+
+```
+HLC3 > 100                    // Typical price above 100
+SMA(HLC3, 20)                 // 20-bar SMA of typical price
+HLC3.5                        // Typical price from 5 bars ago
+EMA(HL2, 12) > EMA(HL2, 26)   // EMA crossover on median price
+OHLC4 > SMAC50                // Average price above 50-bar SMA of close
+```
+
+Case-insensitive: `hlc3`, `HLC3`, `Hlc3` all work. Adding new derived fields is one function + one dict entry in `parser.py`.
+
 ### Formula Examples
 
 ```
 C / C.21 > 1.2                                    // 20% momentum
 C > SMA(C, 50)                                    // Above 50-bar MA
+C > SMAC50                                        // Same, shorthand
 EMA(C, 20) > EMA(C, 50)                           // EMA crossover
+EMAC20 > EMAC50                                   // Same, shorthand
 V > SMA(V, 20) * 1.5                              // Volume surge
 H < H.1 AND L > L.1                               // Inside bar
 O > H.1                                           // Gap up
-C / C.21 > 1.1 AND V > SMA(V,20) * 1.5 AND C > SMA(C,50)  // Compound
+C > SMAC50 AND V > SMAV20 * 1.5                   // Compound, compact
+SMA(C, 50).1                                      // Yesterday's SMA
+SMAC50.1                                          // Same, shorthand
 (H - L) / C * 100 > 3                             // Wide range bar
+(H - L).3                                         // Range from 3 bars ago
 NOT C < SMA(C, 200)                                // Not below 200 MA
+SMA(HLC3, 20) > SMA(HLC3, 50)                     // Typical price trend
 CLOSE / CLOSE.21 > 1.2 AND VOLUME > SMA(V, 20)    // Mixed names
 ```
 
