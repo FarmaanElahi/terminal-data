@@ -7,11 +7,11 @@ Public API:
     FormulaError     → raised on invalid formulas with position + hint
 """
 
-from terminal.scan.formula.errors import FormulaError
-from terminal.scan.formula.evaluator import evaluate
-from terminal.scan.formula.fields import register_column, register_derived
-from terminal.scan.formula.params import preprocess
-from terminal.scan.formula.parser import UserFuncDef, parse
+from terminal.formula.errors import FormulaError
+from terminal.formula.evaluator import evaluate
+from terminal.formula.fields import register_column, register_derived
+from terminal.formula.params import preprocess
+from terminal.formula.parser import UserFuncDef, parse
 
 __all__ = [
     "parse",

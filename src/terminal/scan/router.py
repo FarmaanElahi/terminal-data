@@ -6,7 +6,6 @@ from terminal.dependencies import get_market_manager, get_session, get_fs, get_s
 from terminal.lists import service as lists_service
 from terminal.market_feed.manager import MarketDataManager
 from terminal.scan import engine, service
-from terminal.scan.formula.router import formulas as formula_router
 from terminal.config import Settings
 from terminal.scan.models import (
     ScanCreate,
@@ -16,9 +15,6 @@ from terminal.scan.models import (
 )
 
 scans = APIRouter(prefix="/scans", tags=["scans"])
-
-# Mount the formula sub-router under /scans/formula/*
-scans.include_router(formula_router)
 
 
 @scans.get("/", response_model=list[ScanPublic])

@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from terminal.scan.formula.ast_nodes import (
+from terminal.formula.ast_nodes import (
     BinOp,
     FieldRef,
     FuncCall,
@@ -18,9 +18,9 @@ from terminal.scan.formula.ast_nodes import (
     ShiftExpr,
     UnaryOp,
 )
-from terminal.scan.formula.errors import FormulaError
-from terminal.scan.formula import fields
-from terminal.scan.formula.functions import get_func
+from terminal.formula.errors import FormulaError
+from terminal.formula import fields
+from terminal.formula.functions import get_func
 
 
 # NumPy ops for binary operators

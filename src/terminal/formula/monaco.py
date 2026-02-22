@@ -9,8 +9,8 @@ needs to register a custom Monaco language:
 
 from __future__ import annotations
 
-from terminal.scan.formula import fields
-from terminal.scan.formula.functions import registered_names, get_func
+from terminal.formula import fields
+from terminal.formula.functions import registered_names, get_func
 
 
 def editor_config() -> dict:

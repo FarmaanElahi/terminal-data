@@ -15,7 +15,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from terminal.scan.formula.errors import FormulaError
+from terminal.formula.errors import FormulaError
 
 # Type alias for function implementations.
 # First arg is always a np.ndarray (the source), remaining are numeric params.

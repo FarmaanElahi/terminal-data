@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from terminal.scan.formula.ast_nodes import (
+from terminal.formula.ast_nodes import (
     BinOp,
     FieldRef,
     Node,

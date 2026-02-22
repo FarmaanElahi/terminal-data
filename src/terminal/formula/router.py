@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from terminal.auth.router import get_current_user
 from terminal.dependencies import get_market_manager, get_session
 from terminal.market_feed.manager import MarketDataManager
-from terminal.scan.formula import service
-from terminal.scan.models import (
+from terminal.formula import service
+from terminal.formula.models import (
     FormulaCreate,
     FormulaPublic,
     FormulaValidateRequest,
@@ -66,7 +66,7 @@ def delete_formula(
 @formulas.get("/editor-config")
 def formula_editor_config():
     """Return Monaco editor configuration for the formula language."""
-    from terminal.scan.formula.monaco import editor_config
+    from terminal.formula.monaco import editor_config
 
     return editor_config()
 
@@ -80,7 +80,7 @@ def validate_formula(
     """Validate a formula by parsing and evaluating it against a symbol's data."""
     import numpy as np
 
-    from terminal.scan.formula import FormulaError, evaluate, parse, preprocess
+    from terminal.formula import FormulaError, evaluate, parse, preprocess
 
     # Fetch OHLCV data for the symbol
     df = market_manager.get_ohlcv(req.symbol, timeframe="D")

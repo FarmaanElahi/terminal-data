@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from terminal.scan.formula import FormulaError, evaluate, parse
-from terminal.scan.formula.lexer import tokenize
+from terminal.formula import FormulaError, evaluate, parse
+from terminal.formula.lexer import tokenize
 
 
 # ---------------------------------------------------------------------------
@@ -565,7 +565,7 @@ def test_hlc3_case_insensitive():
 # User-defined parameters (param NAME = VALUE)
 # ---------------------------------------------------------------------------
 
-from terminal.scan.formula.params import preprocess
+from terminal.formula.params import preprocess
 
 
 def test_preprocess_basic():
@@ -648,7 +648,7 @@ def test_param_case_insensitive(small_df: pd.DataFrame):
 # User-defined functions (UDFs)
 # ---------------------------------------------------------------------------
 
-from terminal.scan.formula.parser import UserFuncDef
+from terminal.formula.parser import UserFuncDef
 
 
 def test_udf_basic(sample_df: pd.DataFrame):

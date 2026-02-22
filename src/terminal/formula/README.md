@@ -7,7 +7,7 @@ A custom TC2000-style formula language for evaluating analytical expressions aga
 ## Quick Start
 
 ```python
-from terminal.scan.formula import parse, evaluate, FormulaError
+from terminal.formula import parse, evaluate, FormulaError
 
 # Parse a formula string into a cacheable AST
 ast = parse("C > SMA(C, 50) AND V > SMA(V, 20) * 1.5")
@@ -447,7 +447,7 @@ Both functions and fields use a **registry pattern** — add new ones with a sin
 
 ```python
 # In functions.py
-from terminal.scan.formula.functions import register
+from terminal.formula.functions import register
 
 def _rsi(source: np.ndarray, period: int) -> np.ndarray:
     delta = pd.Series(source).diff()
@@ -470,7 +470,7 @@ If your DataFrame has a new column (e.g. `vwap`):
 
 ```python
 # In fields.py
-from terminal.scan.formula.fields import register_column
+from terminal.formula.fields import register_column
 
 register_column("VWAP", "vwap", aliases=["VP"], shorthand=True)
 # Users can now write: VWAP > SMA(C, 20), or SMAVWAP50 if shorthand=True
@@ -482,8 +482,8 @@ Computed from existing fields (no DataFrame column needed):
 
 ```python
 # In fields.py
-from terminal.scan.formula.fields import register_derived
-from terminal.scan.formula.ast_nodes import BinOp, FieldRef, NumberLiteral
+from terminal.formula.fields import register_derived
+from terminal.formula.ast_nodes import BinOp, FieldRef, NumberLiteral
 
 def _avghl3():
     """Custom: (H + L) / 2 + C / 3"""

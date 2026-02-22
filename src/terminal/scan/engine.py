@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from terminal.market_feed.manager import MarketDataManager
-from terminal.scan.formula import FormulaError, evaluate, parse, preprocess
+from terminal.formula import FormulaError, evaluate, parse, preprocess
 from terminal.scan.models import ColumnDef, ConditionParam, Scan
 
 logger = logging.getLogger(__name__)

@@ -5,11 +5,11 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from terminal.scan.formula import fields
-from terminal.scan.formula.functions import registered_names
-from terminal.scan.formula.params import preprocess
-from terminal.scan.formula.parser import parse
-from terminal.scan.models import Formula, FormulaCreate
+from terminal.formula import fields
+from terminal.formula.functions import registered_names
+from terminal.formula.params import preprocess
+from terminal.formula.parser import parse
+from terminal.formula.models import Formula, FormulaCreate
 
 
 def create(session: Session, user_id: str, req: FormulaCreate) -> Formula:

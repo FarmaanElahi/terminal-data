@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import re
 
-from terminal.scan.formula.errors import FormulaError
-from terminal.scan.formula import fields
-from terminal.scan.formula.functions import registered_names
+from terminal.formula.errors import FormulaError
+from terminal.formula import fields
+from terminal.formula.functions import registered_names
 
 # Reserved names that cannot be used as parameter names
 _RESERVED = {"AND", "OR", "NOT", "PARAM"}

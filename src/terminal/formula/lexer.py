@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from terminal.scan.formula.errors import FormulaError
+from terminal.formula.errors import FormulaError
 
 
 class TokenType(Enum):
