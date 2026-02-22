@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from .api import api_router as api_router
 from .logging import configure_logging
 from .realtime.handler import router as realtime_router
-from .dependencies import get_market_manager, get_fs, get_settings
+from .dependencies import get_market_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +24,6 @@ configure_logging()
 async def lifespan(application: FastAPI):
     # Startup: Start the market data manager to stream real-time updates
     manager = await get_market_manager()
-    fs_instance = get_fs()
-    settings_instance = get_settings()
 
     logger.info("Initializing MarketDataManager in the background...")
 
@@ -37,7 +35,7 @@ async def lifespan(application: FastAPI):
         except Exception:
             logger.exception("Background md_startup_task failed")
 
-    task = asyncio.create_task(manager.start(fs_instance, settings_instance))
+    task = asyncio.create_task(manager.start())
     task.add_done_callback(handle_startup_task)
     application.state.md_startup_task = task
 

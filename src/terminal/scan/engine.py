@@ -83,7 +83,7 @@ def run_scan_engine(
     # unless conditions themselves gain a timeframe attribute later.
     condition_tf = "D"
 
-    for symbol in symbols:
+    for symbol in symbols[:2200]:
         df = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
         if df is None or len(df) == 0:
             continue

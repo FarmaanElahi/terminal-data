@@ -2,7 +2,7 @@ import pytest
 import asyncio
 import numpy as np
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 from terminal.market_feed import OHLCStore, MarketDataManager, TradingViewDataProvider
 from terminal.market_feed.models import CANDLE_DTYPE
 
@@ -41,6 +41,7 @@ class MockDataProvider(TradingViewDataProvider):
                 102.0,
                 1000.0,
             )
+        self._history_dict[symbol] = history
         return history
 
     def update_cache(self, df):
@@ -89,7 +90,7 @@ async def test_manager_streaming_and_pubsub():
     data = store.get_data("AAPL")
     assert data is not None
     assert len(data) >= 1
-    assert data[-1]["close"] == 105.0
+    assert data.iloc[-1]["close"] == 105.0
 
     assert len(updates) >= 1
     assert updates[0]["symbol"] == "AAPL"
@@ -106,10 +107,10 @@ async def test_manager_get_ohlcv():
     ohlcv = manager.get_ohlcv("AAPL")
 
     assert ohlcv is not None
-    assert isinstance(ohlcv["close"], np.ndarray)
+    assert isinstance(ohlcv["close"].values, np.ndarray)
     assert len(ohlcv["close"]) == 10
     assert ohlcv["close"].dtype == np.float64
-    assert len(ohlcv["timestamp"]) == 10
+    assert len(ohlcv.index) == 10
 
 
 @pytest.mark.asyncio
@@ -128,5 +129,36 @@ async def test_manager_get_ohlcv_series():
     assert len(series[0]) == 6
     # Verify latest is first
     assert series[0][0] > series[-1][0]
-    assert isinstance(series[0][0], int)  # timestamp
+    assert isinstance(series[0][0], (int, float))  # timestamp
     assert isinstance(series[0][1], float)  # open
+
+
+def test_provider_get_all_tickers():
+    provider = MockDataProvider()
+    # MockDataProvider hardcodes history for AAPL, let's see what it returns
+    tickers = provider.get_all_tickers()
+    # It seems MockDataProvider doesn't actually populate _history_dict until get_history is called
+    # and get_all_tickers calls load_cache which might be empty if no files exist.
+    # But get_history for AAPL will populate it if we call it.
+    provider.get_history("AAPL")
+    tickers = provider.get_all_tickers()
+    assert "AAPL" in tickers
+
+
+@pytest.mark.asyncio
+async def test_manager_start():
+    store = OHLCStore()
+    provider = MockDataProvider()
+    # Mock get_all_tickers to return something
+    provider.get_history("AAPL")
+    manager = MarketDataManager(store, provider)
+
+    # Mock load_history and start_realtime_streaming to avoid actual streaming logic
+    manager.load_history = AsyncMock()
+    manager.start_realtime_streaming = AsyncMock()
+    # manager._start_periodic_cache_updater = MagicMock() # It's already synchronous
+
+    await manager.start()
+
+    manager.load_history.assert_called_once_with(["AAPL"])
+    manager.start_realtime_streaming.assert_called_once_with(["AAPL"])

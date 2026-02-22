@@ -86,6 +86,14 @@ class DataProvider(ABC):
             self.load_cache()
         return self._history_dict.get(symbol, np.empty(0, dtype=CANDLE_DTYPE))
 
+    def get_all_tickers(self) -> list[str]:
+        """
+        Returns all tickers loaded in the cache.
+        """
+        if not self._cache_loaded:
+            self.load_cache()
+        return list(self._history_dict.keys())
+
     def update_cache(self, df: pd.DataFrame):
         """
         Updates the internal cache backend with new historical data.

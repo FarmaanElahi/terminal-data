@@ -4,13 +4,10 @@ import weakref
 from typing import List, Optional, AsyncGenerator
 
 import pandas as pd
-from fsspec import AbstractFileSystem
 
 from .store import OHLCStore
 from .provider import DataProvider
 from .tradingview import TradingViewDataProvider
-from terminal.config import Settings
-from terminal.symbols import service as symbol_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,24 +27,21 @@ class MarketDataManager:
 
     async def start(
         self,
-        fs: AbstractFileSystem,
-        settings: Settings,
-        markets: Optional[List[str]] = None,
     ):
         """
-        Proactively loads all symbols from the symbol service, loads their history from cache,
-        fetches any missing history from the provider, and starts realtime streaming.
+        Loads all symbols from the provider cache, loads their history from cache,
+        and starts realtime streaming.
         """
         try:
             logger.info("Starting MarketDataManager...")
-            # 1. Fetch all symbols
-            tickers = await symbol_service.all_ticker(fs, settings)
+            # 1. Fetch all symbols from provider cache
+            tickers = self.provider.get_all_tickers()
 
             if not tickers:
-                logger.warning("No symbols found from symbol service.")
+                logger.warning("No symbols found from provider cache.")
                 return
 
-            logger.info(f"Loaded {len(tickers)} symbols from symbol service.")
+            logger.info(f"Loaded {len(tickers)} symbols from provider cache.")
 
             # 2. Load history (this uses cache or provider fallback)
             await self.load_history(tickers)
