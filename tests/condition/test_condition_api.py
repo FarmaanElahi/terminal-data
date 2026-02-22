@@ -13,8 +13,8 @@ async def test_create_and_get_condition_set(client: AsyncClient, token: str):
         json={
             "name": "Bullish Momentum",
             "conditions": [
-                {"formula": "MACD > 0"},
-                {"formula": "RSI(14) > 50"},
+                {"formula": "MACD > 0", "timeframe": "D"},
+                {"formula": "RSI(14) > 50", "timeframe": "D"},
             ],
             "conditional_logic": "and",
             "timeframe": "fixed",
@@ -52,11 +52,10 @@ async def test_create_and_get_condition_set(client: AsyncClient, token: str):
         json={
             "name": "Bear Filter",
             "conditions": [
-                {"formula": "MACD < 0"},
+                {"formula": "MACD < 0", "timeframe": "D"},
             ],
             "conditional_logic": "or",
             "timeframe": "mixed",
-            "timeframe_value": None,
         },
     )
     assert response.status_code == 200
@@ -65,7 +64,7 @@ async def test_create_and_get_condition_set(client: AsyncClient, token: str):
     assert len(updated["conditions"]) == 1
     assert updated["conditional_logic"] == "or"
     assert updated["timeframe"] == "mixed"
-    assert updated["timeframe_value"] is None
+    assert updated["timeframe_value"] == "D"  # retained from create
 
     # Delete
     response = await client.delete(f"/api/v1/conditions/{cs_id}", headers=headers)

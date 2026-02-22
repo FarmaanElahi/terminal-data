@@ -15,7 +15,7 @@ from terminal.models import PrimaryKeyModel, TerminalBase, TimeStampMixin
 # ---------------------------------------------------------------------------
 
 TimeframeLiteral = Literal["D", "W", "M", "Y"]
-TimeframeMode = Literal["fixed", "mixed"]
+TimeframeMode = Literal["context", "fixed", "mixed"]
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +27,7 @@ class Condition(BaseModel):
     """A single condition: a formula expression evaluating to true/false."""
 
     formula: str
-    timeframe: TimeframeLiteral | None = None  # used when parent mode is "mixed"
+    timeframe: TimeframeLiteral = "D"
 
 
 class ConditionSetCreate(TerminalBase):
@@ -36,7 +36,7 @@ class ConditionSetCreate(TerminalBase):
     name: str
     conditions: list[Condition] = []
     conditional_logic: Literal["and", "or"] = "and"
-    timeframe: TimeframeMode | None = None
+    timeframe: TimeframeMode = "context"
     timeframe_value: TimeframeLiteral | None = None  # used when timeframe is "fixed"
 
 
@@ -57,7 +57,7 @@ class ConditionSetPublic(TerminalBase):
     name: str
     conditions: list[Condition] = []
     conditional_logic: Literal["and", "or"] = "and"
-    timeframe: TimeframeMode | None = None
+    timeframe: TimeframeMode = "context"
     timeframe_value: TimeframeLiteral | None = None
 
 
@@ -70,7 +70,7 @@ class ConditionSet(Base, PrimaryKeyModel, TimeStampMixin):
     """Reusable condition set created by a user.
 
     Contains a list of boolean formula conditions joined by AND/OR logic.
-    Timeframe can be null (inherit), fixed (shared D/W/M/Y), or mixed
+    Timeframe mode: context (inherit), fixed (shared D/W/M/Y), or mixed
     (each condition defines its own).
     """
 
@@ -83,8 +83,8 @@ class ConditionSet(Base, PrimaryKeyModel, TimeStampMixin):
     conditions: Mapped[list] = mapped_column(JSONB, default=list)
     conditional_logic: Mapped[str] = mapped_column(String, default="and")
 
-    # Timeframe mode: null | "fixed" | "mixed"
-    timeframe: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+    # Timeframe mode: "context" | "fixed" | "mixed"
+    timeframe: Mapped[str] = mapped_column(String, default="context")
     # Actual timeframe value when mode is "fixed" (D/W/M/Y)
     timeframe_value: Mapped[str | None] = mapped_column(
         String, nullable=True, default=None
