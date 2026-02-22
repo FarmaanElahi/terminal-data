@@ -1,0 +1,453 @@
+# Formula Parser Engine
+
+A custom TC2000-style formula language for evaluating analytical expressions against OHLCV DataFrames. Designed for real-time market scanning — parse once, evaluate across thousands of symbols with zero Python knowledge required.
+
+---
+
+## Quick Start
+
+```python
+from terminal.scan.formula import parse, evaluate, FormulaError
+
+# Parse a formula string into a cacheable AST
+ast = parse("C > SMA(C, 50) AND V > SMA(V, 20) * 1.5")
+
+# Evaluate against any OHLCV DataFrame
+result = evaluate(ast, df)  # → np.ndarray (bool or float64)
+
+# Re-use the same AST across many symbols (no re-parsing cost)
+for symbol_df in all_dataframes:
+    result = evaluate(ast, symbol_df)
+```
+
+---
+
+## Formula Language Reference
+
+### Field Names
+
+Both shorthand and full names are accepted. Case-insensitive.
+
+| Shorthand | Full Name | DataFrame Column |
+| --------- | --------- | ---------------- |
+| `C`       | `CLOSE`   | `close`          |
+| `O`       | `OPEN`    | `open`           |
+| `H`       | `HIGH`    | `high`           |
+| `L`       | `LOW`     | `low`            |
+| `V`       | `VOLUME`  | `volume`         |
+
+```
+C > 100         ✓
+close > 100     ✓
+CLOSE > 100     ✓
+```
+
+### Shift (Lookback) — `FIELD.N`
+
+Reference a field N bars ago using dot notation. Produces NaN for the first N rows.
+
+```
+C.1       → Close from 1 bar ago
+C.21      → Close from 21 bars ago
+H.5       → High from 5 bars ago
+```
+
+Internally maps to `pd.Series.shift(N)` — a single vectorised operation.
+
+### Arithmetic Operators
+
+Standard math, element-wise across the full array. Standard precedence (`*` `/` before `+` `-`).
+
+| Operator | Example    | Meaning                    |
+| -------- | ---------- | -------------------------- |
+| `+`      | `C + 1.5`  | Add 1.5 to every Close     |
+| `-`      | `H - L`    | Bar range (High minus Low) |
+| `*`      | `V * 0.5`  | Half the volume            |
+| `/`      | `C / C.21` | Price ratio vs 21 bars ago |
+| `-`      | `-C`       | Unary negation             |
+
+### Comparison Operators
+
+Produce a boolean array (`True`/`False` per bar).
+
+| Operator | Example           |
+| -------- | ----------------- |
+| `>`      | `C > SMA(C, 50)`  |
+| `<`      | `C < L.1`         |
+| `>=`     | `C >= H.52`       |
+| `<=`     | `V <= SMA(V, 20)` |
+| `==`     | `C == O`          |
+| `!=`     | `C != O`          |
+
+### Boolean Operators
+
+Combine boolean arrays. `NOT` binds tightest, then `AND`, then `OR`.
+
+| Operator | Example                           |
+| -------- | --------------------------------- |
+| `AND`    | `C > SMA(C,50) AND V > SMA(V,20)` |
+| `OR`     | `C < L.1 OR V > SMA(V,5) * 2`     |
+| `NOT`    | `NOT C < SMA(C,200)`              |
+
+### Operator Precedence (low → high)
+
+| Level | Operators                 |
+| ----- | ------------------------- |
+| 1     | `OR`                      |
+| 2     | `AND`                     |
+| 3     | `NOT`                     |
+| 4     | `> < >= <= == !=`         |
+| 5     | `+ -`                     |
+| 6     | `* /`                     |
+| 7     | `-` (unary)               |
+| 8     | `FIELD.N` `FUNC(…)` `(…)` |
+
+Parentheses override precedence: `(H - L) / C * 100`
+
+### Built-in Functions
+
+#### `SMA(source, period)` — Simple Moving Average
+
+```
+SMA(C, 20)           → 20-bar SMA of Close
+SMA(V, 10)           → 10-bar SMA of Volume
+SMA(H - L, 14)       → 14-bar SMA of bar range
+```
+
+- First `period - 1` rows are NaN
+- Matches `pd.Series.rolling(period).mean()`
+
+#### `EMA(source, period)` — Exponential Moving Average
+
+```
+EMA(C, 12)                   → 12-bar EMA of Close
+EMA(C, 12) - EMA(C, 26)      → MACD line
+EMA(C, 20) > EMA(C, 50)      → Trend filter
+```
+
+- Smoothing factor: `k = 2 / (period + 1)`
+- Seeded with SMA of first N bars
+- Matches `pd.Series.ewm(span=period, adjust=False).mean()`
+
+### Shorthand Function Syntax
+
+For 2-argument functions where the source is a single field (`C`, `O`, `H`, `L`, `V`), you can use a compact shorthand that **omits parentheses and commas**:
+
+```
+FUNC_NAME + FIELD + PERIOD
+```
+
+| Shorthand | Equivalent    | Meaning              |
+| --------- | ------------- | -------------------- |
+| `SMAC50`  | `SMA(C, 50)`  | 50-bar SMA of Close  |
+| `EMAC20`  | `EMA(C, 20)`  | 20-bar EMA of Close  |
+| `SMAV20`  | `SMA(V, 20)`  | 20-bar SMA of Volume |
+| `EMAH126` | `EMA(H, 126)` | 126-bar EMA of High  |
+| `SMAL10`  | `SMA(L, 10)`  | 10-bar SMA of Low    |
+
+This works in any context — comparisons, compound conditions, arithmetic:
+
+```
+C > SMAC50                                    // Same as C > SMA(C, 50)
+EMAC20 > EMAC50                               // Same as EMA(C, 20) > EMA(C, 50)
+EMAC20 > EMAC50 AND V > SMAV20 * 1.5          // Fully compact compound
+```
+
+**Rules:**
+
+- Case-insensitive: `smac50`, `SMAC50`, `Smac50` all work
+- Period is required: `SMAC` alone is an error → _"missing the period number"_
+- Period must be positive: `SMAC0` is an error
+- Only works for 2-arg functions with a single field as source
+- For complex sources like `SMA(H - L, 14)`, use the full syntax
+
+### Formula Examples
+
+```
+C / C.21 > 1.2                                    // 20% momentum
+C > SMA(C, 50)                                    // Above 50-bar MA
+EMA(C, 20) > EMA(C, 50)                           // EMA crossover
+V > SMA(V, 20) * 1.5                              // Volume surge
+H < H.1 AND L > L.1                               // Inside bar
+O > H.1                                           // Gap up
+C / C.21 > 1.1 AND V > SMA(V,20) * 1.5 AND C > SMA(C,50)  // Compound
+(H - L) / C * 100 > 3                             // Wide range bar
+NOT C < SMA(C, 200)                                // Not below 200 MA
+CLOSE / CLOSE.21 > 1.2 AND VOLUME > SMA(V, 20)    // Mixed names
+```
+
+---
+
+## Architecture
+
+```
+                ┌──────────────────────────────────────────────┐
+                │              Formula String                  │
+                │  "C > SMA(C, 50) AND V > SMA(V, 20) * 1.5"  │
+                └──────────────────┬───────────────────────────┘
+                                   │
+                          ┌────────▼────────┐
+                          │     Lexer       │  lexer.py
+                          │  (Tokenizer)    │
+                          └────────┬────────┘
+                                   │
+                          list[Token]
+                                   │
+                          ┌────────▼────────┐
+                          │     Parser      │  parser.py
+                          │  (Recursive     │
+                          │   Descent)      │
+                          └────────┬────────┘
+                                   │
+                            AST (cacheable)
+                                   │
+                          ┌────────▼────────┐
+                          │   Evaluator     │  evaluator.py
+                          │  (Tree Walker)  │
+                          │  + DataFrame    │
+                          └────────┬────────┘
+                                   │
+                          np.ndarray (bool or float64)
+```
+
+### Module Files
+
+| File           | Responsibility                                         |
+| -------------- | ------------------------------------------------------ |
+| `__init__.py`  | Public API: `parse()`, `evaluate()`, `FormulaError`    |
+| `errors.py`    | `FormulaError` exception with position, expected, hint |
+| `lexer.py`     | Tokenizer — formula string → `list[Token]`             |
+| `ast_nodes.py` | Frozen dataclass AST nodes (immutable, cacheable)      |
+| `parser.py`    | Recursive-descent parser — tokens → AST                |
+| `evaluator.py` | Tree-walking evaluator — AST × DataFrame → NumPy array |
+| `functions.py` | Function registry with SMA/EMA implementations         |
+
+### Data Flow Detail
+
+**Step 1 — Lexer** (`lexer.py`)
+
+Converts the raw string into a flat list of typed `Token` objects. Each token carries its type, value, and source position (for error reporting).
+
+```python
+tokenize("C / C.21 > 1.2")
+# → [IDENT("C"), OP_DIV("/"), IDENT("C"), DOT("."), NUMBER("21"),
+#    OP_GT(">"), NUMBER("1.2"), EOF("")]
+```
+
+**Step 2 — Parser** (`parser.py`)
+
+Consumes tokens using recursive descent, producing an AST that respects operator precedence:
+
+```
+BinOp(AND,
+  BinOp(>, BinOp(/, FieldRef(C), ShiftExpr(FieldRef(C), 21)), NumberLiteral(1.2)),
+  BinOp(>, FieldRef(V), BinOp(*, FuncCall(SMA, [FieldRef(V), NumberLiteral(20)]), NumberLiteral(1.5)))
+)
+```
+
+The parser also handles:
+
+- **Field resolution** — `CLOSE` → `C`, `volume` → `V` (case-insensitive)
+- **Function validation** — checks the function exists in the registry and has the right arg count
+- **Shift validation** — `C.0` is rejected, `C.x` is rejected
+
+**Step 3 — Evaluator** (`evaluator.py`)
+
+Recursively walks the AST, mapping each node to a NumPy operation:
+
+| Node Type            | NumPy Operation                        |
+| -------------------- | -------------------------------------- |
+| `FieldRef("C")`      | `df["close"].to_numpy()`               |
+| `ShiftExpr(C, 21)`   | `df["close"].shift(21).to_numpy()`     |
+| `BinOp("/", …)`      | `np.divide(left, right)`               |
+| `BinOp(">", …)`      | `np.greater(left, right)`              |
+| `BinOp("AND", …)`    | `np.logical_and(left, right)`          |
+| `FuncCall("SMA", …)` | `registry["SMA"].impl(source, period)` |
+| `NumberLiteral(1.2)` | `np.float64(1.2)` — NumPy broadcasts   |
+
+Every operation is vectorised. Zero Python-level row iteration.
+
+### AST Nodes (`ast_nodes.py`)
+
+All nodes are frozen dataclasses — immutable and safe to cache/reuse:
+
+```python
+@dataclass(frozen=True, slots=True)
+class NumberLiteral(Node):
+    value: float
+
+@dataclass(frozen=True, slots=True)
+class FieldRef(Node):
+    name: str          # Canonical: "C", "O", "H", "L", "V"
+
+@dataclass(frozen=True, slots=True)
+class ShiftExpr(Node):
+    expr: Node         # The expression to shift
+    periods: int       # Bars to shift back
+
+@dataclass(frozen=True, slots=True)
+class UnaryOp(Node):
+    op: str            # "-" or "NOT"
+    operand: Node
+
+@dataclass(frozen=True, slots=True)
+class BinOp(Node):
+    op: str            # "+", "-", "*", "/", ">", "<", "AND", "OR", etc.
+    left: Node
+    right: Node
+
+@dataclass(frozen=True, slots=True)
+class FuncCall(Node):
+    name: str          # "SMA", "EMA", etc.
+    args: tuple[Node, ...]
+```
+
+---
+
+## Error Handling
+
+All errors surface as `FormulaError` — never raw Python exceptions. Each error includes position info and a plain-English message suitable for end users.
+
+```python
+try:
+    ast = parse("PRICE > 100")
+except FormulaError as e:
+    print(e)
+```
+
+Output:
+
+```
+FormulaError: "PRICE" is not a recognised field. Valid fields: C (Close), O (Open), H (High), L (Low), V (Volume)
+  Formula:  PRICE > 100
+  Position: ^^^^^
+```
+
+### Error Catalogue
+
+| Trigger                | Error                                                            |
+| ---------------------- | ---------------------------------------------------------------- |
+| Unknown field `PRICE`  | `"PRICE" is not a recognised field. Valid fields: …`             |
+| Unknown function `RSN` | `"RSN" is not a registered function. Did you mean SMA?`          |
+| `SMA(C)`               | `SMA requires 2 arguments: SMA(source, period). Got 1.`          |
+| `C.0`                  | `Shift of 0 means the current bar — just write C instead of C.0` |
+| `C.x`                  | `Shift value must be a positive integer. "C.x" is not valid`     |
+| Empty formula          | `Formula cannot be empty`                                        |
+| `(C + H`               | `Expected RPAREN but got ''`                                     |
+| `C @ 100`              | `Unexpected character "@"`                                       |
+
+---
+
+## Extending the Function Library
+
+Adding a new function (e.g. RSI) requires **zero parser changes**:
+
+```python
+# In functions.py
+
+import numpy as np
+import pandas as pd
+
+def _rsi(source: np.ndarray, period: int) -> np.ndarray:
+    """Relative Strength Index."""
+    delta = pd.Series(source).diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss
+    return (100 - 100 / (1 + rs)).to_numpy()
+
+register("RSI", 2, _rsi)
+```
+
+Users can immediately write `RSI(C, 14) > 70`.
+
+### Function Contract
+
+Every registered function must:
+
+1. Accept a `np.ndarray` as the first argument (source data)
+2. Accept numeric parameters for remaining arguments
+3. Return a `np.ndarray` of **identical length**
+4. Use `NaN` for rows where the result is undefined (insufficient history)
+
+---
+
+## NaN Handling
+
+| Situation                     | Behaviour                             |
+| ----------------------------- | ------------------------------------- |
+| Shift larger than history     | First N rows are NaN                  |
+| SMA period > DataFrame length | Entire result is NaN                  |
+| Division by zero              | `inf` or `NaN` per NumPy rules        |
+| NaN in `AND`/`OR`             | NaN treated as `False`                |
+| Last bar is NaN               | Scanner treats symbol as non-matching |
+
+---
+
+## Validate API Endpoint
+
+```
+POST /api/v1/scans/formula/validate
+```
+
+Test a formula against a real symbol's data without running a full scan.
+
+**Request:**
+
+```json
+{
+  "formula": "C > SMA(C, 50)",
+  "symbol": "AAPL"
+}
+```
+
+**Response (valid):**
+
+```json
+{
+  "valid": true,
+  "formula": "C > SMA(C, 50)",
+  "symbol": "AAPL",
+  "result_type": "bool",
+  "last_value": true,
+  "rows": 756
+}
+```
+
+**Response (invalid formula):**
+
+```json
+{
+  "valid": false,
+  "formula": "PRICE > 100",
+  "symbol": "AAPL",
+  "error": "\"PRICE\" is not a recognised field. Valid fields: C (Close), O (Open), H (High), L (Low), V (Volume)"
+}
+```
+
+---
+
+## DataFrame Contract
+
+The formula engine expects a pandas DataFrame with these **lowercase** columns:
+
+| Column   | Type    |
+| -------- | ------- |
+| `open`   | float64 |
+| `high`   | float64 |
+| `low`    | float64 |
+| `close`  | float64 |
+| `volume` | float64 |
+
+The index should be a timestamp (DatetimeIndex or numeric). The engine maps user-facing field names (`C`, `CLOSE`, etc.) to these column names internally.
+
+---
+
+## Performance
+
+- **Parse time**: < 1ms for typical formulas (47 formulas parse in 0.03s total)
+- **AST caching**: Parse once, evaluate across 10,000+ symbols without re-parsing
+- **Vectorised evaluation**: Every operation maps to NumPy — no Python row loops
+- **Zero overhead**: No `df.eval()`, no Python `engine="python"` interpreter

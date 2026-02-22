@@ -1,11 +1,12 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from terminal.market_feed.manager import MarketDataManager
-from terminal.scan.models import ConditionParam, ColumnDef, Scan
+from terminal.scan.formula import FormulaError, evaluate, parse
+from terminal.scan.models import ColumnDef, ConditionParam, Scan
 
 logger = logging.getLogger(__name__)
 
@@ -15,14 +16,32 @@ def evaluate_condition(df: pd.DataFrame, condition: ConditionParam) -> np.ndarra
     Evaluates a single condition against the OHLCV DataFrame and returns a boolean history array.
     """
     try:
-        # We need engine="python" to support more complex logic
-        result_series = df.eval(condition.formula, engine="python")
+        result = evaluate_expression(df, condition.formula)
 
-        # Convert to boolean numpy array
-        return result_series.to_numpy(dtype=bool)
+        # Ensure boolean array
+        if result.dtype != bool:
+            bool_result = np.zeros(len(df), dtype=bool)
+            if isinstance(result, np.ndarray):
+                valid = ~np.isnan(result.astype(float, copy=False))
+                bool_result[valid] = result[valid].astype(bool)
+            return bool_result
+        return result
+
+    except FormulaError as e:
+        logger.warning(f"Formula error in '{condition.formula}': {e.message}")
+        return np.zeros(len(df), dtype=bool)
     except Exception as e:
         logger.warning(f"Failed to evaluate condition '{condition.formula}': {e}")
         return np.zeros(len(df), dtype=bool)
+
+
+def evaluate_expression(df: pd.DataFrame, expression: str) -> np.ndarray:
+    """
+    Evaluates a formula expression and returns the result array (float64 or bool).
+    Used for column value computation.
+    """
+    ast = parse(expression)
+    return evaluate(ast, df)
 
 
 def is_condition_met(bool_array: np.ndarray, condition: ConditionParam) -> bool:
@@ -56,8 +75,8 @@ def is_condition_met(bool_array: np.ndarray, condition: ConditionParam) -> bool:
 
 
 def run_scan_engine(
-    scan: Scan, symbols: List[str], market_manager: MarketDataManager
-) -> Dict[str, Any]:
+    scan: Scan, symbols: list[str], market_manager: MarketDataManager
+) -> dict[str, Any]:
     """
     Executes the scan across the given symbols.
     Returns a dictionary contains columns and rows matching the columns.
@@ -66,22 +85,41 @@ def run_scan_engine(
     tickers = []
 
     # Columns definition
-    # We use scan.columns to determine the list of extra columns.
-    # The first column is always 'symbol'
     column_ids = []
-    col_definitions: List[ColumnDef] = []
+    col_definitions: list[ColumnDef] = []
     for raw_col in scan.columns:
         col_def = ColumnDef(**raw_col) if isinstance(raw_col, dict) else raw_col
         column_ids.append(col_def.id)
         col_definitions.append(col_def)
 
-    # 1. Evaluate Conditions (Foundational evaluate)
-    # Usually, a single scan applies conditions to a specific timeframe, or we use the base one.
-    # The user requirements didn't specify condition-level timeframe, only column-level timeframe.
-    # But an implicit assumption is conditions might be meant for the same timeframe.
-    # To be safe, we will just use timeframe="D" for the foundational evaluation of conditions,
-    # unless conditions themselves gain a timeframe attribute later.
     condition_tf = "D"
+
+    # Pre-parse condition formulas (cacheable ASTs)
+    parsed_conditions: list[tuple[ConditionParam, object | None]] = []
+    if scan.conditions:
+        for raw_cond in scan.conditions:
+            cond = (
+                ConditionParam(**raw_cond) if isinstance(raw_cond, dict) else raw_cond
+            )
+            try:
+                ast = parse(cond.formula)
+                parsed_conditions.append((cond, ast))
+            except FormulaError as e:
+                logger.warning(f"Formula parse error: {e.message}")
+                parsed_conditions.append((cond, None))
+
+    # Pre-parse column expressions
+    parsed_columns: list[tuple[ColumnDef, object | None]] = []
+    for col_def in col_definitions:
+        if col_def.type == "value" and col_def.expression:
+            try:
+                ast = parse(col_def.expression)
+                parsed_columns.append((col_def, ast))
+            except FormulaError as e:
+                logger.warning(f"Column expression parse error: {e.message}")
+                parsed_columns.append((col_def, None))
+        else:
+            parsed_columns.append((col_def, None))
 
     for symbol in symbols[:2200]:
         df = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
@@ -91,16 +129,26 @@ def run_scan_engine(
         # 1. Evaluate Conditions
         passes_scan = True
 
-        if scan.conditions:
+        if parsed_conditions:
             condition_results = []
-            for raw_cond in scan.conditions:
-                cond = (
-                    ConditionParam(**raw_cond)
-                    if isinstance(raw_cond, dict)
-                    else raw_cond
-                )
-                bool_arr = evaluate_condition(df, cond)
-                met = is_condition_met(bool_arr, cond)
+            for cond, ast in parsed_conditions:
+                if ast is None:
+                    condition_results.append(False)
+                    continue
+                try:
+                    bool_arr = evaluate(ast, df)
+                    if bool_arr.dtype != bool:
+                        tmp = np.zeros(len(df), dtype=bool)
+                        if isinstance(bool_arr, np.ndarray):
+                            valid = ~np.isnan(bool_arr.astype(float, copy=False))
+                            tmp[valid] = bool_arr[valid].astype(bool)
+                        bool_arr = tmp
+                    met = is_condition_met(bool_arr, cond)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to evaluate condition '{cond.formula}' for {symbol}: {e}"
+                    )
+                    met = False
                 condition_results.append(met)
 
             if scan.conditional_logic == "and":
@@ -115,7 +163,7 @@ def run_scan_engine(
         # 2. It passed! Build the result row
         row = []
 
-        for col_def in col_definitions:
+        for col_def, col_ast in parsed_columns:
             # We must fetch data for the specific column's timeframe
             col_tf = col_def.timeframe or "D"
             if col_tf == condition_tf:
@@ -127,9 +175,9 @@ def run_scan_engine(
                     continue
 
             try:
-                if col_def.type == "value" and col_def.expression:
-                    res_series = col_df.eval(col_def.expression, engine="python")
-                    res_arr = res_series.to_numpy()
+                if col_def.type == "value" and col_ast is not None:
+                    res_arr = evaluate(col_ast, col_df)
+                    res_arr = np.asarray(res_arr)
 
                     if col_def.bar_ago:
                         idx = -(col_def.bar_ago + 1)
@@ -141,7 +189,7 @@ def run_scan_engine(
                     if val is not None:
                         if isinstance(val, (np.integer, np.floating)):
                             val = val.item()
-                        elif isinstance(val, (np.bool_)):
+                        elif isinstance(val, np.bool_):
                             val = bool(val)
 
                     row.append(val)

@@ -34,6 +34,25 @@ class ConditionParam(BaseModel):
     rank_max: int | None = None
 
 
+class FormulaValidateRequest(TerminalBase):
+    """Schema for validating a formula against a symbol."""
+
+    formula: str
+    symbol: str
+
+
+class FormulaValidateResponse(TerminalBase):
+    """Schema for the formula validation result."""
+
+    valid: bool
+    formula: str
+    symbol: str
+    result_type: str | None = None  # "bool" or "float"
+    last_value: float | bool | None = None
+    rows: int | None = None
+    error: str | None = None
+
+
 class ScanCreate(TerminalBase):
     """Schema for creating a new scan."""
 
