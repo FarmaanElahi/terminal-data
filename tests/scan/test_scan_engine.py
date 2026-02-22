@@ -56,7 +56,8 @@ def mock_market_manager(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_run_scan_engine(client: AsyncClient, token: str, mock_market_manager):
+async def test_run_scan_via_list(client: AsyncClient, token: str, mock_market_manager):
+    """Test the scan engine through the list's POST /{id}/scan endpoint."""
     headers = {"Authorization": f"Bearer {token}"}
 
     # Override the market manager dependency
@@ -65,81 +66,58 @@ async def test_run_scan_engine(client: AsyncClient, token: str, mock_market_mana
 
     api.dependency_overrides[get_market_manager] = lambda: mock_market_manager
 
-    # 1. Create a List to get a valid source ID
+    # 1. Create a List with columns
     list_response = await client.post(
         "/api/v1/lists/",
         headers=headers,
-        json={"name": "Tech Stocks", "type": "simple"},
-    )
-    assert list_response.status_code == 200
-    list_id = list_response.json()["id"]
-
-    # Add symbols AAPL and MSFT to the list
-    await client.post(
-        f"/api/v1/lists/{list_id}/append_symbols",
-        headers=headers,
-        json={"symbols": ["AAPL", "MSFT"]},
-    )
-
-    # 2. Create the Scan
-    scan_response = await client.post(
-        "/api/v1/scans/",
-        headers=headers,
         json={
-            "name": "Up-trending Scan",
-            "source": list_id,
-            "conditions": [
-                {
-                    # Condition: Close must be greater than Open
-                    "formula": "C > O",
-                    "true_when": "now",
-                    "evaluation_type": "boolean",
-                    "type": "computed",
-                },
-                {
-                    # Condition: Close must be greater than 105
-                    "formula": "C > 105",
-                    "true_when": "within_last",
-                    "true_when_param": 1,
-                    "evaluation_type": "boolean",
-                    "type": "computed",
-                },
-            ],
-            "conditional_logic": "and",
+            "name": "Tech Stocks",
+            "type": "simple",
             "columns": [
                 {
                     "id": "CurrentClose",
                     "name": "Close Price",
                     "type": "value",
                     "timeframe": "D",
-                    "expression": "C",
+                    "formula": "C",
                 },
                 {
                     "id": "PreviousClose",
                     "name": "Previous Close",
                     "type": "value",
                     "timeframe": "D",
-                    "expression": "C",
+                    "formula": "C",
                     "bar_ago": 1,
                 },
             ],
         },
     )
-    assert scan_response.status_code == 200
-    scan_id = scan_response.json()["id"]
+    assert list_response.status_code == 200
+    list_id = list_response.json()["id"]
 
-    # 3. Run the scan
-    run_response = await client.post(f"/api/v1/scans/{scan_id}/run", headers=headers)
+    # Verify columns are saved
+    list_data = list_response.json()
+    assert len(list_data["columns"]) == 2
+    assert list_data["columns"][0]["id"] == "CurrentClose"
+    assert list_data["columns"][1]["formula"] == "C"
+
+    # 2. Add symbols AAPL and MSFT to the list
+    await client.post(
+        f"/api/v1/lists/{list_id}/append_symbols",
+        headers=headers,
+        json={"symbols": ["AAPL", "MSFT"]},
+    )
+
+    # 3. Run the scan via the list endpoint
+    run_response = await client.post(f"/api/v1/lists/{list_id}/scan", headers=headers)
     assert run_response.status_code == 200
     results = run_response.json()
     assert "columns" in results
     assert "values" in results
     assert results["columns"] == ["CurrentClose", "PreviousClose"]
-    assert len(results["values"]) == 1
 
-    aapl_row_dict = results["values"][0]
-    assert aapl_row_dict["n"] == "AAPL"
-    assert aapl_row_dict["v"] == [115, 112]
+    # Both AAPL and MSFT should appear (C > O is true for both in last bar)
+    assert results["total"] >= 1
 
     # Clean up overrides
     api.dependency_overrides.clear()

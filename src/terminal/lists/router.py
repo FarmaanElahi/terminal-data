@@ -1,18 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fsspec import AbstractFileSystem
 from sqlalchemy.orm import Session
 
-from terminal.dependencies import get_session
-from terminal.lists.models import (
-    ListCreate,
-    ListUpdate,
-    SymbolsUpdate,
-    SourceListsUpdate,
-    ListPublic,
+from terminal.auth.models import User
+from terminal.auth.router import get_current_user
+from terminal.config import Settings
+from terminal.dependencies import (
+    get_fs,
+    get_market_manager,
+    get_session,
+    get_settings,
 )
 from terminal.lists import service as lists_service
 from terminal.lists.enums import ListType
-from terminal.auth.router import get_current_user
-from terminal.auth.models import User
+from terminal.lists.models import (
+    ListCreate,
+    ListPublic,
+    ListUpdate,
+    SourceListsUpdate,
+    SymbolsUpdate,
+)
+from terminal.market_feed.manager import MarketDataManager
 
 router = APIRouter(prefix="/lists", tags=["List"])
 
@@ -61,6 +69,7 @@ async def get(
         "color": lst.color,
         "symbols": symbols,
         "source_list_ids": lst.source_list_ids,
+        "columns": lst.columns or [],
     }
 
 
@@ -157,3 +166,27 @@ async def bulk_remove_source_lists(
         )
 
     return lists_service.bulk_remove_source_lists(session, lst, data)
+
+
+@router.post("/{id}/scan")
+async def run_list_scan(
+    id: str,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    market_manager: "MarketDataManager" = Depends(get_market_manager),
+    fs: AbstractFileSystem = Depends(get_fs),
+    settings: Settings = Depends(get_settings),
+):
+    """Run the scan engine using this list's symbols and column definitions."""
+    lst = lists_service.get(session, id, user_id=current_user.id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    symbols = lists_service.get_symbols(session, lst, user_id=current_user.id)
+    if not symbols:
+        return {"total": 0, "columns": [], "tickers": [], "values": []}
+
+    from terminal.scan import engine
+
+    results = engine.run_scan_engine(lst, symbols, market_manager)
+    return results

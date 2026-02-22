@@ -6,7 +6,7 @@ import pandas as pd
 
 from terminal.market_feed.manager import MarketDataManager
 from terminal.formula import FormulaError, evaluate, parse, preprocess
-from terminal.scan.models import ColumnDef, ConditionParam, Scan
+from terminal.lists.models import ColumnDef, ConditionParam
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def is_condition_met(bool_array: np.ndarray, condition: ConditionParam) -> bool:
 
 
 def run_scan_engine(
-    scan: Scan, symbols: list[str], market_manager: MarketDataManager
+    scan: Any, symbols: list[str], market_manager: MarketDataManager
 ) -> dict[str, Any]:
     """
     Executes the scan across the given symbols.
@@ -92,7 +92,8 @@ def run_scan_engine(
     # Columns definition
     column_ids = []
     col_definitions: list[ColumnDef] = []
-    for raw_col in scan.columns:
+    raw_columns = getattr(scan, "columns", None) or []
+    for raw_col in raw_columns:
         col_def = ColumnDef(**raw_col) if isinstance(raw_col, dict) else raw_col
         column_ids.append(col_def.id)
         col_definitions.append(col_def)
@@ -101,8 +102,9 @@ def run_scan_engine(
 
     # Pre-parse condition formulas (cacheable ASTs)
     parsed_conditions: list[tuple[ConditionParam, object | None]] = []
-    if scan.conditions:
-        for raw_cond in scan.conditions:
+    raw_conditions = getattr(scan, "conditions", None) or []
+    if raw_conditions:
+        for raw_cond in raw_conditions:
             cond = (
                 ConditionParam(**raw_cond) if isinstance(raw_cond, dict) else raw_cond
             )
@@ -116,9 +118,9 @@ def run_scan_engine(
     # Pre-parse column expressions
     parsed_columns: list[tuple[ColumnDef, object | None]] = []
     for col_def in col_definitions:
-        if col_def.type == "value" and col_def.expression:
+        if col_def.type == "value" and col_def.formula:
             try:
-                ast = parse(col_def.expression)
+                ast = parse(col_def.formula)
                 parsed_columns.append((col_def, ast))
             except FormulaError as e:
                 logger.warning(f"Column expression parse error: {e.message}")
@@ -156,9 +158,10 @@ def run_scan_engine(
                     met = False
                 condition_results.append(met)
 
-            if scan.conditional_logic == "and":
+            conditional_logic = getattr(scan, "conditional_logic", "and")
+            if conditional_logic == "and":
                 passes_scan = all(condition_results)
-            elif scan.conditional_logic == "or":
+            elif conditional_logic == "or":
                 passes_scan = any(condition_results)
 
         # If it doesn't pass, move on
@@ -202,7 +205,7 @@ def run_scan_engine(
                     row.append(None)
 
             except Exception as e:
-                logger.warning(f"Failed to evaluate column '{col_def.expression}': {e}")
+                logger.warning(f"Failed to evaluate column '{col_def.formula}': {e}")
                 row.append(None)
 
         tickers.append(symbol)
