@@ -5,6 +5,7 @@ import logging
 import asyncio
 
 from fastapi import FastAPI
+from fastapi.responses import ORJSONResponse
 
 from .api import api_router as api_router
 from .logging import configure_logging
@@ -53,6 +54,7 @@ api = FastAPI(
     docs_url="/docs",
     openapi_url="/docs/openapi.json",
     redoc_url="/redocs",
+    default_response_class=ORJSONResponse,
 )
 api.include_router(api_router)
 
