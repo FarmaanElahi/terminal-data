@@ -564,9 +564,10 @@ export const useLayoutStore = create<LayoutStore>()(
           const pane = findNode(layout.root, paneId) as PaneNode | null;
           if (!pane || pane.type !== "pane") return state;
 
+          // Move pane directly — preserve IDs so widgets stay mounted via portals
           const floating: FloatingWindow = {
             id: uid(),
-            pane: cloneNode(pane),
+            pane: { ...pane }, // shallow copy, same tab IDs
             x: 100,
             y: 100,
             w: 400,

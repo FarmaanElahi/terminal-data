@@ -9,7 +9,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export function ScreenerWidget({ settings, onSettingsChange }: WidgetProps) {
+export function ScreenerWidget({
+  instanceId,
+  settings,
+  onSettingsChange,
+}: WidgetProps) {
   const s = (settings ?? {}) as Record<string, unknown>;
   const lists = useAuthStore((st) => st.lists);
   const columnSets = useAuthStore((st) => st.columnSets);
@@ -17,7 +21,11 @@ export function ScreenerWidget({ settings, onSettingsChange }: WidgetProps) {
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
   const columnSetId = (s.columnSetId as string) ?? columnSets?.[0]?.id ?? null;
 
-  const { tickers, values, isLoading } = useScreener(listId, columnSetId);
+  const { tickers, values, isLoading } = useScreener(
+    instanceId,
+    listId,
+    columnSetId,
+  );
 
   return (
     <div className="flex flex-col h-full">

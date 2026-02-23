@@ -28,6 +28,7 @@ export function ScreenerPage() {
 
   // Screener session
   const { tickers, values, isLoading, lastUpdate } = useScreener(
+    "screener-page",
     listId,
     columnSetId,
   );

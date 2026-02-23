@@ -1,41 +1,85 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useWebSocket } from "./use-websocket";
-import { useScreenerStore } from "@/stores/screener-store";
+import { useWidgetState } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
 
 /**
  * Hook that manages a screener WebSocket session lifecycle.
- * Creates session on mount, subscribes to updates, cleans up on unmount.
+ *
+ * Uses the framework-level useWidgetState to persist data across remounts.
+ * When the widget remounts (tab switch, float, dock, split), the cached
+ * data is instantly restored and only a new WS session is created if the
+ * params (listId, columnSetId) actually changed.
  */
-export function useScreener(listId: string | null, columnSetId: string | null) {
+export function useScreener(
+  instanceId: string,
+  listId: string | null,
+  columnSetId: string | null,
+) {
   const ws = useWebSocket();
-  const {
-    tickers,
-    values,
-    isLoading,
-    lastUpdate,
-    setSession,
-    setTickers,
-    setValues,
-    updateValue,
-    reset,
-  } = useScreenerStore();
+
+  // ─── Framework-level persistent state ─────────────────────────────
+  const [tickers, setTickers] = useWidgetState<ScreenerFilterRow[]>(
+    instanceId,
+    "tickers",
+    [],
+  );
+  const [values, setValues] = useWidgetState<ScreenerValues>(
+    instanceId,
+    "values",
+    {},
+  );
+  const [isLoading, setIsLoading] = useWidgetState<boolean>(
+    instanceId,
+    "isLoading",
+    true,
+  );
+  const [lastUpdate, setLastUpdate] = useWidgetState<number | null>(
+    instanceId,
+    "lastUpdate",
+    null,
+  );
+  // Track params that last created a session, so we only re-create if they change
+  const [cachedParams, setCachedParams] = useWidgetState<string | null>(
+    instanceId,
+    "cachedParams",
+    null,
+  );
+  // Track active session ID across re-renders
+  const sessionRef = useRef<string | null>(null);
+  const paramsKey = listId && columnSetId ? `${listId}:${columnSetId}` : null;
 
   const createSession = useCallback(() => {
     if (!listId || !columnSetId) return;
 
     const sessionId = crypto.randomUUID();
-    setSession(sessionId);
+    sessionRef.current = sessionId;
+    setIsLoading(true);
 
     ws.send({
       m: "create_screener",
       p: [sessionId, { source: listId, column_set_id: columnSetId }],
     });
 
+    // Remember which params this session is for
+    setCachedParams(paramsKey);
+
     return sessionId;
-  }, [listId, columnSetId, ws, setSession]);
+  }, [listId, columnSetId, ws, setIsLoading, setCachedParams, paramsKey]);
 
   useEffect(() => {
+    // If we already have cached data for the same params, skip re-creating the session
+    // but still set up listeners in case the server sends updates
+    const needsNewSession = paramsKey !== cachedParams;
+
+    if (!needsNewSession && tickers.length > 0) {
+      // Data is already cached — no need to create a new session
+      setIsLoading(false);
+      return;
+    }
+
+    if (!listId || !columnSetId) return;
+
     const sessionId = createSession();
     if (!sessionId) return;
 
@@ -48,6 +92,8 @@ export function useScreener(listId: string | null, columnSetId: string | null) {
         const [sid, tickerList] = msg.p as [string, ScreenerFilterRow[]];
         if (sid === sessionId) {
           setTickers(tickerList);
+          setIsLoading(false);
+          setLastUpdate(Date.now());
         }
       }),
 
@@ -55,6 +101,7 @@ export function useScreener(listId: string | null, columnSetId: string | null) {
         const [sid, vals] = msg.p as [string, ScreenerValues];
         if (sid === sessionId) {
           setValues(vals);
+          setLastUpdate(Date.now());
         }
       }),
 
@@ -65,15 +112,31 @@ export function useScreener(listId: string | null, columnSetId: string | null) {
           Record<string, unknown>,
         ];
         if (sid === sessionId) {
-          updateValue(ticker, updates);
+          // Update individual ticker values
+          setValues((prev) => {
+            const newValues = { ...prev };
+            const tickerIdx = tickers.findIndex((t) => t.ticker === ticker);
+            if (tickerIdx === -1) return prev;
+            for (const [col, val] of Object.entries(updates)) {
+              if (newValues[col]) {
+                const arr = [...newValues[col]];
+                arr[tickerIdx] = val;
+                newValues[col] = arr;
+              }
+            }
+            return newValues;
+          });
+          setLastUpdate(Date.now());
         }
       }),
     ];
 
     return () => {
       unsubs.forEach((unsub) => unsub());
-      ws.send({ m: "destroy_screener", p: [sessionId] });
-      reset();
+      if (sessionRef.current) {
+        ws.send({ m: "destroy_screener", p: [sessionRef.current] });
+      }
+      // DON'T clear cached data — that's the whole point of useWidgetState
     };
   }, [listId, columnSetId]);
 
