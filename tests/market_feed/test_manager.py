@@ -1,10 +1,9 @@
 import pytest
 import asyncio
-import numpy as np
 import time
+import pandas as pd
 from unittest.mock import MagicMock, AsyncMock
 from terminal.market_feed import OHLCStore, MarketDataManager, TradingViewDataProvider
-from terminal.market_feed.models import CANDLE_DTYPE
 
 
 class MockDataProvider(TradingViewDataProvider):
@@ -30,19 +29,23 @@ class MockDataProvider(TradingViewDataProvider):
 
         self._tv.streamer.stream_quotes.side_effect = mock_stream_quotes
 
-    def get_history(self, symbol: str) -> np.ndarray:
-        history = np.zeros(10, dtype=CANDLE_DTYPE)
-        for i in range(10):
-            history[i] = (
-                int(time.time()) - (10 - i) * 86400,
-                100.0,
-                105.0,
-                95.0,
-                102.0,
-                1000.0,
-            )
-        self._history_dict[symbol] = history
-        return history
+    def get_history(self, symbol: str) -> pd.DataFrame | None:
+        """Returns a DataFrame with 10 rows of mock OHLCV data."""
+        now = int(time.time())
+        timestamps = [now - (10 - i) * 86400 for i in range(10)]
+        df = pd.DataFrame(
+            {
+                "open": [100.0] * 10,
+                "high": [105.0] * 10,
+                "low": [95.0] * 10,
+                "close": [102.0] * 10,
+                "volume": [1000.0] * 10,
+            },
+            index=pd.Index(timestamps, name="timestamp"),
+        )
+        # Also populate _history_dict for get_all_tickers
+        self._history_dict[symbol] = df
+        return df
 
     def update_cache(self, df):
         pass
@@ -90,7 +93,7 @@ async def test_manager_streaming_and_pubsub():
     data = store.get_data("AAPL")
     assert data is not None
     assert len(data) >= 1
-    assert data.iloc[-1]["close"] == 105.0
+    assert data.iloc[-1]["close"] == pytest.approx(105.0, rel=1e-3)
 
     assert len(updates) >= 1
     assert updates[0]["symbol"] == "AAPL"
@@ -107,10 +110,11 @@ async def test_manager_get_ohlcv():
     ohlcv = manager.get_ohlcv("AAPL")
 
     assert ohlcv is not None
-    assert isinstance(ohlcv["close"].values, np.ndarray)
     assert len(ohlcv["close"]) == 10
-    assert ohlcv["close"].dtype == np.float64
     assert len(ohlcv.index) == 10
+    # No alias columns
+    assert "O" not in ohlcv.columns
+    assert "C" not in ohlcv.columns
 
 
 @pytest.mark.asyncio
@@ -129,17 +133,10 @@ async def test_manager_get_ohlcv_series():
     assert len(series[0]) == 6
     # Verify latest is first
     assert series[0][0] > series[-1][0]
-    assert isinstance(series[0][0], (int, float))  # timestamp
-    assert isinstance(series[0][1], float)  # open
 
 
 def test_provider_get_all_tickers():
     provider = MockDataProvider()
-    # MockDataProvider hardcodes history for AAPL, let's see what it returns
-    tickers = provider.get_all_tickers()
-    # It seems MockDataProvider doesn't actually populate _history_dict until get_history is called
-    # and get_all_tickers calls load_cache which might be empty if no files exist.
-    # But get_history for AAPL will populate it if we call it.
     provider.get_history("AAPL")
     tickers = provider.get_all_tickers()
     assert "AAPL" in tickers
@@ -156,9 +153,22 @@ async def test_manager_start():
     # Mock load_history and start_realtime_streaming to avoid actual streaming logic
     manager.load_history = AsyncMock()
     manager.start_realtime_streaming = AsyncMock()
-    # manager._start_periodic_cache_updater = MagicMock() # It's already synchronous
 
     await manager.start()
 
     manager.load_history.assert_called_once_with(["AAPL"])
     manager.start_realtime_streaming.assert_called_once_with(["AAPL"])
+
+
+@pytest.mark.asyncio
+async def test_manager_lazy_load():
+    """Test that get_ohlcv lazy-loads from provider when symbol is not in store."""
+    store = OHLCStore()
+    provider = MockDataProvider()
+    manager = MarketDataManager(store, provider)
+
+    # Don't call load_history — should lazy-load
+    ohlcv = manager.get_ohlcv("AAPL")
+    assert ohlcv is not None
+    assert len(ohlcv) == 10
+    assert store.has_symbol("AAPL")

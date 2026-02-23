@@ -1,7 +1,6 @@
 import asyncio
 import logging
-import weakref
-from typing import List, Optional, AsyncGenerator
+from typing import AsyncGenerator
 
 import pandas as pd
 
@@ -12,6 +11,43 @@ from .tradingview import TradingViewDataProvider
 logger = logging.getLogger(__name__)
 
 
+class BroadcastChannel:
+    """Lock-free broadcast using asyncio.Condition.
+
+    Publishers call ``publish()`` to update the latest state.
+    Subscribers call ``subscribe()`` to get an async generator of updates.
+    No per-subscriber queues — zero-copy, instant wakeup.
+    """
+
+    def __init__(self) -> None:
+        self._latest: dict[str, tuple] = {}
+        self._version: int = 0
+        self._condition: asyncio.Condition = asyncio.Condition()
+
+    async def publish(self, symbol: str, candle: tuple) -> None:
+        self._latest[symbol] = candle
+        self._version += 1
+        async with self._condition:
+            self._condition.notify_all()
+
+    async def subscribe(self, symbol: str | None = None) -> AsyncGenerator[dict, None]:
+        """Yield ``{"symbol": ..., "candle": ...}`` dicts on each update.
+
+        If *symbol* is given, only yields updates for that symbol.
+        """
+        last_version = self._version
+        while True:
+            async with self._condition:
+                await self._condition.wait_for(lambda: self._version > last_version)
+                current_version = self._version
+            # Yield updates since last wakeup
+            for sym, candle in list(self._latest.items()):
+                if symbol is not None and sym != symbol:
+                    continue
+                yield {"symbol": sym, "candle": candle}
+            last_version = current_version
+
+
 class MarketDataManager:
     """
     Coordinates data loading and realtime updates between OHLCStore and DataProvider.
@@ -20,14 +56,12 @@ class MarketDataManager:
     def __init__(self, store: OHLCStore, provider: DataProvider):
         self.store = store
         self.provider = provider
-        self._streaming_task: Optional[asyncio.Task] = None
-        self._cache_updater_task: Optional[asyncio.Task] = None
+        self._streaming_task: asyncio.Task | None = None
+        self._cache_updater_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
-        self._subscribers: weakref.WeakSet[asyncio.Queue] = weakref.WeakSet()
+        self._broadcast = BroadcastChannel()
 
-    async def start(
-        self,
-    ):
+    async def start(self):
         """
         Loads all symbols from the provider cache, loads their history from cache,
         and starts realtime streaming.
@@ -43,7 +77,7 @@ class MarketDataManager:
 
             logger.info(f"Loaded {len(tickers)} symbols from provider cache.")
 
-            # 2. Load history (this uses cache or provider fallback)
+            # 2. Load history (batch — DataFrames direct from provider)
             await self.load_history(tickers)
 
             # 3. Start realtime streaming and cache updater
@@ -52,22 +86,22 @@ class MarketDataManager:
         except Exception as e:
             logger.error(f"Failed to start MarketDataManager: {e}", exc_info=True)
 
-    async def load_history(self, symbols: List[str]):
+    async def load_history(self, symbols: list[str]):
         """
         Loads historical data for a list of symbols into the store.
+        Provider returns DataFrames directly — no numpy intermediate.
         """
         logger.info(f"Loading history for {len(symbols)} symbols...")
 
-        # Load batch history from cache (fast)
         for symbol in symbols:
             try:
                 history = self.provider.get_history(symbol)
-                if len(history) > 0:
+                if history is not None and len(history) > 0:
                     self.store.load_history(symbol, history)
             except Exception as e:
                 logger.error(f"Failed to load history for {symbol}: {e}")
 
-    async def start_realtime_streaming(self, tickers: List[str]):
+    async def start_realtime_streaming(self, tickers: list[str]):
         """
         Starts the background streaming task for realtime updates using websocket quotes.
         """
@@ -95,7 +129,7 @@ class MarketDataManager:
             self._cache_updater_task = None
         logger.info("Stopped realtime streaming and cache updater.")
 
-    async def _stream_loop(self, tickers: List[str]):
+    async def _stream_loop(self, tickers: list[str]):
         """
         Internal loop for streaming realtime data from streamer2 quote stream.
         """
@@ -145,7 +179,7 @@ class MarketDataManager:
                     )
 
                     self.store.add_realtime(ticker, candle)
-                    self._publish(ticker, candle)
+                    await self._broadcast.publish(ticker, candle)
 
         except asyncio.CancelledError:
             pass
@@ -179,13 +213,9 @@ class MarketDataManager:
                         if df is None or len(df) == 0:
                             continue
 
-                        # Copy to avoid modifying the original and add symbol column
                         df_copy = df.copy()
                         df_copy["symbol"] = ticker
-                        # We need to reset the index to include timestamp in the cache
                         df_copy.reset_index(inplace=True)
-                        # Remove aliases before caching if they are not needed in storage
-                        # But for now, let's just keep whatever columns are there
                         dfs.append(df_copy)
 
                     if dfs:
@@ -199,40 +229,16 @@ class MarketDataManager:
             except Exception as e:
                 logger.error(f"Error in periodic cache update: {e}", exc_info=True)
 
-    def _publish(self, symbol: str, candle: tuple):
+    async def subscribe(self, symbol: str | None = None) -> AsyncGenerator[dict, None]:
         """
-        Publishes a real-time candle update to all subscribers.
-        """
-        update = {"symbol": symbol, "candle": candle}
-        for q in list(self._subscribers):
-            try:
-                q.put_nowait(update)
-            except asyncio.QueueFull:
-                pass
-
-    async def subscribe(
-        self, symbol: Optional[str] = None
-    ) -> AsyncGenerator[dict, None]:
-        """
-        Allows modules to subscribe to real-time bar updates.
+        Allows modules to subscribe to real-time bar updates via broadcast channel.
         If symbol is provided, yields updates only for that symbol.
         Otherwise, yields all updates.
         """
-        q = asyncio.Queue(maxsize=1000)
-        self._subscribers.add(q)
-
-        try:
-            while not self._stop_event.is_set():
-                try:
-                    update = await asyncio.wait_for(q.get(), timeout=1.0)
-                    if symbol is None or update["symbol"] == symbol:
-                        yield update
-                except asyncio.TimeoutError:
-                    continue
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._subscribers.discard(q)
+        async for update in self._broadcast.subscribe(symbol):
+            if self._stop_event.is_set():
+                break
+            yield update
 
     def get_data(self, symbol: str):
         """
@@ -240,12 +246,21 @@ class MarketDataManager:
         """
         return self.store.get_data(symbol)
 
-    def get_ohlcv(self, symbol: str, timeframe: str = "D") -> Optional[pd.DataFrame]:
+    def get_ohlcv(self, symbol: str, timeframe: str = "D") -> pd.DataFrame | None:
         """
         Returns OHLCV data as a pandas DataFrame.
         Resamples the data if a higher timeframe (W, M, Y) is requested.
+        Lazy-loads from provider if symbol is not yet in the store.
         """
         df = self.store.get_data(symbol)
+
+        # Lazy loading: if not in store, try loading from provider
+        if df is None:
+            history = self.provider.get_history(symbol)
+            if history is not None and len(history) > 0:
+                self.store.load_history(symbol, history)
+                df = self.store.get_data(symbol)
+
         if df is None:
             return None
 
@@ -253,11 +268,9 @@ class MarketDataManager:
             return df
 
         # Resample logic using pandas
-        # Ensure we don't modify the original buffer
         df_to_resample = df.copy()
 
         # Convert index to datetime for resampling
-        # If it's already datetime, no need to convert
         if not isinstance(df_to_resample.index, pd.DatetimeIndex):
             df_to_resample.index = pd.to_datetime(df_to_resample.index, unit="s")
 
@@ -279,20 +292,11 @@ class MarketDataManager:
             .dropna()
         )
 
-        # Add aliases back to resampled data
-        resampled["O"] = resampled["open"]
-        resampled["H"] = resampled["high"]
-        resampled["L"] = resampled["low"]
-        resampled["C"] = resampled["close"]
-        resampled["V"] = resampled["volume"]
-
-        # Optionally convert back to numeric index if needed,
-        # but scan engine should work fine with datetime index or we can convert it
         return resampled
 
     def get_ohlcv_series(
-        self, symbol: str, limit: Optional[int] = None
-    ) -> Optional[List[List]]:
+        self, symbol: str, limit: int | None = None
+    ) -> list[list] | None:
         """
         Returns OHLCV data as a list of [t, o, h, l, c, v] rows.
         Ordered chronologically by timestamp (latest first).
@@ -302,7 +306,6 @@ class MarketDataManager:
             return None
 
         # Prepare for series output: [timestamp, open, high, low, close, volume]
-        # Reset index to get timestamp column
         export_df = df.reset_index()[
             ["timestamp", "open", "high", "low", "close", "volume"]
         ]

@@ -19,7 +19,7 @@ async def get_symbols(
         None, alias="type", description="Filter by instrument type (e.g. stock, etf)"
     ),
     index: str | None = Query(None, description="Filter by index name"),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=50000),
     fs: AbstractFileSystem = Depends(get_fs),
     settings: Settings = Depends(get_settings),
 ):

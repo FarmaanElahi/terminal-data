@@ -35,12 +35,6 @@ def get_mock_ohlcv(symbol: str, timeframe: str = "D"):
     else:
         return None
 
-    # Add aliases
-    df["O"] = df["open"]
-    df["H"] = df["high"]
-    df["L"] = df["low"]
-    df["C"] = df["close"]
-    df["V"] = df["volume"]
     return df
 
 

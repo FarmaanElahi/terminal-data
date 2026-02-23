@@ -475,14 +475,22 @@ class TradingViewClient:
                 if active_tasks == 0:
                     await queue.put(None)
 
+        tasks = []
         for chunk in main_chunk:
-            asyncio.create_task(worker_task(chunk))
+            tasks.append(asyncio.create_task(worker_task(chunk)))
 
-        while True:
-            item = await queue.get()
-            if item is None:
-                break
-            yield item
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+            # Suppress CancelledError from tasks
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _stream_bars_chunk(
         self, tickers: List[str], timeframe: str

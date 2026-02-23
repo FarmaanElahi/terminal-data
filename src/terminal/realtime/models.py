@@ -201,6 +201,13 @@ class ScreenerValuesResponse(ServerMessage):
     p: tuple[str, dict[str, list[Any]]]  # (session_id, {col_id: [values]})
 
 
+class ScreenerValuesUpdate(ServerMessage):
+    """Emitted with incremental column values for a single updated symbol."""
+
+    m: Literal["screener_values_update"] = "screener_values_update"
+    p: tuple[str, str, dict[str, Any]]  # (session_id, symbol, {col_id: value})
+
+
 # ------------------------------------------------------------------
 # Dispatch helper
 # ------------------------------------------------------------------

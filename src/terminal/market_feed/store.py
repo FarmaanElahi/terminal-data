@@ -1,119 +1,145 @@
-import pandas as pd
-from typing import Dict, Optional
+"""Efficient OHLC store using pre-allocated numpy ring buffers.
+
+Storage layout per symbol:
+  - timestamps: int32 array   (Unix seconds, ~68 year range)
+  - ohlcv:      float32 array  (capacity × 5)
+  - size:       int            (current row count)
+
+DataFrames are constructed lazily on demand via ``get_data()``.
+"""
+
+import asyncio
+import logging
+
 import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Column order in the ohlcv array
+_OHLCV_COLS = ("open", "high", "low", "close", "volume")
+_NUM_COLS = len(_OHLCV_COLS)
 
 
 class OHLCStore:
-    """
-    Efficient store for OHLC data using pandas DataFrames.
-    Supports historical data loading and realtime updates for multiple symbols.
-    Update happens by timestamp index.
-    """
+    """Ring-buffer OHLC store with O(1) realtime updates."""
 
     def __init__(self, capacity_per_symbol: int = 10000):
         self.capacity = capacity_per_symbol
-        self._buffers: Dict[str, pd.DataFrame] = {}
+        # Per-symbol storage
+        self._timestamps: dict[str, np.ndarray] = {}  # int32
+        self._ohlcv: dict[str, np.ndarray] = {}  # float32, shape (cap, 5)
+        self._sizes: dict[str, int] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
         self.is_dirty = False
 
-    def _initialize_symbol(self, symbol: str):
-        """Allocates an empty DataFrame for a symbol if it doesn't exist."""
-        if symbol not in self._buffers:
-            # Create an empty DataFrame with expected columns
-            # Using timestamp as index for fast updates
-            cols = ["open", "high", "low", "close", "volume"]
-            df = pd.DataFrame(columns=cols)
-            df.index.name = "timestamp"
+    def _ensure_symbol(self, symbol: str) -> None:
+        """Allocate storage for a symbol if not already present."""
+        if symbol not in self._ohlcv:
+            self._timestamps[symbol] = np.zeros(self.capacity, dtype=np.int32)
+            self._ohlcv[symbol] = np.zeros((self.capacity, _NUM_COLS), dtype=np.float32)
+            self._sizes[symbol] = 0
+            self._locks[symbol] = asyncio.Lock()
 
-            # Pre-add aliases for scan engine
-            df["O"] = df["open"]
-            df["H"] = df["high"]
-            df["L"] = df["low"]
-            df["C"] = df["close"]
-            df["V"] = df["volume"]
+    def load_history(self, symbol: str, history: pd.DataFrame) -> None:
+        """Load historical data for a symbol from a DataFrame.
 
-            self._buffers[symbol] = df
-
-    def load_history(self, symbol: str, history_data: np.ndarray):
+        Expects columns: open, high, low, close, volume.
+        Index should be named 'timestamp' (int seconds).
         """
-        Loads historical data for a symbol.
-        Overwrites existing data.
-        """
-        self._initialize_symbol(symbol)
+        self._ensure_symbol(symbol)
 
-        # Convert structured numpy array to DataFrame
-        df = pd.DataFrame(history_data)
-        if "timestamp" in df.columns:
-            df.set_index("timestamp", inplace=True)
+        n = min(len(history), self.capacity)
+        if n == 0:
+            return
 
-        # Ensure aliases are present
-        df["O"] = df["open"]
-        df["H"] = df["high"]
-        df["L"] = df["low"]
-        df["C"] = df["close"]
-        df["V"] = df["volume"]
+        # Take the last `n` rows if history exceeds capacity
+        if len(history) > self.capacity:
+            history = history.iloc[-self.capacity :]
 
-        if len(df) > self.capacity:
-            df = df.iloc[-self.capacity :]
+        # Extract timestamps from index
+        ts = history.index.values
+        if hasattr(ts, "astype"):
+            self._timestamps[symbol][:n] = ts[-n:].astype(np.int32)
+        else:
+            self._timestamps[symbol][:n] = np.array(ts[-n:], dtype=np.int32)
 
-        self._buffers[symbol] = df
+        # Extract OHLCV values
+        for i, col in enumerate(_OHLCV_COLS):
+            self._ohlcv[symbol][:n, i] = history[col].values[-n:].astype(np.float32)
+
+        self._sizes[symbol] = n
         self.is_dirty = True
 
-    def add_realtime(self, symbol: str, candle: tuple):
+    def add_realtime(self, symbol: str, candle: tuple) -> None:
+        """Update the store with a realtime candle.
+
+        candle: (timestamp, open, high, low, close, volume)
+        If the timestamp matches the last entry, update in-place.
+        Otherwise append a new row.
         """
-        Updates the store with a realtime candle.
-        If the candle timestamp matches the last one, it updates the last entry.
-        Otherwise, it appends a new entry.
-        """
-        self._initialize_symbol(symbol)
-        df = self._buffers[symbol]
+        self._ensure_symbol(symbol)
 
-        timestamp = candle[0]
-        # candle tuple: (timestamp, open, high, low, close, volume)
-        data = {
-            "open": float(candle[1]),
-            "high": float(candle[2]),
-            "low": float(candle[3]),
-            "close": float(candle[4]),
-            "volume": float(candle[5]),
-            "O": float(candle[1]),
-            "H": float(candle[2]),
-            "L": float(candle[3]),
-            "C": float(candle[4]),
-            "V": float(candle[5]),
-        }
+        ts = int(candle[0])
+        size = self._sizes[symbol]
+        values = np.array(
+            [candle[1], candle[2], candle[3], candle[4], candle[5]],
+            dtype=np.float32,
+        )
 
-        # Update or append
-        # pandas .loc can do both: if index exists it updates, if not it appends
-        # However, we want to maintain the capacity limit and ensure order
-
-        if timestamp in df.index:
-            # Check if values actually changed to set dirty flag
-            # This is a bit expensive, maybe just set dirty = True
-            df.loc[timestamp] = data
-            self.is_dirty = True
+        if size > 0 and self._timestamps[symbol][size - 1] == ts:
+            # Update existing row in-place
+            self._ohlcv[symbol][size - 1] = values
         else:
             # Append new row
-            new_row = pd.Series(data, name=timestamp)
-            df = pd.concat([df, pd.DataFrame([new_row])])
+            if size >= self.capacity:
+                # Ring buffer: shift left by one
+                self._timestamps[symbol][:-1] = self._timestamps[symbol][1:]
+                self._ohlcv[symbol][:-1] = self._ohlcv[symbol][1:]
+                idx = self.capacity - 1
+            else:
+                idx = size
+                self._sizes[symbol] = size + 1
 
-            # Maintain capacity
-            if len(df) > self.capacity:
-                df = df.iloc[-self.capacity :]
+            self._timestamps[symbol][idx] = np.int32(ts)
+            self._ohlcv[symbol][idx] = values
 
-            self._buffers[symbol] = df
-            self.is_dirty = True
+        self.is_dirty = True
 
-    def get_data(self, symbol: str) -> Optional[pd.DataFrame]:
-        """
-        Returns the DataFrame for a symbol.
-        """
-        return self._buffers.get(symbol)
+    def get_data(self, symbol: str) -> pd.DataFrame | None:
+        """Return a DataFrame view for a symbol, or None if not loaded."""
+        if symbol not in self._ohlcv:
+            return None
 
-    def get_all_data(self) -> Dict[str, pd.DataFrame]:
-        """
-        Returns data for all symbols.
-        """
-        return self._buffers
+        size = self._sizes.get(symbol, 0)
+        if size == 0:
+            return None
 
+        ts = self._timestamps[symbol][:size]
+        data = self._ohlcv[symbol][:size]
 
-ohlc_store = OHLCStore()
+        df = pd.DataFrame(
+            data,
+            columns=list(_OHLCV_COLS),
+            index=pd.Index(ts, name="timestamp"),
+        )
+        return df
+
+    def get_all_data(self) -> dict[str, pd.DataFrame]:
+        """Return DataFrames for all symbols."""
+        result = {}
+        for symbol in self._ohlcv:
+            df = self.get_data(symbol)
+            if df is not None:
+                result[symbol] = df
+        return result
+
+    def has_symbol(self, symbol: str) -> bool:
+        """Check whether a symbol is loaded in the store."""
+        return symbol in self._ohlcv and self._sizes.get(symbol, 0) > 0
+
+    def get_lock(self, symbol: str) -> asyncio.Lock:
+        """Return the asyncio.Lock for a given symbol (for lazy loading)."""
+        if symbol not in self._locks:
+            self._locks[symbol] = asyncio.Lock()
+        return self._locks[symbol]

@@ -25,12 +25,18 @@ class TradingViewDataProvider(DataProvider):
         logger.info(f"Refreshing TV cache for {len(symbols)} symbols...")
         dfs = []
 
-        async for bar_dict in self._tv.streamer.stream_bars(symbols, timeframe="1D"):
-            # Output is like: {"NSE:TCS": [{}, {}, ...]}
-            for ticker, bar_list in bar_dict.items():
-                df = self._process_bars(bar_list)
-                df["symbol"] = ticker
-                dfs.append(df.reset_index())
+        try:
+            async for bar_dict in self._tv.streamer.stream_bars(
+                symbols, timeframe="1D"
+            ):
+                # Output is like: {"NSE:TCS": [{}, {}, ...]}
+                for ticker, bar_list in bar_dict.items():
+                    df = self._process_bars(bar_list)
+                    df["symbol"] = ticker
+                    dfs.append(df.reset_index())
+        finally:
+            # Clean up worker connections
+            await self._tv.streamer.stop()
 
         if not dfs:
             logger.warning("No data fetched from TradingView.")

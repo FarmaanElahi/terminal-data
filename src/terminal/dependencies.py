@@ -6,7 +6,7 @@ from terminal.config import settings
 from terminal.database import get_session as db_get_session
 from sqlalchemy.orm import Session
 from terminal.market_feed.tradingview import TradingViewDataProvider
-from terminal.market_feed import ohlc_store, MarketDataManager
+from terminal.market_feed import OHLCStore, MarketDataManager
 from terminal.storage.fs import fs
 
 
@@ -24,7 +24,7 @@ def _get_market_manager_instance() -> MarketDataManager:
     Internal helper to provide a memoized MarketDataManager singleton.
     """
     return MarketDataManager(
-        store=ohlc_store, provider=_get_tradingview_provider_instance()
+        store=OHLCStore(), provider=_get_tradingview_provider_instance()
     )
 
 

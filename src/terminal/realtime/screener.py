@@ -28,12 +28,15 @@ from .models import (
     ScreenerParams,
     ScreenerRequest,
     ScreenerValuesResponse,
+    ScreenerValuesUpdate,
 )
 
 logger = logging.getLogger(__name__)
 
 # Minimum filter re-evaluation interval in seconds
 _MIN_FILTER_INTERVAL = 5
+# Debounce interval for value emissions (ms)
+_VALUE_DEBOUNCE_SECONDS = 0.1
 
 
 class ScreenerSession:
@@ -59,6 +62,16 @@ class ScreenerSession:
         self._symbols: list[str] = []
         self._columns: list[ColumnDef] = []
         self._visible_tickers: list[str] | None = None  # None = never emitted
+
+        # Cached parsed ASTs (built once at _start)
+        self._parsed_columns: list[tuple[ColumnDef, object | None]] = []
+        self._parsed_conditions: list[tuple[dict, object | None]] = []
+        self._condition_sets: dict[str, Any] = {}
+        self._condition_logic: str = "and"
+
+        # Debounce state for value emissions
+        self._pending_values: dict[str, dict[str, Any]] = {}
+        self._debounce_task: asyncio.Task | None = None
 
         # Background tasks
         self._filter_task: asyncio.Task | None = None
@@ -115,6 +128,9 @@ class ScreenerSession:
             logger.warning("Screener %s: no symbols loaded, skipping", self.session_id)
             return
 
+        # Pre-parse formula ASTs and cache condition sets
+        self._cache_formulas()
+
         # Initial evaluation
         try:
             await self._run_filter()
@@ -140,9 +156,12 @@ class ScreenerSession:
         if self._values_task:
             self._values_task.cancel()
             self._values_task = None
+        if self._debounce_task:
+            self._debounce_task.cancel()
+            self._debounce_task = None
 
     # ------------------------------------------------------------------
-    # Data loading (DB)
+    # Data loading (DB) + Formula caching
     # ------------------------------------------------------------------
 
     def _load_data(self) -> None:
@@ -199,6 +218,55 @@ class ScreenerSession:
                         self.params.column_set_id,
                     )
 
+    def _cache_formulas(self) -> None:
+        """Pre-parse all formula ASTs and cache condition sets at start time."""
+        # Parse column formulas
+        self._parsed_columns = []
+        for col in self._columns:
+            if col.type == "value" and col.formula:
+                try:
+                    ast = parse(col.formula)
+                    self._parsed_columns.append((col, ast))
+                except FormulaError as e:
+                    logger.warning("Column formula parse error: %s", e.message)
+                    self._parsed_columns.append((col, None))
+            else:
+                self._parsed_columns.append((col, None))
+
+        # Load and cache condition sets + parse condition formulas
+        self._condition_sets = {}
+        self._parsed_conditions = []
+
+        filter_columns = [
+            col for col in self._columns if col.filter in ("active", "inactive")
+        ]
+
+        if filter_columns:
+            with Session(engine) as session:
+                for col in filter_columns:
+                    if (
+                        col.condition_id
+                        and col.condition_id not in self._condition_sets
+                    ):
+                        cs = condition_service.get(
+                            session, self.realtime.user_id, col.condition_id
+                        )
+                        if cs:
+                            self._condition_sets[col.condition_id] = cs
+                            # Pre-parse condition formulas
+                            if cs.conditions:
+                                for cond in cs.conditions:
+                                    formula = (
+                                        cond.get("formula", "")
+                                        if isinstance(cond, dict)
+                                        else cond.formula
+                                    )
+                                    try:
+                                        ast = parse(formula)
+                                        self._parsed_conditions.append((cond, ast))
+                                    except FormulaError, Exception:
+                                        self._parsed_conditions.append((cond, None))
+
     # ------------------------------------------------------------------
     # Filter evaluation
     # ------------------------------------------------------------------
@@ -218,31 +286,13 @@ class ScreenerSession:
             await self.realtime.send(ScreenerFilterResponse(p=(self.session_id, rows)))
 
     def _evaluate_filter(self) -> list[str]:
-        """Apply column condition filters to determine visible tickers."""
+        """Apply column condition filters using cached condition sets + ASTs."""
         manager = self.realtime.manager
 
-        # Find columns that need condition evaluation
-        filter_columns = [
-            col for col in self._columns if col.filter in ("active", "inactive")
-        ]
+        active_filter_columns = [col for col in self._columns if col.filter == "active"]
 
-        if not filter_columns:
-            # No filter columns → all symbols pass
+        if not active_filter_columns:
             return list(self._symbols)
-
-        # Load condition sets for filter columns
-        condition_sets: dict[str, Any] = {}
-        with Session(engine) as session:
-            for col in filter_columns:
-                if col.condition_id and col.condition_id not in condition_sets:
-                    cs = condition_service.get(
-                        session, self.realtime.user_id, col.condition_id
-                    )
-                    if cs:
-                        condition_sets[col.condition_id] = cs
-
-        # Only columns with filter="active" actually filter; "inactive" just generates values
-        active_filter_columns = [c for c in filter_columns if c.filter == "active"]
 
         passing_tickers = []
         for symbol in self._symbols:
@@ -250,14 +300,13 @@ class ScreenerSession:
             for col in active_filter_columns:
                 if not col.condition_id:
                     continue
-                cs = condition_sets.get(col.condition_id)
+                cs = self._condition_sets.get(col.condition_id)
                 if not cs or not cs.conditions:
                     continue
 
                 tf = col.timeframe or "D"
                 df = manager.get_ohlcv(symbol, timeframe=tf)
                 if df is None or len(df) == 0:
-                    # No OHLCV data yet — skip this condition (pass through)
                     continue
 
                 condition_results = self._eval_conditions(
@@ -272,20 +321,19 @@ class ScreenerSession:
 
         return passing_tickers
 
-    @staticmethod
     def _eval_conditions(
+        self,
         df: pd.DataFrame,
         conditions: list[dict],
         logic: str,
     ) -> bool:
-        """Evaluate a list of conditions against a DataFrame."""
+        """Evaluate conditions using pre-parsed ASTs."""
         results = []
-        for cond in conditions:
-            formula = (
-                cond.get("formula", "") if isinstance(cond, dict) else cond.formula
-            )
+        for cond, ast in self._parsed_conditions:
+            if ast is None:
+                results.append(False)
+                continue
             try:
-                ast = parse(formula)
                 result = evaluate(ast, df)
                 if result.dtype == bool:
                     met = bool(result.iloc[-1]) if len(result) > 0 else False
@@ -318,12 +366,12 @@ class ScreenerSession:
             )
 
     def _evaluate_columns(self) -> dict[str, list[Any]]:
-        """Compute column values for all visible tickers."""
+        """Compute column values for all visible tickers using cached ASTs."""
         manager = self.realtime.manager
         values_map: dict[str, list[Any]] = {}
 
-        for col in self._columns:
-            if col.type != "value" or not col.formula:
+        for col, col_ast in self._parsed_columns:
+            if col.type != "value" or col_ast is None:
                 continue
 
             col_values = []
@@ -335,8 +383,7 @@ class ScreenerSession:
                     continue
 
                 try:
-                    ast = parse(col.formula)
-                    res = evaluate(ast, df)
+                    res = evaluate(col_ast, df)
                     res = np.asarray(res)
 
                     if col.bar_ago:
@@ -363,6 +410,44 @@ class ScreenerSession:
 
         return values_map
 
+    def _evaluate_columns_for_symbol(self, symbol: str) -> dict[str, Any]:
+        """Compute column values for a single symbol (incremental update)."""
+        manager = self.realtime.manager
+        result: dict[str, Any] = {}
+
+        for col, col_ast in self._parsed_columns:
+            if col.type != "value" or col_ast is None:
+                continue
+
+            tf = col.timeframe or "D"
+            df = manager.get_ohlcv(symbol, timeframe=tf)
+            if df is None or len(df) == 0:
+                result[col.id] = None
+                continue
+
+            try:
+                res = evaluate(col_ast, df)
+                res = np.asarray(res)
+
+                if col.bar_ago:
+                    idx = -(col.bar_ago + 1)
+                    val = res[idx] if len(res) >= abs(idx) else None
+                else:
+                    val = res[-1] if len(res) > 0 else None
+
+                if val is not None:
+                    if isinstance(val, (np.integer, np.floating)):
+                        val = val.item()
+                    elif isinstance(val, np.bool_):
+                        val = bool(val)
+
+                result[col.id] = val
+            except (FormulaError, Exception) as e:
+                logger.warning("Column %s eval failed for %s: %s", col.id, symbol, e)
+                result[col.id] = None
+
+        return result
+
     # ------------------------------------------------------------------
     # Background loops
     # ------------------------------------------------------------------
@@ -381,17 +466,43 @@ class ScreenerSession:
             logger.error("Filter loop error in %s: %s", self.session_id, e)
 
     async def _values_loop(self) -> None:
-        """Stream column values in realtime via MarketDataManager updates."""
+        """Stream column values in realtime — incremental per-symbol evaluation
+        with debounced emission to avoid overwhelming the client."""
         try:
             async for update in self.realtime.manager.subscribe():
                 symbol = update["symbol"]
-                if symbol in self._visible_tickers:
-                    # A symbol we're watching got a candle update — recalculate values
-                    await self._run_values()
+                if self._visible_tickers and symbol in self._visible_tickers:
+                    # Only re-evaluate columns for the UPDATED symbol
+                    delta = self._evaluate_columns_for_symbol(symbol)
+                    if delta:
+                        # Accumulate into pending values for debounced emission
+                        self._pending_values[symbol] = delta
+                        self._ensure_debounce_running()
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error("Values loop error in %s: %s", self.session_id, e)
+
+    def _ensure_debounce_running(self) -> None:
+        """Start the debounce flush task if not already running."""
+        if self._debounce_task is None or self._debounce_task.done():
+            self._debounce_task = asyncio.create_task(self._flush_pending_values())
+
+    async def _flush_pending_values(self) -> None:
+        """Wait for the debounce interval then emit all pending value updates."""
+        try:
+            await asyncio.sleep(_VALUE_DEBOUNCE_SECONDS)
+            if self._pending_values:
+                pending = self._pending_values.copy()
+                self._pending_values.clear()
+                for symbol, values in pending.items():
+                    await self.realtime.send(
+                        ScreenerValuesUpdate(p=(self.session_id, symbol, values))
+                    )
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("Flush pending values error in %s: %s", self.session_id, e)
 
     def __repr__(self) -> str:
         return f"ScreenerSession(id={self.session_id!r})"

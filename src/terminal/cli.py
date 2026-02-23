@@ -159,7 +159,7 @@ def refresh_candle_day():
         tv_provider = _get_tradingview_provider_instance()
 
         typer.echo("Fetching symbol list from OCIFS...")
-        fs = await get_fs()
+        fs = get_fs()
         symbols_info = await symbol_service.search(
             fs=fs, settings=settings, limit=20000
         )  # Get all primary symbols

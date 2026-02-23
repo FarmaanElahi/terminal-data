@@ -55,13 +55,14 @@ def test_save_load_cache(tv_provider):
     cache_file = Path(tv_provider.cache_file_local)
     df.to_parquet(cache_file, index=False)
 
-    # Test get_history
+    # Test get_history — now returns a DataFrame
     history = tv_provider.get_history("AAPL")
+    assert history is not None
     assert len(history) == 1
-    assert history[0]["close"] == 102.0
-    # Match the conversion: ns // 10**9
-    expected_ts = pd.Timestamp("2023-01-01").value // 10**9
-    assert history[0]["timestamp"] == expected_ts
+    assert history["close"].iloc[0] == pytest.approx(102.0, rel=1e-3)
+    # Timestamp should be int32 seconds
+    expected_ts = int(pd.Timestamp("2023-01-01").timestamp())
+    assert history.index[0] == expected_ts
 
 
 @pytest.mark.asyncio

@@ -50,7 +50,7 @@ async def main(base_url: str) -> None:
         print("▸ Fetching symbols...")
         r = await client.get(
             f"{api}/symbols/q",
-            params={"market": "india", "limit": 500},
+            params={"market": "india", "limit": 20000},
             headers=headers,
         )
         assert r.status_code == 200, f"Symbols fetch failed: {r.text}"

@@ -1,13 +1,10 @@
 from abc import ABC
-import numpy as np
 from fsspec import AbstractFileSystem
-
 
 from pathlib import Path
 import pandas as pd
 import logging
 from typing import Dict
-from terminal.market_feed.models import CANDLE_DTYPE
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +12,7 @@ logger = logging.getLogger(__name__)
 class DataProvider(ABC):
     """
     Abstract base class for providing OHLC data.
+    Stores history as Dict[str, pd.DataFrame] — no numpy intermediate.
     """
 
     def __init__(
@@ -30,11 +28,11 @@ class DataProvider(ABC):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_file_local = self.cache_dir / f"{provider_name}_candles.parquet"
         self.cache_file_oci = f"{bucket}/market_feed/candles_{provider_name}.parquet"
-        self._history_dict: Dict[str, np.ndarray] = {}
+        self._history_dict: Dict[str, pd.DataFrame] = {}
         self._cache_loaded = False
 
     def load_cache(self):
-        """Loads the entire Parquet cache into memory once."""
+        """Loads the entire Parquet cache into memory as DataFrames."""
         if self._cache_loaded:
             return
 
@@ -52,17 +50,28 @@ class DataProvider(ABC):
                 return
 
             for symbol, group in df.groupby("symbol"):
-                history = np.zeros(len(group), dtype=CANDLE_DTYPE)
-                history["timestamp"] = (
-                    group["timestamp"].values.astype("datetime64[s]").astype("int64")
-                )
-                history["open"] = group["open"].values
-                history["high"] = group["high"].values
-                history["low"] = group["low"].values
-                history["close"] = group["close"].values
-                history["volume"] = group["volume"].values
-                history = np.sort(history, order="timestamp")
-                self._history_dict[symbol] = history
+                hist = group[
+                    ["timestamp", "open", "high", "low", "close", "volume"]
+                ].copy()
+
+                # Convert timestamp to int32 seconds
+                if pd.api.types.is_datetime64_any_dtype(hist["timestamp"]):
+                    hist["timestamp"] = (
+                        hist["timestamp"]
+                        .values.astype("datetime64[s]")
+                        .astype("int64")
+                        .astype("int32")
+                    )
+                else:
+                    hist["timestamp"] = hist["timestamp"].astype("int32")
+
+                # Downcast OHLCV to float32
+                for col in ("open", "high", "low", "close", "volume"):
+                    hist[col] = hist[col].astype("float32")
+
+                hist = hist.sort_values("timestamp")
+                hist = hist.set_index("timestamp")
+                self._history_dict[str(symbol)] = hist
 
             logger.info(f"Loaded {len(self._history_dict)} symbols from cache.")
         except Exception as e:
@@ -78,13 +87,14 @@ class DataProvider(ABC):
         except Exception as e:
             logger.error(f"Failed to sync from OCI: {e}")
 
-    def get_history(self, symbol: str) -> np.ndarray:
+    def get_history(self, symbol: str) -> pd.DataFrame | None:
         """
-        Retrieves historical data for a symbol from in-memory cache.
+        Retrieves historical data for a symbol as a DataFrame.
+        Returns None if no data available.
         """
         if not self._cache_loaded:
             self.load_cache()
-        return self._history_dict.get(symbol, np.empty(0, dtype=CANDLE_DTYPE))
+        return self._history_dict.get(symbol)
 
     def get_all_tickers(self) -> list[str]:
         """
@@ -96,25 +106,13 @@ class DataProvider(ABC):
 
     def update_cache(self, df: pd.DataFrame):
         """
-        Updates the internal cache backend with new historical data.
+        Persists data to local Parquet + OCI (seeding only).
+        In-memory cache is populated once via load_cache() at startup.
+        Uses ZSTD compression for smaller Parquet files.
         """
         try:
-            df.to_parquet(self.cache_file_local, index=False)
+            df.to_parquet(self.cache_file_local, index=False, compression="zstd")
             self.fs.put(str(self.cache_file_local), self.cache_file_oci)
             logger.info(f"Saved cache to OCI: {self.cache_file_oci}")
-
-            for symbol, group in df.groupby("symbol"):
-                history = np.zeros(len(group), dtype=CANDLE_DTYPE)
-                history["timestamp"] = (
-                    group["timestamp"].values.astype("datetime64[s]").astype("int64")
-                )
-                history["open"] = group["open"].values
-                history["high"] = group["high"].values
-                history["low"] = group["low"].values
-                history["close"] = group["close"].values
-                history["volume"] = group["volume"].values
-                history = np.sort(history, order="timestamp")
-                self._history_dict[symbol] = history
-
         except Exception as e:
             logger.error(f"Failed to save cache: {e}")
