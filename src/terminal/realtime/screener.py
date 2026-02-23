@@ -65,13 +65,19 @@ class ScreenerSession:
 
         # Cached parsed ASTs (built once at _start)
         self._parsed_columns: list[tuple[ColumnDef, object | None]] = []
-        self._parsed_conditions: list[tuple[dict, object | None]] = []
+        self._parsed_conditions: dict[str, list[tuple[dict, object | None]]] = {}
         self._condition_sets: dict[str, Any] = {}
         self._condition_logic: str = "and"
 
         # Debounce state for value emissions
         self._pending_values: dict[str, dict[str, Any]] = {}
         self._debounce_task: asyncio.Task | None = None
+
+        # Change detection — last emitted values
+        self._last_values: dict[str, list[Any]] = {}  # col_id → values (full snapshot)
+        self._last_symbol_values: dict[
+            str, dict[str, Any]
+        ] = {}  # symbol → {col_id: val}
 
         # Background tasks
         self._filter_task: asyncio.Task | None = None
@@ -233,9 +239,9 @@ class ScreenerSession:
             else:
                 self._parsed_columns.append((col, None))
 
-        # Load and cache condition sets + parse condition formulas
+        # Load and cache condition sets + parse condition formulas (keyed by condition_set_id)
         self._condition_sets = {}
-        self._parsed_conditions = []
+        self._parsed_conditions = {}
 
         filter_columns = [
             col for col in self._columns if col.filter in ("active", "inactive")
@@ -253,7 +259,8 @@ class ScreenerSession:
                         )
                         if cs:
                             self._condition_sets[col.condition_id] = cs
-                            # Pre-parse condition formulas
+                            # Pre-parse condition formulas, keyed by condition_set_id
+                            parsed = []
                             if cs.conditions:
                                 for cond in cs.conditions:
                                     formula = (
@@ -263,9 +270,10 @@ class ScreenerSession:
                                     )
                                     try:
                                         ast = parse(formula)
-                                        self._parsed_conditions.append((cond, ast))
+                                        parsed.append((cond, ast))
                                     except FormulaError, Exception:
-                                        self._parsed_conditions.append((cond, None))
+                                        parsed.append((cond, None))
+                            self._parsed_conditions[col.condition_id] = parsed
 
     # ------------------------------------------------------------------
     # Filter evaluation
@@ -310,7 +318,7 @@ class ScreenerSession:
                     continue
 
                 condition_results = self._eval_conditions(
-                    df, cs.conditions, cs.conditional_logic
+                    col.condition_id, df, cs.conditional_logic
                 )
                 if not condition_results:
                     passes = False
@@ -323,20 +331,24 @@ class ScreenerSession:
 
     def _eval_conditions(
         self,
+        condition_id: str,
         df: pd.DataFrame,
-        conditions: list[dict],
         logic: str,
     ) -> bool:
-        """Evaluate conditions using pre-parsed ASTs."""
+        """Evaluate conditions for a specific condition set using pre-parsed ASTs."""
+        parsed = self._parsed_conditions.get(condition_id, [])
+        if not parsed:
+            return True
+
         results = []
-        for cond, ast in self._parsed_conditions:
+        for cond, ast in parsed:
             if ast is None:
                 results.append(False)
                 continue
             try:
                 result = evaluate(ast, df)
                 if result.dtype == bool:
-                    met = bool(result.iloc[-1]) if len(result) > 0 else False
+                    met = bool(result[-1]) if len(result) > 0 else False
                 else:
                     met = False
             except FormulaError, Exception:
@@ -355,14 +367,24 @@ class ScreenerSession:
     # ------------------------------------------------------------------
 
     async def _run_values(self) -> None:
-        """Evaluate all column formulas for visible tickers and emit."""
+        """Evaluate all column formulas for visible tickers and emit only changed columns."""
         if not self._visible_tickers or not self._columns:
             return
 
         values_map = self._evaluate_columns()
-        if values_map:
+        if not values_map:
+            return
+
+        # Diff against last emitted — only send columns whose values changed
+        changed: dict[str, list[Any]] = {}
+        for col_id, values in values_map.items():
+            if self._last_values.get(col_id) != values:
+                changed[col_id] = values
+
+        if changed:
+            self._last_values.update(changed)
             await self.realtime.send(
-                ScreenerValuesResponse(p=(self.session_id, values_map))
+                ScreenerValuesResponse(p=(self.session_id, changed))
             )
 
     def _evaluate_columns(self) -> dict[str, list[Any]]:
@@ -474,9 +496,15 @@ class ScreenerSession:
                 if self._visible_tickers and symbol in self._visible_tickers:
                     # Only re-evaluate columns for the UPDATED symbol
                     delta = self._evaluate_columns_for_symbol(symbol)
-                    if delta:
-                        # Accumulate into pending values for debounced emission
-                        self._pending_values[symbol] = delta
+                    if not delta:
+                        continue
+
+                    # Diff against last emitted for this symbol
+                    last = self._last_symbol_values.get(symbol, {})
+                    changed = {k: v for k, v in delta.items() if last.get(k) != v}
+                    if changed:
+                        self._last_symbol_values[symbol] = delta
+                        self._pending_values[symbol] = changed
                         self._ensure_debounce_running()
         except asyncio.CancelledError:
             pass
