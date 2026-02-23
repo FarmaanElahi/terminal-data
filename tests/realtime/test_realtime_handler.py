@@ -1,10 +1,8 @@
 """Integration tests for the realtime WebSocket handler."""
 
-import jwt
 import pytest
 from starlette.testclient import TestClient
 
-from terminal.config import settings
 from terminal.main import app
 
 
@@ -14,13 +12,17 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def valid_token() -> str:
-    """Create a valid JWT for testing."""
-    return jwt.encode(
-        {"sub": "test_user"},
-        settings.secret_key,
-        algorithm=settings.algorithm,
+def valid_token(client: TestClient) -> str:
+    """Register a user and get a real JWT token."""
+    client.post(
+        "/api/v1/auth/register",
+        json={"username": "ws_test_user", "password": "ws_test_pass"},
     )
+    resp = client.post(
+        "/api/v1/auth/login",
+        data={"username": "ws_test_user", "password": "ws_test_pass"},
+    )
+    return resp.json()["access_token"]
 
 
 # ------------------------------------------------------------------
@@ -77,7 +79,7 @@ class TestScreener:
         self, client: TestClient, valid_token: str
     ) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
-            params = {"source_list": ["a", "b"]}
+            params = {"source": "list_a"}
             ws.send_json({"m": "create_screener", "p": ["scr2", params]})
             resp = ws.receive_json()
             assert resp == {"m": "screener_session_created", "p": ["scr2"]}

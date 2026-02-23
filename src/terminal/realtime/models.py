@@ -53,6 +53,8 @@ class ScreenerParams(BaseModel):
 
     source: str | None = None  # list ID
     column_set_id: str | None = None  # ColumnSet ID
+    filter_interval: int = 0  # 0=realtime, >0=seconds (min 5s enforced in logic)
+    filter_active: bool = True  # False = skip filtering, emit all symbols
 
 
 class CreateScreenerRequest(ScreenerRequest):
@@ -170,6 +172,33 @@ class QuoteUpdateResponse(ServerMessage):
 
     m: Literal["quote_update"] = "quote_update"
     p: tuple[str, str, QuoteUpdateData]  # session_id, symbol, data
+
+
+# ------------------------------------------------------------------
+# Screener responses
+# ------------------------------------------------------------------
+
+
+class ScreenerFilterRow(BaseModel):
+    """A single row in the screener filter result."""
+
+    ticker: str
+    name: str | None = None
+    logo: str | None = None
+
+
+class ScreenerFilterResponse(ServerMessage):
+    """Emitted when the filtered ticker set changes."""
+
+    m: Literal["screener_filter"] = "screener_filter"
+    p: tuple[str, list[ScreenerFilterRow]]  # (session_id, rows)
+
+
+class ScreenerValuesResponse(ServerMessage):
+    """Emitted with evaluated column values for visible tickers."""
+
+    m: Literal["screener_values"] = "screener_values"
+    p: tuple[str, dict[str, list[Any]]]  # (session_id, {col_id: [values]})
 
 
 # ------------------------------------------------------------------

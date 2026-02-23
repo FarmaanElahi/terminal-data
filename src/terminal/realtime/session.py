@@ -42,6 +42,16 @@ class RealtimeSession:
         self._screeners: dict[str, ScreenerSession] = {}
         self._quotes: dict[str, QuoteSession] = {}
 
+    def cleanup(self) -> None:
+        """Stop all active sub-sessions. Call on WebSocket disconnect."""
+        for screener in self._screeners.values():
+            screener.stop()
+        self._screeners.clear()
+
+        for quote in self._quotes.values():
+            quote.stop()
+        self._quotes.clear()
+
     # ------------------------------------------------------------------
     # Message dispatch
     # ------------------------------------------------------------------

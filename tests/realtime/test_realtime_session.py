@@ -1,6 +1,6 @@
 """Unit tests for RealtimeSession."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -68,8 +68,9 @@ class TestInvalidMessage:
 
 class TestCreateScreenerSession:
     @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
     async def test_create_screener_no_params(
-        self, session: RealtimeSession, ws_mock: AsyncMock
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"m": "create_screener", "p": ["scr1", None]})
         ws_mock.send_json.assert_awaited_once_with(
@@ -79,10 +80,11 @@ class TestCreateScreenerSession:
         assert session._screeners["scr1"].params.source is None
 
     @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
     async def test_create_screener_with_params(
-        self, session: RealtimeSession, ws_mock: AsyncMock
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
-        params = {"source": "list1"}
+        params = {"source": "list1", "filter_active": False}
         await session.handle({"m": "create_screener", "p": ["scr2", params]})
 
         ws_mock.send_json.assert_awaited_once_with(
@@ -90,10 +92,24 @@ class TestCreateScreenerSession:
         )
         assert "scr2" in session._screeners
         assert session._screeners["scr2"].params.source == "list1"
+        assert session._screeners["scr2"].params.filter_active is False
 
     @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
+    async def test_create_screener_with_filter_interval(
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
+    ) -> None:
+        params = {"source": "list1", "filter_interval": 10, "filter_active": True}
+        await session.handle({"m": "create_screener", "p": ["scr3", params]})
+
+        assert "scr3" in session._screeners
+        assert session._screeners["scr3"].params.filter_interval == 10
+        assert session._screeners["scr3"].params.filter_active is True
+
+    @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
     async def test_duplicate_screener_rejected(
-        self, session: RealtimeSession, ws_mock: AsyncMock
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"m": "create_screener", "p": ["scr1", None]})
         ws_mock.reset_mock()
@@ -106,8 +122,9 @@ class TestCreateScreenerSession:
 
 class TestModifyScreener:
     @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
     async def test_modify_screener_success(
-        self, session: RealtimeSession, ws_mock: AsyncMock
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         # Create first
         await session.handle({"m": "create_screener", "p": ["scr1", None]})
@@ -117,14 +134,15 @@ class TestModifyScreener:
         new_params = {"source": "list_updated", "column_set_id": "cs1"}
         await session.handle({"m": "modify_screener", "p": ["scr1", new_params]})
 
-        # No response expected for modify
+        # No response expected for modify (start is mocked)
         ws_mock.send_json.assert_not_called()
         assert session._screeners["scr1"].params.source == "list_updated"
         assert session._screeners["scr1"].params.column_set_id == "cs1"
 
     @pytest.mark.asyncio(loop_scope="function")
+    @patch("terminal.realtime.screener.ScreenerSession._start", new_callable=AsyncMock)
     async def test_modify_unknown_screener(
-        self, session: RealtimeSession, ws_mock: AsyncMock
+        self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         params = {"source": "list1"}
         await session.handle({"m": "modify_screener", "p": ["unknown", params]})

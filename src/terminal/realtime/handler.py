@@ -6,6 +6,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends
 from starlette.websockets import WebSocketState
 
 from terminal.auth import service as auth_service
+from terminal.database.core import engine
 from terminal.dependencies import get_market_manager
 from terminal.market_feed.manager import MarketDataManager
 
@@ -37,10 +38,20 @@ async def websocket_endpoint(
         await websocket.close(code=4401, reason="Missing token")
         return
 
-    user_id = auth_service.verify_token(token)
-    if not user_id:
+    username = auth_service.verify_token(token)
+    if not username:
         await websocket.close(code=4401, reason="Invalid token")
         return
+
+    # Resolve username → User.id (UUID) so DB queries match REST APIs
+    from sqlalchemy.orm import Session as SASession
+
+    with SASession(engine) as db:
+        user = auth_service.get_by_username(db, username)
+    if not user:
+        await websocket.close(code=4401, reason="User not found")
+        return
+    user_id = user.id
 
     # --- Accept & run ---
     await websocket.accept()
@@ -57,3 +68,5 @@ async def websocket_endpoint(
         logger.exception("Unexpected error in realtime handler")
         if websocket.client_state == WebSocketState.CONNECTED:
             await websocket.close(code=1011)
+    finally:
+        session.cleanup()
