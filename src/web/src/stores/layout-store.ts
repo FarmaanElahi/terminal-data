@@ -485,6 +485,19 @@ export const useLayoutStore = create<LayoutStore>()(
           );
           if (!layout) return state;
 
+          // Check if this pane is in a floating window
+          const floatingIdx = layout.floatingWindows.findIndex(
+            (fw) => fw.pane.id === paneId,
+          );
+          if (floatingIdx !== -1) {
+            return mutateActiveLayout(state, () => ({
+              floatingWindows: layout.floatingWindows.filter(
+                (fw) => fw.pane.id !== paneId,
+              ),
+            }));
+          }
+
+          // Otherwise remove from tree
           const newRoot = removeNode(layout.root, paneId);
           return mutateActiveLayout(state, () => ({
             root: newRoot ?? createPane("screener"),
