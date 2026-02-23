@@ -279,8 +279,11 @@ class ScreenerSession:
     # Filter evaluation
     # ------------------------------------------------------------------
 
-    async def _run_filter(self) -> None:
-        """Evaluate conditions and emit screener_filter if the set changed."""
+    async def _run_filter(self) -> bool:
+        """Evaluate conditions and emit screener_filter if the set changed.
+
+        Returns True if the visible ticker set changed.
+        """
         if not self.params.filter_active:
             # No filtering — all symbols are visible
             new_tickers = list(self._symbols)
@@ -290,8 +293,12 @@ class ScreenerSession:
         # Only emit if the set has changed
         if new_tickers != self._visible_tickers:
             self._visible_tickers = new_tickers
+            self._last_values.clear()  # reset value cache on filter change
+            self._last_symbol_values.clear()
             rows = [ScreenerFilterRow(ticker=t) for t in self._visible_tickers]
             await self.realtime.send(ScreenerFilterResponse(p=(self.session_id, rows)))
+            return True
+        return False
 
     def _evaluate_filter(self) -> list[str]:
         """Apply column condition filters using cached condition sets + ASTs."""
@@ -479,9 +486,10 @@ class ScreenerSession:
         try:
             while True:
                 await asyncio.sleep(interval)
-                await self._run_filter()
-                # Re-evaluate values after filter change
-                await self._run_values()
+                changed = await self._run_filter()
+                if changed:
+                    # Only recompute values if the filter set actually changed
+                    await self._run_values()
         except asyncio.CancelledError:
             pass
         except Exception as e:
