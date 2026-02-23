@@ -76,20 +76,20 @@ class TestCreateScreenerSession:
             {"m": "screener_session_created", "p": ("scr1",)}
         )
         assert "scr1" in session._screeners
-        assert session._screeners["scr1"].params.source_list == []
+        assert session._screeners["scr1"].params.source is None
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_create_screener_with_params(
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
-        params = {"source_list": ["list1"]}
+        params = {"source": "list1"}
         await session.handle({"m": "create_screener", "p": ["scr2", params]})
 
         ws_mock.send_json.assert_awaited_once_with(
             {"m": "screener_session_created", "p": ("scr2",)}
         )
         assert "scr2" in session._screeners
-        assert session._screeners["scr2"].params.source_list == ["list1"]
+        assert session._screeners["scr2"].params.source == "list1"
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_duplicate_screener_rejected(
@@ -114,19 +114,19 @@ class TestModifyScreener:
         ws_mock.reset_mock()
 
         # Modify
-        new_params = {"source_list": ["list_updated"], "conditional_logic": "or"}
+        new_params = {"source": "list_updated", "column_set_id": "cs1"}
         await session.handle({"m": "modify_screener", "p": ["scr1", new_params]})
 
         # No response expected for modify
         ws_mock.send_json.assert_not_called()
-        assert session._screeners["scr1"].params.source_list == ["list_updated"]
-        assert session._screeners["scr1"].params.conditional_logic == "or"
+        assert session._screeners["scr1"].params.source == "list_updated"
+        assert session._screeners["scr1"].params.column_set_id == "cs1"
 
     @pytest.mark.asyncio(loop_scope="function")
     async def test_modify_unknown_screener(
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
-        params = {"source_list": ["list1"]}
+        params = {"source": "list1"}
         await session.handle({"m": "modify_screener", "p": ["unknown", params]})
 
         sent = ws_mock.send_json.call_args[0][0]

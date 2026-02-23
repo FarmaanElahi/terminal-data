@@ -44,30 +44,15 @@ class ScreenerRequest(ClientMessage):
 
 
 # ------------------------------------------------------------------
-# Screener condition models
+# Screener params
 # ------------------------------------------------------------------
-
-
-class ScreenerCondition(BaseModel):
-    """A single screener condition."""
-
-    expr: str
-    evaluated_at: Literal["now", "x_bar_ago", "within_last", "in_row"] = "now"
-    evaluated_at_param: int | None = None
-    evaluation_type: Literal["boolean", "rank"] = "boolean"
-    condition_type: Literal["computed", "static"] = "computed"
-    rank_min: int | None = None
-    rank_max: int | None = None
 
 
 class ScreenerParams(BaseModel):
     """Parameters for initializing a screener."""
 
-    source_list: list[str] = []
-    conditions: list[ScreenerCondition] = []
-    conditional_logic: Literal["and", "or"] = "and"
-    pre_conditions: list[ScreenerCondition] = []
-    pre_condition_logic: Literal["and", "or"] = "and"
+    source: str | None = None  # list ID
+    column_set_id: str | None = None  # ColumnSet ID
 
 
 class CreateScreenerRequest(ScreenerRequest):
