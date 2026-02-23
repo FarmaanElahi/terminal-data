@@ -15,7 +15,7 @@ class Formula(Base, PrimaryKeyModel, TimeStampMixin):
     (editable without breaking references).
     """
 
-    __tablename__ = "user_formulas"
+    __tablename__ = "formulas"
 
     user_id: Mapped[str] = mapped_column(index=True)
     name: Mapped[str]  # display name, e.g. "PriceAVGCom"

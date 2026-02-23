@@ -8,7 +8,7 @@ from terminal.auth.models import User
 router = APIRouter(prefix="/boot", tags=["Boot"])
 
 
-@router.get("/")
+@router.get("")
 async def boot(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),

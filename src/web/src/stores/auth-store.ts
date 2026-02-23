@@ -6,7 +6,7 @@ import type {
   ConditionSet,
   Formula,
 } from "@/types/models";
-import { authApi, bootApi, setAuthToken } from "@/lib/api";
+import { authApi, bootApi } from "@/lib/api";
 import { terminalWS } from "@/lib/ws";
 
 interface AuthState {
@@ -47,7 +47,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data } = await authApi.login({ username, password });
       const token = data.access_token;
       localStorage.setItem("terminal_token", token);
-      setAuthToken(token);
       terminalWS.connect(token);
 
       // Boot: fetch all user data in one request
@@ -83,7 +82,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem("terminal_token");
-    setAuthToken(null);
     terminalWS.disconnect();
     set({
       user: null,
@@ -101,7 +99,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const token = get().token;
     if (!token) return;
 
-    setAuthToken(token);
     try {
       const { data: boot } = await bootApi.boot();
       terminalWS.connect(token);
@@ -122,7 +119,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setToken: (token: string) => {
     localStorage.setItem("terminal_token", token);
-    setAuthToken(token);
     set({ token, isAuthenticated: true });
   },
 }));
