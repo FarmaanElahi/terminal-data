@@ -43,3 +43,7 @@ dmypy.json
 old/
 postgres_data/  # If local volume is mounted here
 data/
+
+# Frontend
+node_modules/
+src/web/dist/
