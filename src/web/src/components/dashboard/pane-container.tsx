@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useDrag } from "react-dnd";
 import type {
   PaneNode,
@@ -9,7 +9,8 @@ import type {
 import { useLayoutStore } from "@/stores/layout-store";
 import { getWidget } from "@/lib/widget-registry";
 import { DropCompass } from "./drop-compass";
-import { Maximize2, Minimize2, X, ExternalLink } from "lucide-react";
+import { AddWidgetDialog } from "./add-widget-dialog";
+import { Maximize2, Minimize2, X, ExternalLink, Plus } from "lucide-react";
 
 const CHANNEL_COLORS: Record<ChannelColor, string> = {
   blue: "bg-blue-500",
@@ -43,6 +44,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   } = useLayoutStore();
   const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
   const isMaximized = maximizedPaneId === pane.id;
+  const [addWidgetOpen, setAddWidgetOpen] = useState(false);
 
   const activeTab = pane.tabs[pane.activeTabIndex] ?? pane.tabs[0];
   if (!activeTab) return null;
@@ -52,7 +54,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
 
   const handleDrop = useCallback(
     (item: DragItem, zone: DropZone) => {
-      const tabId = item.tabId ?? item.paneId; // If dragging a pane, move its active tab
+      const tabId = item.tabId ?? item.paneId;
       moveTab(item.paneId, tabId, pane.id, zone);
     },
     [moveTab, pane.id],
@@ -74,6 +76,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           isMaximized={isMaximized}
           onTabClick={(i) => setActiveTab(pane.id, i)}
           onTabClose={(tabId) => removeTab(pane.id, tabId)}
+          onAddTab={() => setAddWidgetOpen(true)}
           onMaximize={() =>
             isMaximized ? restorePane() : maximizePane(pane.id)
           }
@@ -97,6 +100,13 @@ export function PaneContainer({ pane }: PaneContainerProps) {
           )}
         </div>
       </div>
+
+      {/* Add Widget Dialog for this pane */}
+      <AddWidgetDialog
+        open={addWidgetOpen}
+        onClose={() => setAddWidgetOpen(false)}
+        targetPaneId={pane.id}
+      />
     </DropCompass>
   );
 }
@@ -108,6 +118,7 @@ interface PaneHeaderProps {
   isMaximized: boolean;
   onTabClick: (index: number) => void;
   onTabClose: (tabId: string) => void;
+  onAddTab: () => void;
   onMaximize: () => void;
   onFloat: () => void;
   onClose: () => void;
@@ -119,6 +130,7 @@ function PaneHeader({
   isMaximized,
   onTabClick,
   onTabClose,
+  onAddTab,
   onMaximize,
   onFloat,
   onClose,
@@ -164,6 +176,14 @@ function PaneHeader({
             onClose={() => onTabClose(tab.id)}
           />
         ))}
+        {/* Add tab button */}
+        <button
+          onClick={onAddTab}
+          className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          title="Add widget tab"
+        >
+          <Plus className="w-3 h-3" />
+        </button>
       </div>
 
       {/* Controls */}

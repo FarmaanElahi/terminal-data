@@ -315,6 +315,91 @@ export const useLayoutStore = create<LayoutStore>()(
           const tab = fromPane.tabs.find((t) => t.id === tabId);
           if (!tab) return state;
 
+          const isSamePane = fromPaneId === toPaneId;
+
+          // ─── Same-pane drop ───────────────────────────────────
+          if (isSamePane) {
+            if (zone === "center") {
+              return state; // No-op: tab is already here
+            }
+
+            const direction: "horizontal" | "vertical" =
+              zone === "north" || zone === "south" ? "horizontal" : "vertical";
+
+            if (fromPane.tabs.length === 1) {
+              // Single tab → clone it (can't remove the only tab)
+              const clonedTab: WidgetInstance = {
+                ...tab,
+                id: uid(),
+                settings: { ...tab.settings },
+              };
+              const clonedPane: PaneNode = {
+                type: "pane",
+                id: uid(),
+                tabs: [clonedTab],
+                activeTabIndex: 0,
+                channelColor: null,
+              };
+
+              const newRoot = mutateNode(layout.root, fromPaneId, (node) => {
+                const first =
+                  zone === "north" || zone === "west" ? clonedPane : node;
+                const second =
+                  zone === "north" || zone === "west" ? node : clonedPane;
+                return {
+                  type: "split",
+                  id: uid(),
+                  direction,
+                  children: [first, second],
+                  sizes: [0.5, 0.5],
+                } as SplitNode;
+              });
+
+              return mutateActiveLayout(state, () => ({ root: newRoot }));
+            } else {
+              // Multi-tab → move the tab out into a new split pane
+              const movedPane: PaneNode = {
+                type: "pane",
+                id: uid(),
+                tabs: [tab],
+                activeTabIndex: 0,
+                channelColor: null,
+              };
+
+              const newRoot = mutateNode(layout.root, fromPaneId, (node) => {
+                if (node.type !== "pane") return node;
+                const remaining = node.tabs.filter((t) => t.id !== tabId);
+                const updatedSource: PaneNode = {
+                  ...node,
+                  tabs: remaining,
+                  activeTabIndex: Math.min(
+                    node.activeTabIndex,
+                    remaining.length - 1,
+                  ),
+                };
+                const first =
+                  zone === "north" || zone === "west"
+                    ? movedPane
+                    : updatedSource;
+                const second =
+                  zone === "north" || zone === "west"
+                    ? updatedSource
+                    : movedPane;
+                return {
+                  type: "split",
+                  id: uid(),
+                  direction,
+                  children: [first, second],
+                  sizes: [0.5, 0.5],
+                } as SplitNode;
+              });
+
+              return mutateActiveLayout(state, () => ({ root: newRoot }));
+            }
+          }
+
+          // ─── Cross-pane drop ──────────────────────────────────
+
           // Remove tab from source
           let newRoot = layout.root;
           const remainingTabs = fromPane.tabs.filter((t) => t.id !== tabId);
