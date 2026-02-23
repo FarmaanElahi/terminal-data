@@ -67,7 +67,6 @@ def create(
         type=data.type,
         color=data.color,
         source_list_ids=data.source_list_ids or [],
-        columns=[c.model_dump() for c in data.columns],
     )
     session.add(lst)
     session.commit()
@@ -78,10 +77,6 @@ def create(
 def update(session: Session, lst: List, data: ListUpdate) -> List:
     """Update list attributes using schema."""
     update_data = data.model_dump(exclude_unset=True)
-    if "columns" in update_data and update_data["columns"] is not None:
-        update_data["columns"] = [
-            c if isinstance(c, dict) else dict(c) for c in update_data["columns"]
-        ]
     for key, value in update_data.items():
         setattr(lst, key, value)
 

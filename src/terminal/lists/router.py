@@ -69,7 +69,6 @@ async def get(
         "color": lst.color,
         "symbols": symbols,
         "source_list_ids": lst.source_list_ids,
-        "columns": lst.columns or [],
     }
 
 

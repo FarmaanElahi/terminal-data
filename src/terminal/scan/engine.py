@@ -1,14 +1,27 @@
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
+from pydantic import BaseModel
 from terminal.market_feed.manager import MarketDataManager
 from terminal.formula import FormulaError, evaluate, parse, preprocess
-from terminal.lists.models import ColumnDef, ConditionParam
+from terminal.column.models import ColumnDef
 
 logger = logging.getLogger(__name__)
+
+
+class ConditionParam(BaseModel):
+    """Legacy condition parameter used by the scan engine."""
+
+    formula: str
+    true_when: Literal["now", "x_bar_ago", "within_last"] = "now"
+    true_when_param: int | None = None
+    evaluation_type: Literal["boolean", "rank"] = "boolean"
+    type: Literal["computed", "static"] = "computed"
+    rank_min: int | None = None
+    rank_max: int | None = None
 
 
 def evaluate_condition(df: pd.DataFrame, condition: ConditionParam) -> np.ndarray:
