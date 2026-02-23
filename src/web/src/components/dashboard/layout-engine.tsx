@@ -22,9 +22,15 @@ function findPaneInTree(node: LayoutNode, id: string): PaneNode | null {
 }
 
 export function LayoutEngine() {
-  const layout = useLayoutStore((s) => s.getActiveLayout());
+  // Use fine-grained selectors to avoid creating new refs on every store change
+  const activeLayoutId = useLayoutStore((s) => s.activeLayoutId);
+  const layouts = useLayoutStore((s) => s.layouts);
   const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
+
+  // Derive layout from stable references
+  const layout = layouts.find((l) => l.id === activeLayoutId) ?? layouts[0];
+  if (!layout) return null;
 
   // Find maximized pane if active
   const maximizedPane = maximizedPaneId

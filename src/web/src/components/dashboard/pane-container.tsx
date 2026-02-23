@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, memo } from "react";
 import { useDrag } from "react-dnd";
 import type {
   PaneNode,
@@ -31,17 +31,9 @@ interface PaneContainerProps {
   pane: PaneNode;
 }
 
-export function PaneContainer({ pane }: PaneContainerProps) {
-  const {
-    setActiveTab,
-    removeTab,
-    removePane,
-    maximizePane,
-    restorePane,
-    floatPane,
-    moveTab,
-    setPaneChannel,
-  } = useLayoutStore();
+export const PaneContainer = memo(function PaneContainer({
+  pane,
+}: PaneContainerProps) {
   const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
   const isMaximized = maximizedPaneId === pane.id;
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
@@ -55,9 +47,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const handleDrop = useCallback(
     (item: DragItem, zone: DropZone) => {
       const tabId = item.tabId ?? item.paneId;
-      moveTab(item.paneId, tabId, pane.id, zone);
+      useLayoutStore.getState().moveTab(item.paneId, tabId, pane.id, zone);
     },
-    [moveTab, pane.id],
+    [pane.id],
   );
 
   const handleSettingsChange = useCallback(
@@ -67,6 +59,40 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     [activeTab.id],
   );
 
+  const handleTabClick = useCallback(
+    (i: number) => {
+      useLayoutStore.getState().setActiveTab(pane.id, i);
+    },
+    [pane.id],
+  );
+
+  const handleTabClose = useCallback(
+    (tabId: string) => {
+      useLayoutStore.getState().removeTab(pane.id, tabId);
+    },
+    [pane.id],
+  );
+
+  const handleMaximize = useCallback(() => {
+    const s = useLayoutStore.getState();
+    s.maximizedPaneId === pane.id ? s.restorePane() : s.maximizePane(pane.id);
+  }, [pane.id]);
+
+  const handleFloat = useCallback(() => {
+    useLayoutStore.getState().floatPane(pane.id);
+  }, [pane.id]);
+
+  const handleClose = useCallback(() => {
+    useLayoutStore.getState().removePane(pane.id);
+  }, [pane.id]);
+
+  const handleChannelChange = useCallback(
+    (color: ChannelColor | null) => {
+      useLayoutStore.getState().setPaneChannel(pane.id, color);
+    },
+    [pane.id],
+  );
+
   return (
     <DropCompass paneId={pane.id} onDrop={handleDrop}>
       <div className="flex flex-col h-full border border-border rounded-sm bg-card overflow-hidden">
@@ -74,15 +100,13 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         <PaneHeader
           pane={pane}
           isMaximized={isMaximized}
-          onTabClick={(i) => setActiveTab(pane.id, i)}
-          onTabClose={(tabId) => removeTab(pane.id, tabId)}
+          onTabClick={handleTabClick}
+          onTabClose={handleTabClose}
           onAddTab={() => setAddWidgetOpen(true)}
-          onMaximize={() =>
-            isMaximized ? restorePane() : maximizePane(pane.id)
-          }
-          onFloat={() => floatPane(pane.id)}
-          onClose={() => removePane(pane.id)}
-          onChannelChange={(color) => setPaneChannel(pane.id, color)}
+          onMaximize={handleMaximize}
+          onFloat={handleFloat}
+          onClose={handleClose}
+          onChannelChange={handleChannelChange}
         />
 
         {/* ─── Body ──────────────────────────────────────────────── */}
@@ -109,7 +133,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       />
     </DropCompass>
   );
-}
+});
 
 // ─── Pane Header ───────────────────────────────────────────────────
 
@@ -125,7 +149,7 @@ interface PaneHeaderProps {
   onChannelChange: (color: ChannelColor | null) => void;
 }
 
-function PaneHeader({
+const PaneHeader = memo(function PaneHeader({
   pane,
   isMaximized,
   onTabClick,
@@ -216,7 +240,7 @@ function PaneHeader({
       </div>
     </div>
   );
-}
+});
 
 // ─── Tab Button ────────────────────────────────────────────────────
 
@@ -228,7 +252,7 @@ interface TabButtonProps {
   onClose: () => void;
 }
 
-function TabButton({
+const TabButton = memo(function TabButton({
   paneId,
   tab,
   isActive,
@@ -277,7 +301,7 @@ function TabButton({
       </button>
     </div>
   );
-}
+});
 
 // ─── Channel Dot ───────────────────────────────────────────────────
 
