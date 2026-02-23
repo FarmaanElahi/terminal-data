@@ -1,6 +1,5 @@
-import { Navigate } from "react-router-dom";
+import { LayoutEngine } from "@/components/dashboard/layout-engine";
 
 export function DashboardPage() {
-  // Dashboard redirects to screener for MVP
-  return <Navigate to="/screener" replace />;
+  return <LayoutEngine />;
 }
