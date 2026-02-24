@@ -32,14 +32,16 @@ export interface ScreenerFilterRow {
   logo_id?: string;
 }
 
+import type { ColumnDef } from "./models";
+
 export interface ScreenerCreateParams {
   source: string;
-  column_set_id: string;
+  columns?: ColumnDef[];
 }
 
 export interface ScreenerModifyParams {
   source?: string;
-  column_set_id?: string;
+  columns?: ColumnDef[];
   filter_active?: boolean;
 }
 

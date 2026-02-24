@@ -26,15 +26,15 @@ export function ScreenerPage() {
   const listId = selectedListId ?? lists?.[0]?.id ?? null;
   const columnSetId = selectedColumnSetId ?? columnSets?.[0]?.id ?? null;
 
+  // Get column definitions for the selected column set
+  const selectedColumnSet = columnSets?.find((cs) => cs.id === columnSetId);
+
   // Screener session
   const { tickers, values, isLoading, lastUpdate } = useScreener(
     "screener-page",
     listId,
-    columnSetId,
+    selectedColumnSet?.columns || null,
   );
-
-  // Get column definitions for the selected column set
-  const selectedColumnSet = columnSets?.find((cs) => cs.id === columnSetId);
 
   return (
     <div className="flex flex-col h-full">

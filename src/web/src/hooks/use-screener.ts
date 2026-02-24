@@ -3,18 +3,20 @@ import { useWebSocket } from "./use-websocket";
 import { useWidgetState } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
 
+import type { ColumnDef } from "@/types/models";
+
 /**
  * Hook that manages a screener WebSocket session lifecycle.
  *
  * Uses the framework-level useWidgetState to persist data across remounts.
  * When the widget remounts (tab switch, float, dock, split), the cached
  * data is instantly restored and only a new WS session is created if the
- * params (listId, columnSetId) actually changed.
+ * params (listId, columns) actually changed.
  */
 export function useScreener(
   instanceId: string,
   listId: string | null,
-  columnSetId: string | null,
+  columns: ColumnDef[] | null,
 ) {
   const ws = useWebSocket();
 
@@ -39,81 +41,88 @@ export function useScreener(
     "lastUpdate",
     null,
   );
-  // Track params that last created a session, so we only re-create if they change
-  const [cachedParams, setCachedParams] = useWidgetState<string | null>(
-    instanceId,
-    "cachedParams",
-    null,
-  );
   // Track active session ID across re-renders
   const sessionRef = useRef<string | null>(null);
-  const paramsKey = listId && columnSetId ? `${listId}:${columnSetId}` : null;
+
+  // Hash columns to detect real changes, ignore reference changes
+  const columnsHash = columns ? JSON.stringify(columns) : null;
+  const paramsKey = listId && columnsHash ? `${listId}:${columnsHash}` : null;
+
+  // Track what we actually launched through the socket
+  const activeParamsRef = useRef<string | null>(null);
+
+  // Use a ref for the latest columns to avoid createSession stability issues
+  const columnsRef = useRef(columns);
+  useEffect(() => {
+    columnsRef.current = columns;
+  }, [columnsHash]);
 
   const createSession = useCallback(() => {
-    if (!listId || !columnSetId) return;
+    if (!listId || !columnsRef.current || !paramsKey) return;
+    if (activeParamsRef.current === paramsKey) return;
 
     const sessionId = crypto.randomUUID();
     sessionRef.current = sessionId;
+    activeParamsRef.current = paramsKey;
     setIsLoading(true);
 
     ws.send({
       m: "create_screener",
-      p: [sessionId, { source: listId, column_set_id: columnSetId }],
+      p: [sessionId, { source: listId, columns: columnsRef.current }],
     });
 
-    // Remember which params this session is for
-    setCachedParams(paramsKey);
-
     return sessionId;
-  }, [listId, columnSetId, ws, setIsLoading, setCachedParams, paramsKey]);
+  }, [listId, ws, setIsLoading, paramsKey]);
 
   useEffect(() => {
-    // If we already have cached data for the same params, skip re-creating the session
-    // but still set up listeners in case the server sends updates
-    const needsNewSession = paramsKey !== cachedParams;
-
-    if (!needsNewSession && tickers.length > 0) {
-      // Data is already cached — no need to create a new session
-      setIsLoading(false);
+    if (!listId || !columnsHash || !paramsKey) {
+      // If we had a session, it will be destroyed by the cleanup of the previous effect
+      // or we can explicitly clear it if needed.
       return;
     }
 
-    if (!listId || !columnSetId) return;
+    // Small debounce to avoid flapping during boot/rapid switches
+    const timer = setTimeout(() => {
+      const sessionId = createSession();
+      if (!sessionId) return;
 
-    const sessionId = createSession();
-    if (!sessionId) return;
+      const unsubs = [
+        ws.on("screener_filter", (msg: WSMessage) => {
+          const [sid, tickerList] = msg.p as [string, ScreenerFilterRow[]];
+          if (sid === sessionId) {
+            setTickers(tickerList);
+            setIsLoading(false);
+            setLastUpdate(Date.now());
+          }
+        }),
 
-    const unsubs = [
-      ws.on("screener_session_created", (_msg: WSMessage) => {
-        // Session confirmed
-      }),
+        ws.on("screener_values", (msg: WSMessage) => {
+          const [sid, partialVals] = msg.p as [string, ScreenerValues];
+          if (sid === sessionId) {
+            setValues((prev) => ({
+              ...prev,
+              ...partialVals,
+            }));
+            setLastUpdate(Date.now());
+          }
+        }),
+      ];
 
-      ws.on("screener_filter", (msg: WSMessage) => {
-        const [sid, tickerList] = msg.p as [string, ScreenerFilterRow[]];
-        if (sid === sessionId) {
-          setTickers(tickerList);
-          setIsLoading(false);
-          setLastUpdate(Date.now());
-        }
-      }),
+      sessionRef.current = sessionId; // Ensure ref is set for cleanup
 
-      ws.on("screener_values", (msg: WSMessage) => {
-        const [sid, vals] = msg.p as [string, ScreenerValues];
-        if (sid === sessionId) {
-          setValues(vals);
-          setLastUpdate(Date.now());
-        }
-      }),
-    ];
+      // Store unsubs in a local variable for the cleanup closure
+      return () => unsubs.forEach((u) => u());
+    }, 100);
 
     return () => {
-      unsubs.forEach((unsub) => unsub());
+      clearTimeout(timer);
       if (sessionRef.current) {
         ws.send({ m: "destroy_screener", p: [sessionRef.current] });
+        sessionRef.current = null;
+        activeParamsRef.current = null;
       }
-      // DON'T clear cached data — that's the whole point of useWidgetState
     };
-  }, [listId, columnSetId]);
+  }, [paramsKey, listId, columnsHash, createSession, ws]);
 
   return { tickers, values, isLoading, lastUpdate };
 }

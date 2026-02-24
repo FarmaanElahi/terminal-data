@@ -10,6 +10,8 @@ from typing import Any, Literal
 from pydantic import BaseModel
 import orjson
 
+from terminal.column.models import ColumnDef
+
 
 # ------------------------------------------------------------------
 # Client → Server
@@ -53,7 +55,7 @@ class ScreenerParams(BaseModel):
     """Parameters for initializing a screener."""
 
     source: str | None = None  # list ID
-    column_set_id: str | None = None  # ColumnSet ID
+    columns: list[ColumnDef] | None = None  # The actual column configurations
     filter_interval: int = 0  # 0=realtime, >0=seconds (min 5s enforced in logic)
     filter_active: bool = True  # False = skip filtering, emit all symbols
 

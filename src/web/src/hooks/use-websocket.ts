@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { terminalWS } from "@/lib/ws";
 import { useAuthStore } from "@/stores/auth-store";
 import type { WSMessage } from "@/types/ws";
@@ -18,10 +18,13 @@ export function useWebSocket() {
     };
   }, [token]);
 
-  return {
-    send: (msg: WSMessage) => terminalWS.send(msg),
-    on: (type: string, handler: (msg: WSMessage) => void) =>
-      terminalWS.on(type, handler),
-    isConnected: terminalWS.isConnected,
-  };
+  return useMemo(
+    () => ({
+      send: (msg: WSMessage) => terminalWS.send(msg),
+      on: (type: string, handler: (msg: WSMessage) => void) =>
+        terminalWS.on(type, handler),
+      isConnected: terminalWS.isConnected,
+    }),
+    [],
+  );
 }

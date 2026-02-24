@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from .session import RealtimeSession
 
 from terminal.column.models import ColumnDef
-from terminal.column import service as column_service
 from terminal.lists import service as lists_service
 from terminal.database.core import engine
 from terminal.formula import FormulaError, evaluate, parse
@@ -165,11 +164,10 @@ class ScreenerSession:
 
         user_id = self.realtime.user_id
         logger.info(
-            "Screener %s: loading data for user=%s, source=%s, column_set=%s",
+            "Screener %s: loading data for user=%s, source=%s",
             self.session_id,
             user_id,
             self.params.source,
-            self.params.column_set_id,
         )
 
         with Session(engine) as session:
@@ -189,24 +187,13 @@ class ScreenerSession:
                 "Screener %s: loaded %d symbols", self.session_id, len(self._symbols)
             )
 
-            # Load column set
-            if self.params.column_set_id:
-                cs = column_service.get(session, user_id, self.params.column_set_id)
-                if cs and cs.columns:
-                    self._columns = [
-                        ColumnDef(**c) if isinstance(c, dict) else c for c in cs.columns
-                    ]
-                    logger.info(
-                        "Screener %s: loaded %d columns",
-                        self.session_id,
-                        len(self._columns),
-                    )
-                else:
-                    logger.warning(
-                        "Screener %s: column set %s not found or empty",
-                        self.session_id,
-                        self.params.column_set_id,
-                    )
+            # Load columns directly from params
+            self._columns = self.params.columns or []
+            logger.info(
+                "Screener %s: loaded %d columns",
+                self.session_id,
+                len(self._columns),
+            )
 
     def _cache_formulas(self) -> None:
         """Pre-parse all formula ASTs and inline condition formulas at start time."""

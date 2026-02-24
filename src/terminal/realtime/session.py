@@ -153,8 +153,8 @@ class RealtimeSession:
     # ------------------------------------------------------------------
 
     async def send(self, msg: ServerMessage) -> None:
-        """Send a ``ServerMessage`` as JSON bytes over the WebSocket."""
-        await self.websocket.send_bytes(msg.serialize())
+        """Send a ``ServerMessage`` as JSON text over the WebSocket."""
+        await self.websocket.send_text(msg.serialize().decode("utf-8"))
 
     async def send_error(self, message: str) -> None:
         """Send an error message to the client."""

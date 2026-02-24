@@ -106,7 +106,7 @@ export function ScreenerWidget({
   const { tickers, values, isLoading } = useScreener(
     instanceId,
     listId,
-    columnSetId,
+    selectedColumnSet?.columns || null,
   );
 
   // Toggle filter state for a column
