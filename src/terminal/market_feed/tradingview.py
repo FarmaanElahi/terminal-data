@@ -1,56 +1,63 @@
 import logging
 import pandas as pd
-import numpy as np
-from typing import List
 
 from .provider import DataProvider
 
-from terminal.tradingview import TradingView
+from terminal.tradingview.scanner import TradingViewScanner
 
 logger = logging.getLogger(__name__)
 
 
 class TradingViewDataProvider(DataProvider):
     """
-    DataProvider that fetches historical 1D candles from TradingView.
-    Uses the consolidated TradingView streamer for network logic.
+    DataProvider that fetches daily OHLCV data from TradingView Scanner API.
+    Uses polling instead of WebSocket streaming for reliability.
     Caches data in OCI Object Storage and locally in Parquet format.
     """
 
     def __init__(self, fs: any, bucket: str, cache_dir: str = "data"):
         super().__init__(fs, bucket, cache_dir, provider_name="tv")
-        self._tv = TradingView()
+        self._scanner = TradingViewScanner()
 
-    async def refresh_cache(self, symbols: List[str]):
-        logger.info(f"Refreshing TV cache for {len(symbols)} symbols...")
-        dfs = []
+    async def refresh_cache(self, symbols: list[str]):
+        """Refreshes the cache by fetching current daily OHLCV from scanner API."""
+        logger.info(f"Refreshing TV cache for {len(symbols)} symbols via scanner...")
 
-        try:
-            async for bar_dict in self._tv.streamer.stream_bars(
-                symbols, timeframe="1D"
-            ):
-                # Output is like: {"NSE:TCS": [{}, {}, ...]}
-                for ticker, bar_list in bar_dict.items():
-                    df = self._process_bars(bar_list)
-                    df["symbol"] = ticker
-                    dfs.append(df.reset_index())
-        finally:
-            # Clean up worker connections
-            await self._tv.streamer.stop()
+        ohlcv_data = await self._scanner.fetch_ohlcv()
 
-        if not dfs:
-            logger.warning("No data fetched from TradingView.")
+        if not ohlcv_data:
+            logger.warning("No OHLCV data fetched from TradingView scanner.")
             return
 
-        full_df = pd.concat(dfs, ignore_index=True)
-        self.update_cache(full_df)
+        # Build DataFrame from scanner results
+        rows = []
+        for ticker, candle in ohlcv_data.items():
+            timestamp, open_p, high_p, low_p, close_p, volume_p = candle
+            rows.append(
+                {
+                    "timestamp": pd.to_datetime(timestamp, unit="s").floor("D"),
+                    "open": open_p,
+                    "high": high_p,
+                    "low": low_p,
+                    "close": close_p,
+                    "volume": volume_p,
+                    "symbol": ticker,
+                }
+            )
 
-    def _process_bars(self, bar_data: List) -> pd.DataFrame:
-        cols = ["timestamp", "open", "high", "low", "close", "volume"]
-        df = pd.DataFrame(bar_data)
-        df.columns = cols[: df.shape[1]]
-        for col in cols:
-            if col not in df.columns:
-                df[col] = np.nan
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s").dt.floor("D")
-        return df.set_index("timestamp")
+        if not rows:
+            logger.warning("No valid OHLCV rows to save.")
+            return
+
+        full_df = pd.DataFrame(rows)
+        self.update_cache(full_df)
+        logger.info(f"Refreshed cache with {len(rows)} symbols from scanner.")
+
+    async def fetch_live_ohlcv(
+        self,
+    ) -> dict[str, tuple[int, float, float, float, float, float]]:
+        """
+        Fetches current daily OHLCV snapshot from TradingView Scanner API.
+        Used by MarketDataManager for polling-based realtime updates.
+        """
+        return await self._scanner.fetch_ohlcv()

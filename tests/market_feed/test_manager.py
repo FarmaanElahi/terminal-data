@@ -8,26 +8,10 @@ from terminal.market_feed import OHLCStore, MarketDataManager, TradingViewDataPr
 
 class MockDataProvider(TradingViewDataProvider):
     def __init__(self):
-        super().__init__(fs=MagicMock(), bucket="test", cache_dir="/tmp/test_cache")
-        self._tv = MagicMock()
-        self._tv.streamer = MagicMock()
-
-        async def mock_stream_quotes(tickers, fields=None):
-            await asyncio.sleep(0.05)
-            yield {
-                "AAPL": {
-                    "open_time": int(time.time()),
-                    "open_price": 100.0,
-                    "high_price": 110.0,
-                    "low_price": 90.0,
-                    "lp": 105.0,
-                    "volume": 5000.0,
-                }
-            }
-            # Add a sleep to prevent infinite tight loop in test
-            await asyncio.sleep(0.01)
-
-        self._tv.streamer.stream_quotes.side_effect = mock_stream_quotes
+        # Bypass parent __init__ to avoid fs/bucket setup
+        self._history_dict = {}
+        self._cache_loaded = True
+        self._scanner = MagicMock()
 
     def get_history(self, symbol: str) -> pd.DataFrame | None:
         """Returns a DataFrame with 10 rows of mock OHLCV data."""
@@ -67,7 +51,22 @@ async def test_manager_load_history():
 async def test_manager_streaming_and_pubsub():
     store = OHLCStore()
     provider = MockDataProvider()
-    manager = MarketDataManager(store, provider)
+    manager = MarketDataManager(store, provider, poll_interval=0.1)
+
+    # Mock the scanner used by the manager for polling
+    now = int(time.time())
+    mock_ohlcv = {
+        "AAPL": (now, 100.0, 110.0, 90.0, 105.0, 5000.0),
+    }
+
+    call_count = 0
+
+    async def mock_fetch_ohlcv(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return mock_ohlcv
+
+    provider.fetch_live_ohlcv = mock_fetch_ohlcv
 
     # Start streaming
     await manager.start_realtime_streaming(["AAPL"])
@@ -76,15 +75,15 @@ async def test_manager_streaming_and_pubsub():
     updates = []
 
     async def subscriber_task():
-        async for update in manager.subscribe("AAPL"):
+        async for update in manager.subscribe():
             updates.append(update)
             if len(updates) >= 1:
                 break
 
     sub_task = asyncio.create_task(subscriber_task())
 
-    # Wait a bit for stream to yield
-    await asyncio.sleep(0.1)
+    # Wait for at least one poll cycle
+    await asyncio.sleep(0.5)
 
     # Clean up
     await manager.stop_realtime_streaming()

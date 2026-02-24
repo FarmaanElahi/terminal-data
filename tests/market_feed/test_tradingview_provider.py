@@ -1,7 +1,7 @@
 import pytest
 import pandas as pd
 
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, AsyncMock
 from pathlib import Path
 from terminal.market_feed.tradingview import TradingViewDataProvider
 
@@ -19,23 +19,21 @@ def tv_provider(mock_fs, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_streamer_stream_bars_mock(tv_provider):
-    # Mock the internal streamer's stream_bars call
-    mock_bars = {"AAPL": [[1672531200, 100.0, 105.0, 95.0, 102.0, 1000.0]]}
+async def test_scanner_fetch_ohlcv_mock(tv_provider):
+    """Test that scanner fetch_ohlcv is called correctly."""
+    import time
 
-    async def mock_stream_bars(tickers, timeframe="1D"):
-        yield mock_bars
+    now = int(time.time())
+    mock_result = {
+        "NSE:RELIANCE": (now, 2800.0, 2850.0, 2780.0, 2820.0, 1000000.0),
+        "NSE:TCS": (now, 3500.0, 3550.0, 3480.0, 3520.0, 500000.0),
+    }
 
-    with patch.object(
-        type(tv_provider._tv), "streamer", new_callable=PropertyMock
-    ) as mock_streamer_prop:
-        mock_streamer = MagicMock()
-        mock_streamer.stream_bars.side_effect = mock_stream_bars
-        mock_streamer_prop.return_value = mock_streamer
+    tv_provider._scanner.fetch_ohlcv = AsyncMock(return_value=mock_result)
 
-        async for bar_dict in tv_provider._tv.streamer.stream_bars(["AAPL"]):
-            assert "AAPL" in bar_dict
-            assert bar_dict["AAPL"][0][4] == 102.0
+    result = await tv_provider._scanner.fetch_ohlcv()
+    assert "NSE:RELIANCE" in result
+    assert result["NSE:RELIANCE"][4] == 2820.0  # close price
 
 
 def test_save_load_cache(tv_provider):
@@ -67,18 +65,16 @@ def test_save_load_cache(tv_provider):
 
 @pytest.mark.asyncio
 async def test_refresh_cache_flow(tv_provider, mock_fs):
-    mock_bars = {"AAPL": [[1672531200, 100.0, 105.0, 95.0, 102.0, 1000.0]]}
+    import time
 
-    async def mock_stream_bars_iter(tickers, timeframe="1D"):
-        yield mock_bars
+    now = int(time.time())
+    mock_result = {
+        "AAPL": (now, 100.0, 105.0, 95.0, 102.0, 1000.0),
+    }
 
-    with patch.object(
-        type(tv_provider._tv), "streamer", new_callable=PropertyMock
-    ) as mock_streamer_prop:
-        mock_streamer = MagicMock()
-        mock_streamer.stream_bars.side_effect = mock_stream_bars_iter
-        mock_streamer_prop.return_value = mock_streamer
-        await tv_provider.refresh_cache(["AAPL"])
+    tv_provider._scanner.fetch_ohlcv = AsyncMock(return_value=mock_result)
+
+    await tv_provider.refresh_cache(["AAPL"])
 
     # Verify local file exists
     assert Path(tv_provider.cache_file_local).exists()

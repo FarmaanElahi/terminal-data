@@ -104,31 +104,6 @@ export function useScreener(
           setLastUpdate(Date.now());
         }
       }),
-
-      ws.on("screener_values_update", (msg: WSMessage) => {
-        const [sid, ticker, updates] = msg.p as [
-          string,
-          string,
-          Record<string, unknown>,
-        ];
-        if (sid === sessionId) {
-          // Update individual ticker values
-          setValues((prev) => {
-            const newValues = { ...prev };
-            const tickerIdx = tickers.findIndex((t) => t.ticker === ticker);
-            if (tickerIdx === -1) return prev;
-            for (const [col, val] of Object.entries(updates)) {
-              if (newValues[col]) {
-                const arr = [...newValues[col]];
-                arr[tickerIdx] = val;
-                newValues[col] = arr;
-              }
-            }
-            return newValues;
-          });
-          setLastUpdate(Date.now());
-        }
-      }),
     ];
 
     return () => {

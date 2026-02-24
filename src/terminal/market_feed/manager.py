@@ -6,7 +6,6 @@ import pandas as pd
 
 from .store import OHLCStore
 from .provider import DataProvider
-from .tradingview import TradingViewDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -30,20 +29,14 @@ class BroadcastChannel:
         async with self._condition:
             self._condition.notify_all()
 
-    async def subscribe(self, symbol: str | None = None) -> AsyncGenerator[dict, None]:
-        """Yield ``{"symbol": ..., "candle": ...}`` dicts on each update.
-
-        If *symbol* is given, only yields updates for that symbol.
-        """
+    async def subscribe(self) -> AsyncGenerator[dict, None]:
+        """Yield ``{"symbol": ..., "candle": ...}`` dicts on each publish."""
         last_version = self._version
         while True:
             async with self._condition:
                 await self._condition.wait_for(lambda: self._version > last_version)
                 current_version = self._version
-            # Yield updates since last wakeup
             for sym, candle in list(self._latest.items()):
-                if symbol is not None and sym != symbol:
-                    continue
                 yield {"symbol": sym, "candle": candle}
             last_version = current_version
 
@@ -51,11 +44,15 @@ class BroadcastChannel:
 class MarketDataManager:
     """
     Coordinates data loading and realtime updates between OHLCStore and DataProvider.
+    Uses TradingView Scanner API polling (every 5s) for live OHLCV updates.
     """
 
-    def __init__(self, store: OHLCStore, provider: DataProvider):
+    def __init__(
+        self, store: OHLCStore, provider: DataProvider, poll_interval: float = 5.0
+    ):
         self.store = store
         self.provider = provider
+        self.poll_interval = poll_interval
         self._streaming_task: asyncio.Task | None = None
         self._cache_updater_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
@@ -103,14 +100,11 @@ class MarketDataManager:
 
     async def start_realtime_streaming(self, tickers: list[str]):
         """
-        Starts the background streaming task for realtime updates using websocket quotes.
+        Starts the background polling task for realtime updates using scanner API.
         """
         if self._streaming_task and not self._streaming_task.done():
             logger.warning("Realtime streaming is already running.")
             return
-
-        if not isinstance(self.provider, TradingViewDataProvider):
-            raise TypeError("Realtime streaming requires a TradingViewDataProvider.")
 
         self._stop_event.clear()
         self._streaming_task = asyncio.create_task(self._stream_loop(tickers))
@@ -131,55 +125,34 @@ class MarketDataManager:
 
     async def _stream_loop(self, tickers: list[str]):
         """
-        Internal loop for streaming realtime data from streamer2 quote stream.
+        Polling loop that fetches daily OHLCV from TradingView Scanner API every 5s.
+        Updates the store and broadcasts changes.
         """
+        ticker_set = set(tickers)
         try:
-            # Type hint for provider
-            provider: TradingViewDataProvider = self.provider
+            while not self._stop_event.is_set():
+                try:
+                    ohlcv_data = await self.provider.fetch_live_ohlcv()
 
-            # Fields we need from streamer2 for our ohlcv
-            fields = [
-                "open_price",
-                "high_price",
-                "low_price",
-                "lp",
-                "volume",
-                "open_time",
-            ]
+                    for ticker, candle in ohlcv_data.items():
+                        if ticker not in ticker_set:
+                            continue
 
-            async for quote_dict in provider._tv.streamer.stream_quotes(
-                tickers, fields=fields
-            ):
-                if self._stop_event.is_set():
+                        self.store.add_realtime(ticker, candle)
+                        await self._broadcast.publish(ticker, candle)
+
+                except Exception as e:
+                    logger.error(f"Error fetching scanner OHLCV: {e}", exc_info=True)
+
+                # Poll every 5 seconds
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=self.poll_interval
+                    )  # If wait returns, stop_event was set
                     break
-
-                for ticker, quote in quote_dict.items():
-                    # Translate streamer2 fields to OHLCV format
-                    timestamp = quote.get("open_time")
-                    if not timestamp:
-                        continue
-
-                    # Determine current values, fallback to previous if missing in the tick
-                    open_p = quote.get("open_price") or quote.get("lp")
-                    high_p = quote.get("high_price") or quote.get("lp")
-                    low_p = quote.get("low_price") or quote.get("lp")
-                    close_p = quote.get("lp")
-                    volume_p = quote.get("volume", 0)
-
-                    if None in (open_p, high_p, low_p, close_p):
-                        continue
-
-                    candle = (
-                        timestamp,
-                        float(open_p),
-                        float(high_p),
-                        float(low_p),
-                        float(close_p),
-                        float(volume_p),
-                    )
-
-                    self.store.add_realtime(ticker, candle)
-                    await self._broadcast.publish(ticker, candle)
+                except asyncio.TimeoutError:
+                    # Timeout means 5s elapsed, continue polling
+                    pass
 
         except asyncio.CancelledError:
             pass
@@ -229,13 +202,12 @@ class MarketDataManager:
             except Exception as e:
                 logger.error(f"Error in periodic cache update: {e}", exc_info=True)
 
-    async def subscribe(self, symbol: str | None = None) -> AsyncGenerator[dict, None]:
+    async def subscribe(self) -> AsyncGenerator[dict, None]:
         """
         Allows modules to subscribe to real-time bar updates via broadcast channel.
-        If symbol is provided, yields updates only for that symbol.
-        Otherwise, yields all updates.
+        Yields {"symbol": ..., "candle": ...} dicts.
         """
-        async for update in self._broadcast.subscribe(symbol):
+        async for update in self._broadcast.subscribe():
             if self._stop_event.is_set():
                 break
             yield update

@@ -28,15 +28,12 @@ from .models import (
     ScreenerParams,
     ScreenerRequest,
     ScreenerValuesResponse,
-    ScreenerValuesUpdate,
 )
 
 logger = logging.getLogger(__name__)
 
 # Minimum filter re-evaluation interval in seconds
 _MIN_FILTER_INTERVAL = 5
-# Debounce interval for value emissions (ms)
-_VALUE_DEBOUNCE_SECONDS = 0.1
 
 
 class ScreenerSession:
@@ -69,15 +66,8 @@ class ScreenerSession:
         self._condition_sets: dict[str, Any] = {}
         self._condition_logic: str = "and"
 
-        # Debounce state for value emissions
-        self._pending_values: dict[str, dict[str, Any]] = {}
-        self._debounce_task: asyncio.Task | None = None
-
         # Change detection — last emitted values
         self._last_values: dict[str, list[Any]] = {}  # col_id → values (full snapshot)
-        self._last_symbol_values: dict[
-            str, dict[str, Any]
-        ] = {}  # symbol → {col_id: val}
 
         # Background tasks
         self._filter_task: asyncio.Task | None = None
@@ -162,9 +152,6 @@ class ScreenerSession:
         if self._values_task:
             self._values_task.cancel()
             self._values_task = None
-        if self._debounce_task:
-            self._debounce_task.cancel()
-            self._debounce_task = None
 
     # ------------------------------------------------------------------
     # Data loading (DB) + Formula caching
@@ -294,7 +281,6 @@ class ScreenerSession:
         if new_tickers != self._visible_tickers:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
-            self._last_symbol_values.clear()
             rows = [ScreenerFilterRow(ticker=t) for t in self._visible_tickers]
             await self.realtime.send(ScreenerFilterResponse(p=(self.session_id, rows)))
             return True
@@ -439,44 +425,6 @@ class ScreenerSession:
 
         return values_map
 
-    def _evaluate_columns_for_symbol(self, symbol: str) -> dict[str, Any]:
-        """Compute column values for a single symbol (incremental update)."""
-        manager = self.realtime.manager
-        result: dict[str, Any] = {}
-
-        for col, col_ast in self._parsed_columns:
-            if col.type != "value" or col_ast is None:
-                continue
-
-            tf = col.timeframe or "D"
-            df = manager.get_ohlcv(symbol, timeframe=tf)
-            if df is None or len(df) == 0:
-                result[col.id] = None
-                continue
-
-            try:
-                res = evaluate(col_ast, df)
-                res = np.asarray(res)
-
-                if col.bar_ago:
-                    idx = -(col.bar_ago + 1)
-                    val = res[idx] if len(res) >= abs(idx) else None
-                else:
-                    val = res[-1] if len(res) > 0 else None
-
-                if val is not None:
-                    if isinstance(val, (np.integer, np.floating)):
-                        val = val.item()
-                    elif isinstance(val, np.bool_):
-                        val = bool(val)
-
-                result[col.id] = val
-            except (FormulaError, Exception) as e:
-                logger.warning("Column %s eval failed for %s: %s", col.id, symbol, e)
-                result[col.id] = None
-
-        return result
-
     # ------------------------------------------------------------------
     # Background loops
     # ------------------------------------------------------------------
@@ -496,49 +444,121 @@ class ScreenerSession:
             logger.error("Filter loop error in %s: %s", self.session_id, e)
 
     async def _values_loop(self) -> None:
-        """Stream column values in realtime — incremental per-symbol evaluation
-        with debounced emission to avoid overwhelming the client."""
+        """Stream column values in realtime.
+
+        Subscribes to per-symbol updates, collects which symbols changed,
+        then after a 1s debounce window re-evaluates columns only for those
+        symbols and sends a ``screener_values`` diff.
+        """
+        dirty_symbols: set[str] = set()
+        debounce_task: asyncio.Task | None = None
+
+        async def flush() -> None:
+            """Wait 1s, then evaluate only the dirty symbols and emit changes."""
+            nonlocal dirty_symbols
+            await asyncio.sleep(1.0)
+
+            if not dirty_symbols or not self._visible_tickers:
+                dirty_symbols.clear()
+                return
+
+            # Take the current dirty set and clear it
+            symbols_to_eval = dirty_symbols & set(self._visible_tickers)
+            dirty_symbols.clear()
+
+            if not symbols_to_eval:
+                return
+
+            # Evaluate columns only for changed symbols
+            partial = self._evaluate_columns_for_symbols(list(symbols_to_eval))
+
+            # Merge partial results into the full last-emitted snapshot
+            # and detect which columns actually changed
+            changed: dict[str, list[Any]] = {}
+            for col_id, sym_values in partial.items():
+                current = list(self._last_values.get(col_id, []))
+                # Ensure array is the right length
+                while len(current) < len(self._visible_tickers):
+                    current.append(None)
+
+                for sym, val in sym_values.items():
+                    try:
+                        idx = self._visible_tickers.index(sym)
+                        current[idx] = val
+                    except ValueError:
+                        continue
+
+                if self._last_values.get(col_id) != current:
+                    changed[col_id] = current
+                    self._last_values[col_id] = current
+
+            if changed:
+                await self.realtime.send(
+                    ScreenerValuesResponse(p=(self.session_id, changed))
+                )
+
         try:
             async for update in self.realtime.manager.subscribe():
                 symbol = update["symbol"]
                 if self._visible_tickers and symbol in self._visible_tickers:
-                    # Only re-evaluate columns for the UPDATED symbol
-                    delta = self._evaluate_columns_for_symbol(symbol)
-                    if not delta:
-                        continue
-
-                    # Diff against last emitted for this symbol
-                    last = self._last_symbol_values.get(symbol, {})
-                    changed = {k: v for k, v in delta.items() if last.get(k) != v}
-                    if changed:
-                        self._last_symbol_values[symbol] = delta
-                        self._pending_values[symbol] = changed
-                        self._ensure_debounce_running()
+                    dirty_symbols.add(symbol)
+                    # Start/restart the debounce timer
+                    if debounce_task is None or debounce_task.done():
+                        debounce_task = asyncio.create_task(flush())
         except asyncio.CancelledError:
-            pass
+            if debounce_task and not debounce_task.done():
+                debounce_task.cancel()
         except Exception as e:
             logger.error("Values loop error in %s: %s", self.session_id, e)
 
-    def _ensure_debounce_running(self) -> None:
-        """Start the debounce flush task if not already running."""
-        if self._debounce_task is None or self._debounce_task.done():
-            self._debounce_task = asyncio.create_task(self._flush_pending_values())
+    def _evaluate_columns_for_symbols(
+        self, symbols: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Evaluate columns only for the given symbols.
 
-    async def _flush_pending_values(self) -> None:
-        """Wait for the debounce interval then emit all pending value updates."""
-        try:
-            await asyncio.sleep(_VALUE_DEBOUNCE_SECONDS)
-            if self._pending_values:
-                pending = self._pending_values.copy()
-                self._pending_values.clear()
-                for symbol, values in pending.items():
-                    await self.realtime.send(
-                        ScreenerValuesUpdate(p=(self.session_id, symbol, values))
+        Returns ``{col_id: {symbol: value}}`` — a sparse map of results.
+        """
+        manager = self.realtime.manager
+        result: dict[str, dict[str, Any]] = {}
+
+        for col, col_ast in self._parsed_columns:
+            if col.type != "value" or col_ast is None:
+                continue
+
+            col_result: dict[str, Any] = {}
+            for symbol in symbols:
+                tf = col.timeframe or "D"
+                df = manager.get_ohlcv(symbol, timeframe=tf)
+                if df is None or len(df) == 0:
+                    col_result[symbol] = None
+                    continue
+
+                try:
+                    res = evaluate(col_ast, df)
+                    res = np.asarray(res)
+
+                    if col.bar_ago:
+                        idx = -(col.bar_ago + 1)
+                        val = res[idx] if len(res) >= abs(idx) else None
+                    else:
+                        val = res[-1] if len(res) > 0 else None
+
+                    if val is not None:
+                        if isinstance(val, (np.integer, np.floating)):
+                            val = val.item()
+                        elif isinstance(val, np.bool_):
+                            val = bool(val)
+
+                    col_result[symbol] = val
+                except (FormulaError, Exception) as e:
+                    logger.warning(
+                        "Column %s eval failed for %s: %s", col.id, symbol, e
                     )
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.error("Flush pending values error in %s: %s", self.session_id, e)
+                    col_result[symbol] = None
+
+            result[col.id] = col_result
+
+        return result
 
     def __repr__(self) -> str:
         return f"ScreenerSession(id={self.session_id!r})"

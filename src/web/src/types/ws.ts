@@ -21,7 +21,6 @@ export type ServerMessageType =
   | "screener_session_created"
   | "screener_filter"
   | "screener_values"
-  | "screener_values_update"
   | "full_quote"
   | "quote_update"
   | "error";
