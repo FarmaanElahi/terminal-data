@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 from terminal.column.models import ColumnDef
 from terminal.column import service as column_service
-from terminal.condition import service as condition_service
 from terminal.lists import service as lists_service
 from terminal.database.core import engine
 from terminal.formula import FormulaError, evaluate, parse
@@ -63,8 +62,6 @@ class ScreenerSession:
         # Cached parsed ASTs (built once at _start)
         self._parsed_columns: list[tuple[ColumnDef, object | None]] = []
         self._parsed_conditions: dict[str, list[tuple[dict, object | None]]] = {}
-        self._condition_sets: dict[str, Any] = {}
-        self._condition_logic: str = "and"
 
         # Change detection — last emitted values
         self._last_values: dict[str, list[Any]] = {}  # col_id → values (full snapshot)
@@ -212,13 +209,13 @@ class ScreenerSession:
                     )
 
     def _cache_formulas(self) -> None:
-        """Pre-parse all formula ASTs and cache condition sets at start time."""
-        # Parse column formulas
+        """Pre-parse all formula ASTs and inline condition formulas at start time."""
+        # Parse value column formulas
         self._parsed_columns = []
         for col in self._columns:
-            if col.type == "value" and col.formula:
+            if col.type == "value" and col.value_formula:
                 try:
-                    ast = parse(col.formula)
+                    ast = parse(col.value_formula)
                     self._parsed_columns.append((col, ast))
                 except FormulaError as e:
                     logger.warning("Column formula parse error: %s", e.message)
@@ -226,41 +223,25 @@ class ScreenerSession:
             else:
                 self._parsed_columns.append((col, None))
 
-        # Load and cache condition sets + parse condition formulas (keyed by condition_set_id)
-        self._condition_sets = {}
+        # Parse inline condition formulas (keyed by column id)
         self._parsed_conditions = {}
 
-        filter_columns = [
-            col for col in self._columns if col.filter in ("active", "inactive")
+        condition_columns = [
+            col for col in self._columns if col.type == "condition" and col.conditions
         ]
 
-        if filter_columns:
-            with Session(engine) as session:
-                for col in filter_columns:
-                    if (
-                        col.condition_id
-                        and col.condition_id not in self._condition_sets
-                    ):
-                        cs = condition_service.get(
-                            session, self.realtime.user_id, col.condition_id
-                        )
-                        if cs:
-                            self._condition_sets[col.condition_id] = cs
-                            # Pre-parse condition formulas, keyed by condition_set_id
-                            parsed = []
-                            if cs.conditions:
-                                for cond in cs.conditions:
-                                    formula = (
-                                        cond.get("formula", "")
-                                        if isinstance(cond, dict)
-                                        else cond.formula
-                                    )
-                                    try:
-                                        ast = parse(formula)
-                                        parsed.append((cond, ast))
-                                    except FormulaError, Exception:
-                                        parsed.append((cond, None))
-                            self._parsed_conditions[col.condition_id] = parsed
+        for col in condition_columns:
+            parsed = []
+            for cond in col.conditions or []:
+                formula = (
+                    cond.get("formula", "") if isinstance(cond, dict) else cond.formula
+                )
+                try:
+                    ast = parse(formula)
+                    parsed.append((cond, ast))
+                except FormulaError, Exception:
+                    parsed.append((cond, None))
+            self._parsed_conditions[col.id] = parsed
 
     # ------------------------------------------------------------------
     # Filter evaluation
@@ -287,10 +268,14 @@ class ScreenerSession:
         return False
 
     def _evaluate_filter(self) -> list[str]:
-        """Apply column condition filters using cached condition sets + ASTs."""
+        """Apply column condition filters using inline conditions."""
         manager = self.realtime.manager
 
-        active_filter_columns = [col for col in self._columns if col.filter == "active"]
+        active_filter_columns = [
+            col
+            for col in self._columns
+            if col.type == "condition" and col.filter == "active"
+        ]
 
         if not active_filter_columns:
             return list(self._symbols)
@@ -299,20 +284,16 @@ class ScreenerSession:
         for symbol in self._symbols:
             passes = True
             for col in active_filter_columns:
-                if not col.condition_id:
-                    continue
-                cs = self._condition_sets.get(col.condition_id)
-                if not cs or not cs.conditions:
+                if not col.conditions:
                     continue
 
-                tf = col.timeframe or "D"
+                tf = col.conditions_tf or "D"
                 df = manager.get_ohlcv(symbol, timeframe=tf)
                 if df is None or len(df) == 0:
                     continue
 
-                condition_results = self._eval_conditions(
-                    col.condition_id, df, cs.conditional_logic
-                )
+                logic = col.conditions_logic or "and"
+                condition_results = self._eval_conditions(col.id, df, logic)
                 if not condition_results:
                     passes = False
                     break
@@ -324,12 +305,12 @@ class ScreenerSession:
 
     def _eval_conditions(
         self,
-        condition_id: str,
+        col_id: str,
         df: pd.DataFrame,
         logic: str,
     ) -> bool:
-        """Evaluate conditions for a specific condition set using pre-parsed ASTs."""
-        parsed = self._parsed_conditions.get(condition_id, [])
+        """Evaluate inline conditions for a column using pre-parsed ASTs."""
+        parsed = self._parsed_conditions.get(col_id, [])
         if not parsed:
             return True
 
@@ -391,7 +372,7 @@ class ScreenerSession:
 
             col_values = []
             for symbol in self._visible_tickers:
-                tf = col.timeframe or "D"
+                tf = col.value_formula_tf or "D"
                 df = manager.get_ohlcv(symbol, timeframe=tf)
                 if df is None or len(df) == 0:
                     col_values.append(None)
@@ -401,8 +382,9 @@ class ScreenerSession:
                     res = evaluate(col_ast, df)
                     res = np.asarray(res)
 
-                    if col.bar_ago:
-                        idx = -(col.bar_ago + 1)
+                    bar_ago = col.value_formula_x_bar_ago or 0
+                    if bar_ago:
+                        idx = -(bar_ago + 1)
                         val = res[idx] if len(res) >= abs(idx) else None
                     else:
                         val = res[-1] if len(res) > 0 else None
@@ -527,7 +509,7 @@ class ScreenerSession:
 
             col_result: dict[str, Any] = {}
             for symbol in symbols:
-                tf = col.timeframe or "D"
+                tf = col.value_formula_tf or "D"
                 df = manager.get_ohlcv(symbol, timeframe=tf)
                 if df is None or len(df) == 0:
                     col_result[symbol] = None
@@ -537,8 +519,9 @@ class ScreenerSession:
                     res = evaluate(col_ast, df)
                     res = np.asarray(res)
 
-                    if col.bar_ago:
-                        idx = -(col.bar_ago + 1)
+                    bar_ago = col.value_formula_x_bar_ago or 0
+                    if bar_ago:
+                        idx = -(bar_ago + 1)
                         val = res[idx] if len(res) >= abs(idx) else None
                     else:
                         val = res[-1] if len(res) > 0 else None

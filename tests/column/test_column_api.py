@@ -6,7 +6,7 @@ from httpx import AsyncClient
 async def test_create_and_get_column_set(client: AsyncClient, token: str):
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Create a column set
+    # Create a column set with value columns
     response = await client.post(
         "/api/v1/columns/",
         headers=headers,
@@ -17,15 +17,17 @@ async def test_create_and_get_column_set(client: AsyncClient, token: str):
                     "id": "col_macd",
                     "name": "MACD Value",
                     "type": "value",
-                    "timeframe": "D",
-                    "formula": "MACD",
+                    "value_type": "formula",
+                    "value_formula": "MACD",
+                    "value_formula_tf": "D",
                 },
                 {
                     "id": "col_rsi",
                     "name": "RSI",
                     "type": "value",
-                    "formula": "RSI(14)",
-                    "bar_ago": 1,
+                    "value_type": "formula",
+                    "value_formula": "RSI(14)",
+                    "value_formula_x_bar_ago": 1,
                 },
             ],
         },
@@ -36,8 +38,8 @@ async def test_create_and_get_column_set(client: AsyncClient, token: str):
     assert data["name"] == "Default Columns"
     assert len(data["columns"]) == 2
     assert data["columns"][0]["id"] == "col_macd"
-    assert data["columns"][0]["formula"] == "MACD"
-    assert data["columns"][1]["bar_ago"] == 1
+    assert data["columns"][0]["value_formula"] == "MACD"
+    assert data["columns"][1]["value_formula_x_bar_ago"] == 1
 
     # List all column sets
     response = await client.get("/api/v1/columns/", headers=headers)
@@ -63,7 +65,8 @@ async def test_create_and_get_column_set(client: AsyncClient, token: str):
                     "id": "col_sma",
                     "name": "SMA 200",
                     "type": "value",
-                    "formula": "SMA(C, 200)",
+                    "value_type": "formula",
+                    "value_formula": "SMA(C, 200)",
                 },
             ],
         },
@@ -84,8 +87,8 @@ async def test_create_and_get_column_set(client: AsyncClient, token: str):
 
 
 @pytest.mark.asyncio
-async def test_column_set_with_condition_on_column(client: AsyncClient, token: str):
-    """Individual columns can reference a condition set via condition_id."""
+async def test_column_set_with_condition_column(client: AsyncClient, token: str):
+    """Condition columns have inline conditions with filter state."""
     headers = {"Authorization": f"Bearer {token}"}
 
     response = await client.post(
@@ -98,19 +101,32 @@ async def test_column_set_with_condition_on_column(client: AsyncClient, token: s
                     "id": "c1",
                     "name": "Close",
                     "type": "value",
-                    "formula": "C",
-                    "condition_id": "some-condition-set-id",
-                    "condition_logic": "and",
+                    "value_type": "formula",
+                    "value_formula": "C",
+                },
+                {
+                    "id": "c2",
+                    "name": "Gap Up",
+                    "type": "condition",
                     "filter": "active",
+                    "conditions": [
+                        {"formula": "C > C.1", "evaluate_as": "true"},
+                    ],
+                    "conditions_logic": "and",
+                    "conditions_tf": "D",
                 },
             ],
         },
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["columns"][0]["condition_id"] == "some-condition-set-id"
-    assert data["columns"][0]["condition_logic"] == "and"
-    assert data["columns"][0]["filter"] == "active"
+    assert data["columns"][0]["type"] == "value"
+    assert data["columns"][0]["value_formula"] == "C"
+    assert data["columns"][1]["type"] == "condition"
+    assert data["columns"][1]["filter"] == "active"
+    assert len(data["columns"][1]["conditions"]) == 1
+    assert data["columns"][1]["conditions"][0]["formula"] == "C > C.1"
+    assert data["columns"][1]["conditions_logic"] == "and"
 
 
 @pytest.mark.asyncio

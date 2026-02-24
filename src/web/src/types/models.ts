@@ -45,19 +45,62 @@ export interface ConditionSet {
   timeframe_value: Timeframe | null;
 }
 
-export type ColumnType = "value" | "condition" | "tag";
+export type ColumnType = "value" | "condition";
 export type FilterState = "active" | "inactive" | "off";
+export type ValueType = "field" | "formula";
+export type FieldDataType = "numeric" | "string" | "date";
+export type EvaluateAs = "true" | "gt" | "lt" | "in_between" | "rank";
+export type FilterEvaluateOn =
+  | "now"
+  | "x_bar_ago"
+  | "within_x_bars"
+  | "x_bar_in_row";
+
+export interface ConditionDef {
+  name?: string | null;
+  formula: string;
+  evaluate_as?: EvaluateAs | null;
+  evaluate_as_params?: unknown[] | null;
+}
 
 export interface ColumnDef {
+  // ── Core ──
   id: string;
   name: string;
-  type: ColumnType;
-  formula: string;
-  timeframe: Timeframe;
-  bar_ago: number;
   visible: boolean;
-  condition_id: string | null;
+  type: ColumnType;
   filter: FilterState;
+
+  // ── Value Column ──
+  value_type?: ValueType | null;
+  value_field_data_type?: FieldDataType | null;
+  value_formula?: string | null;
+  value_formula_tf?: Timeframe | null;
+  value_formula_x_bar_ago?: number | null;
+  // value filter
+  value_formula_filter_enabled?: boolean | null;
+  value_formula_filter_op?: "gt" | "lt" | null;
+  value_formula_filter_params?: unknown[] | null;
+  value_formula_filter_evaluate_on?: FilterEvaluateOn | null;
+  value_formula_filter_evaluate_on_params?: unknown[] | null;
+  value_formula_refresh_interval?: number | null;
+
+  // ── Condition Column ──
+  conditions?: ConditionDef[] | null;
+  conditions_logic?: "and" | "or" | null;
+  condition_tf_mode?: TimeframeMode | null;
+  conditions_tf?: Timeframe | null;
+  condition_value_x_bar_ago?: number | null;
+
+  // ── Display ──
+  display_color?: string | null;
+  display_column_width?: number | null;
+  sort?: "asc" | "desc" | null;
+  display_numeric_positive_color?: string | null;
+  display_numeric_negative_color?: string | null;
+  display_numeric_prefix?: string | null;
+  display_numeric_suffix?: string | null;
+  display_numeric_show_positive_sign?: boolean | null;
 }
 
 export interface ColumnSet {

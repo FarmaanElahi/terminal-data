@@ -114,7 +114,7 @@ export function ScreenerWidget({
     async (colId: string) => {
       if (!selectedColumnSet) return;
       const col = columnMap.get(colId);
-      if (!col || !col.condition_id) return;
+      if (!col || col.type !== "condition") return;
 
       const nextFilter = FILTER_CYCLE[col.filter ?? "off"];
       const updatedColumns = selectedColumnSet.columns.map((c) =>
@@ -123,10 +123,7 @@ export function ScreenerWidget({
 
       try {
         const { data } = await columnsApi.update(selectedColumnSet.id, {
-          columns: updatedColumns.map((c) => ({
-            ...c,
-            condition_id: c.condition_id ?? undefined,
-          })),
+          columns: updatedColumns,
         });
         // Update auth store with new column set
         useAuthStore.setState((state) => ({
@@ -210,7 +207,7 @@ export function ScreenerWidget({
                 </th>
                 {visibleColumns.map((colId) => {
                   const col = columnMap.get(colId);
-                  const hasFilter = !!col?.condition_id;
+                  const hasFilter = col?.type === "condition";
                   const filterState = col?.filter ?? "off";
 
                   return (

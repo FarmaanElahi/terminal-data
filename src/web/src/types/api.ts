@@ -5,6 +5,7 @@ import type {
   Formula,
   ConditionSet,
   ColumnSet,
+  ColumnDef,
   Symbol,
 } from "./models";
 
@@ -103,17 +104,7 @@ export interface ConditionSetUpdate extends Partial<ConditionSetCreate> {}
 // ─── Columns ───────────────────────────────────────────────────────
 export interface ColumnSetCreate {
   name: string;
-  columns: Array<{
-    id: string;
-    name: string;
-    type: "value" | "condition" | "tag";
-    formula: string;
-    timeframe: string;
-    bar_ago?: number;
-    visible?: boolean;
-    condition_id?: string;
-    filter?: "active" | "inactive" | "off";
-  }>;
+  columns: ColumnDef[];
 }
 
 export interface ColumnSetUpdate extends Partial<ColumnSetCreate> {}
