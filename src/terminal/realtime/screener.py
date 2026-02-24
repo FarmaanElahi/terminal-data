@@ -250,7 +250,9 @@ class ScreenerSession:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
             rows = [ScreenerFilterRow(ticker=t) for t in self._visible_tickers]
-            await self.realtime.send(ScreenerFilterResponse(p=(self.session_id, rows)))
+            await self.realtime.send(
+                ScreenerFilterResponse(p=(self.session_id, rows, len(self._symbols)))
+            )
             return True
         return False
 
@@ -354,40 +356,56 @@ class ScreenerSession:
         values_map: dict[str, list[Any]] = {}
 
         for col, col_ast in self._parsed_columns:
-            if col.type != "value" or col_ast is None:
-                continue
-
             col_values = []
             for symbol in self._visible_tickers:
-                tf = col.value_formula_tf or "D"
-                df = manager.get_ohlcv(symbol, timeframe=tf)
-                if df is None or len(df) == 0:
-                    col_values.append(None)
-                    continue
+                if col.type == "value":
+                    if col_ast is None:
+                        col_values.append(None)
+                        continue
 
-                try:
-                    res = evaluate(col_ast, df)
-                    res = np.asarray(res)
+                    tf = col.value_formula_tf or "D"
+                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if df is None or len(df) == 0:
+                        col_values.append(None)
+                        continue
 
-                    bar_ago = col.value_formula_x_bar_ago or 0
-                    if bar_ago:
-                        idx = -(bar_ago + 1)
-                        val = res[idx] if len(res) >= abs(idx) else None
-                    else:
-                        val = res[-1] if len(res) > 0 else None
+                    try:
+                        res = evaluate(col_ast, df)
+                        res = np.asarray(res)
 
-                    # Convert numpy types to native Python
-                    if val is not None:
-                        if isinstance(val, (np.integer, np.floating)):
-                            val = val.item()
-                        elif isinstance(val, np.bool_):
-                            val = bool(val)
+                        bar_ago = col.value_formula_x_bar_ago or 0
+                        if bar_ago:
+                            idx = -(bar_ago + 1)
+                            val = res[idx] if len(res) >= abs(idx) else None
+                        else:
+                            val = res[-1] if len(res) > 0 else None
 
+                        # Convert numpy types to native Python
+                        if val is not None:
+                            if isinstance(val, (np.integer, np.floating)):
+                                val = val.item()
+                            elif isinstance(val, np.bool_):
+                                val = bool(val)
+
+                        col_values.append(val)
+                    except (FormulaError, Exception) as e:
+                        logger.warning(
+                            "Column %s eval failed for %s: %s", col.id, symbol, e
+                        )
+                        col_values.append(None)
+
+                elif col.type == "condition":
+                    tf = col.conditions_tf or "D"
+                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if df is None or len(df) == 0:
+                        col_values.append(False)
+                        continue
+
+                    logic = col.conditions_logic or "and"
+                    val = self._eval_conditions(col.id, df, logic)
                     col_values.append(val)
-                except (FormulaError, Exception) as e:
-                    logger.warning(
-                        "Column %s eval failed for %s: %s", col.id, symbol, e
-                    )
+
+                else:
                     col_values.append(None)
 
             values_map[col.id] = col_values
@@ -491,39 +509,55 @@ class ScreenerSession:
         result: dict[str, dict[str, Any]] = {}
 
         for col, col_ast in self._parsed_columns:
-            if col.type != "value" or col_ast is None:
-                continue
-
             col_result: dict[str, Any] = {}
             for symbol in symbols:
-                tf = col.value_formula_tf or "D"
-                df = manager.get_ohlcv(symbol, timeframe=tf)
-                if df is None or len(df) == 0:
-                    col_result[symbol] = None
-                    continue
+                if col.type == "value":
+                    if col_ast is None:
+                        col_result[symbol] = None
+                        continue
 
-                try:
-                    res = evaluate(col_ast, df)
-                    res = np.asarray(res)
+                    tf = col.value_formula_tf or "D"
+                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if df is None or len(df) == 0:
+                        col_result[symbol] = None
+                        continue
 
-                    bar_ago = col.value_formula_x_bar_ago or 0
-                    if bar_ago:
-                        idx = -(bar_ago + 1)
-                        val = res[idx] if len(res) >= abs(idx) else None
-                    else:
-                        val = res[-1] if len(res) > 0 else None
+                    try:
+                        res = evaluate(col_ast, df)
+                        res = np.asarray(res)
 
-                    if val is not None:
-                        if isinstance(val, (np.integer, np.floating)):
-                            val = val.item()
-                        elif isinstance(val, np.bool_):
-                            val = bool(val)
+                        bar_ago = col.value_formula_x_bar_ago or 0
+                        if bar_ago:
+                            idx = -(bar_ago + 1)
+                            val = res[idx] if len(res) >= abs(idx) else None
+                        else:
+                            val = res[-1] if len(res) > 0 else None
 
+                        if val is not None:
+                            if isinstance(val, (np.integer, np.floating)):
+                                val = val.item()
+                            elif isinstance(val, np.bool_):
+                                val = bool(val)
+
+                        col_result[symbol] = val
+                    except (FormulaError, Exception) as e:
+                        logger.warning(
+                            "Column %s eval failed for %s: %s", col.id, symbol, e
+                        )
+                        col_result[symbol] = None
+
+                elif col.type == "condition":
+                    tf = col.conditions_tf or "D"
+                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if df is None or len(df) == 0:
+                        col_result[symbol] = False
+                        continue
+
+                    logic = col.conditions_logic or "and"
+                    val = self._eval_conditions(col.id, df, logic)
                     col_result[symbol] = val
-                except (FormulaError, Exception) as e:
-                    logger.warning(
-                        "Column %s eval failed for %s: %s", col.id, symbol, e
-                    )
+
+                else:
                     col_result[symbol] = None
 
             result[col.id] = col_result

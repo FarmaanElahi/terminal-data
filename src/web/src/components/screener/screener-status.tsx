@@ -1,12 +1,14 @@
 import { useMemo } from "react";
 
 interface ScreenerStatusProps {
+  filteredSymbols: number;
   totalSymbols: number;
   lastUpdate: number | null;
   isLoading: boolean;
 }
 
 export function ScreenerStatus({
+  filteredSymbols,
   totalSymbols,
   lastUpdate,
   isLoading,
@@ -21,39 +23,18 @@ export function ScreenerStatus({
   }, [lastUpdate, /* refresh */ Math.floor(Date.now() / 5000)]);
 
   return (
-    <div className="border-t border-border px-4 py-1 flex items-center gap-4 text-[11px] text-muted-foreground bg-card/30 shrink-0">
-      <span>
-        {isLoading ? (
-          <span className="flex items-center gap-1">
-            <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-              />
-            </svg>
-            Loading...
-          </span>
-        ) : (
-          `${totalSymbols} symbols`
-        )}
-      </span>
-
-      {timeAgo && (
-        <>
-          <span className="text-border">·</span>
-          <span>Last update: {timeAgo}</span>
-        </>
+    <div className="relative bottom-0 bg-background/80 backdrop-blur-sm border border-border/50 rounded-sm px-2 py-0.5 text-xs font-mono text-muted-foreground z-20 pointer-events-none select-none max-w-fit flex items-center gap-2">
+      {isLoading ? (
+        <div className="flex items-center gap-1.5">
+          <div className="w-1 h-1 rounded-full bg-primary animate-pulse" />
+          <span>Syncing...</span>
+        </div>
+      ) : (
+        <span>
+          {filteredSymbols} / {totalSymbols}
+        </span>
       )}
+      {timeAgo && !isLoading && <span className="opacity-40">{timeAgo}</span>}
     </div>
   );
 }

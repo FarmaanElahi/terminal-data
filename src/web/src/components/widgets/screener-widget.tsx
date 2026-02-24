@@ -11,8 +11,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Filter, Settings } from "lucide-react";
+import { Filter, Settings, ChevronUp, ChevronDown } from "lucide-react";
 import { ColumnEditor } from "./column-editor";
+import { ScreenerStatus } from "@/components/screener/screener-status";
 
 // ─── Value Formatter ─────────────────────────────────────────────────
 
@@ -21,7 +22,6 @@ function formatValue(val: unknown): string {
   if (typeof val === "boolean") return val ? "✓" : "✗";
   if (typeof val === "number") {
     if (!Number.isFinite(val)) return "—";
-    // Large numbers: use locale formatting with max 2 decimals
     if (Math.abs(val) >= 1_000_000) {
       return val.toLocaleString("en-US", {
         maximumFractionDigits: 2,
@@ -40,7 +40,6 @@ function formatValue(val: unknown): string {
         minimumFractionDigits: 2,
       });
     }
-    // Small decimals
     return val.toLocaleString("en-US", {
       maximumFractionDigits: 4,
       minimumFractionDigits: 2,
@@ -48,8 +47,6 @@ function formatValue(val: unknown): string {
   }
   return String(val);
 }
-
-// ─── Filter State Cycling ────────────────────────────────────────────
 
 const FILTER_CYCLE: Record<FilterState, FilterState> = {
   off: "active",
@@ -63,7 +60,12 @@ const FILTER_INDICATOR: Record<FilterState, string> = {
   inactive: "text-red-500",
 };
 
-// ─── Component ───────────────────────────────────────────────────────
+type SortDirection = "asc" | "desc" | null;
+
+interface SortConfig {
+  key: string | null;
+  direction: SortDirection;
+}
 
 export function ScreenerWidget({
   instanceId,
@@ -74,17 +76,19 @@ export function ScreenerWidget({
   const lists = useAuthStore((st) => st.lists);
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    key: "ticker",
+    direction: "asc",
+  });
 
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
   const columnSetId = (s.columnSetId as string) ?? columnSets?.[0]?.id ?? null;
 
-  // Find the selected column set for metadata
   const selectedColumnSet = useMemo(
     () => columnSets?.find((cs) => cs.id === columnSetId) ?? null,
     [columnSets, columnSetId],
   );
 
-  // Build a map of col.id → ColumnDef for display names & metadata
   const columnMap = useMemo(() => {
     const map = new Map<string, ColumnDef>();
     if (selectedColumnSet?.columns) {
@@ -95,7 +99,6 @@ export function ScreenerWidget({
     return map;
   }, [selectedColumnSet]);
 
-  // Ordered list of visible column IDs (from column set definition)
   const visibleColumns = useMemo(() => {
     if (!selectedColumnSet?.columns) return [];
     return selectedColumnSet.columns
@@ -103,13 +106,51 @@ export function ScreenerWidget({
       .map((c) => c.id);
   }, [selectedColumnSet]);
 
-  const { tickers, values, isLoading } = useScreener(
+  const { tickers, values, isLoading, lastUpdate, totalSymbols } = useScreener(
     instanceId,
     listId,
     selectedColumnSet?.columns || null,
   );
 
-  // Toggle filter state for a column
+  const handleSort = (key: string) => {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        if (prev.direction === "asc") return { key, direction: "desc" };
+        if (prev.direction === "desc") return { key: null, direction: null };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  const sortedIndices = useMemo(() => {
+    const indices = tickers.map((_, i) => i);
+    const { key, direction } = sortConfig;
+    if (!key || !direction) return indices;
+
+    return [...indices].sort((a, b) => {
+      let valA: any;
+      let valB: any;
+
+      if (key === "ticker") {
+        valA = tickers[a].ticker;
+        valB = tickers[b].ticker;
+      } else {
+        valA = values[key]?.[a];
+        valB = values[key]?.[b];
+      }
+
+      if (valA === valB) return 0;
+      if (valA == null) return 1;
+      if (valB == null) return -1;
+
+      const multiplier = direction === "asc" ? 1 : -1;
+      if (typeof valA === "string" && typeof valB === "string") {
+        return valA.localeCompare(valB) * multiplier;
+      }
+      return (valA < valB ? -1 : 1) * multiplier;
+    });
+  }, [tickers, values, sortConfig]);
+
   const handleFilterToggle = useCallback(
     async (colId: string) => {
       if (!selectedColumnSet) return;
@@ -125,7 +166,6 @@ export function ScreenerWidget({
         const { data } = await columnsApi.update(selectedColumnSet.id, {
           columns: updatedColumns,
         });
-        // Update auth store with new column set
         useAuthStore.setState((state) => ({
           columnSets: state.columnSets.map((cs) =>
             cs.id === selectedColumnSet.id ? data : cs,
@@ -138,9 +178,17 @@ export function ScreenerWidget({
     [selectedColumnSet, columnMap],
   );
 
+  const renderSortIcon = (key: string) => {
+    if (sortConfig.key !== key) return null;
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp className="w-2.5 h-2.5 ml-1" />
+    ) : (
+      <ChevronDown className="w-2.5 h-2.5 ml-1" />
+    );
+  };
+
   return (
-    <div className="flex flex-col h-full">
-      {/* ─── Toolbar ──────────────────────────────────────────────── */}
+    <div className="flex flex-col h-full relative">
       <div className="flex items-center gap-2 p-2 border-b border-border shrink-0">
         <Select
           value={listId ?? ""}
@@ -174,15 +222,8 @@ export function ScreenerWidget({
           </SelectContent>
         </Select>
 
-        {isLoading && (
-          <span className="text-xs text-muted-foreground animate-pulse">
-            Loading...
-          </span>
-        )}
-
         <div className="flex-1" />
 
-        {/* Column editor button */}
         <button
           onClick={() => setEditorOpen(true)}
           className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -192,8 +233,7 @@ export function ScreenerWidget({
         </button>
       </div>
 
-      {/* ─── Data Table ───────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto pb-10">
         {tickers.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             No data
@@ -202,8 +242,14 @@ export function ScreenerWidget({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-border sticky top-0 bg-card z-10">
-                <th className="text-left p-1.5 font-medium text-muted-foreground">
-                  Ticker
+                <th
+                  onClick={() => handleSort("ticker")}
+                  className="text-left p-1.5 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors group"
+                >
+                  <div className="flex items-center">
+                    Ticker
+                    {renderSortIcon("ticker")}
+                  </div>
                 </th>
                 {visibleColumns.map((colId) => {
                   const col = columnMap.get(colId);
@@ -216,7 +262,6 @@ export function ScreenerWidget({
                       className="text-right p-1.5 font-medium text-muted-foreground group/col"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        {/* Filter toggle — visible only when active/inactive, or on hover */}
                         {hasFilter && (
                           <button
                             onClick={() => handleFilterToggle(colId)}
@@ -230,7 +275,13 @@ export function ScreenerWidget({
                             <Filter className="w-2.5 h-2.5" />
                           </button>
                         )}
-                        <span>{col?.name ?? colId}</span>
+                        <span
+                          onClick={() => handleSort(colId)}
+                          className="cursor-pointer hover:text-foreground transition-colors inline-flex items-center"
+                        >
+                          {col?.name ?? colId}
+                          {renderSortIcon(colId)}
+                        </span>
                       </div>
                     </th>
                   );
@@ -238,27 +289,39 @@ export function ScreenerWidget({
               </tr>
             </thead>
             <tbody>
-              {tickers.map((row, i) => (
-                <tr
-                  key={row.ticker}
-                  className="border-b border-border/50 hover:bg-muted/30 transition-colors"
-                >
-                  <td className="p-1.5 font-medium text-foreground">
-                    {row.ticker}
-                  </td>
-                  {visibleColumns.map((colId) => (
-                    <td key={colId} className="p-1.5 text-right tabular-nums">
-                      {formatValue(values[colId]?.[i])}
+              {sortedIndices.map((originalIndex) => {
+                const row = tickers[originalIndex];
+                return (
+                  <tr
+                    key={row.ticker}
+                    className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="p-1.5 font-medium text-foreground">
+                      {row.ticker}
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {visibleColumns.map((colId) => (
+                      <td
+                        key={colId}
+                        className="p-1.5 text-right tabular-nums text-muted-foreground"
+                      >
+                        {formatValue(values[colId]?.[originalIndex])}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
       </div>
 
-      {/* ─── Column Editor ────────────────────────────────────────── */}
+      <ScreenerStatus
+        filteredSymbols={tickers.length}
+        totalSymbols={totalSymbols}
+        lastUpdate={lastUpdate}
+        isLoading={isLoading}
+      />
+
       {selectedColumnSet && (
         <ColumnEditor
           open={editorOpen}

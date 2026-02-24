@@ -30,14 +30,14 @@ export function ScreenerPage() {
   const selectedColumnSet = columnSets?.find((cs) => cs.id === columnSetId);
 
   // Screener session
-  const { tickers, values, isLoading, lastUpdate } = useScreener(
+  const { tickers, values, isLoading, lastUpdate, totalSymbols } = useScreener(
     "screener-page",
     listId,
     selectedColumnSet?.columns || null,
   );
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Header bar */}
       <div className="border-b border-border px-4 py-3 flex items-center gap-4 bg-card/30 shrink-0">
         <div className="flex items-center gap-2">
@@ -134,7 +134,8 @@ export function ScreenerPage() {
 
       {/* Status bar */}
       <ScreenerStatus
-        totalSymbols={tickers.length}
+        filteredSymbols={tickers.length}
+        totalSymbols={totalSymbols}
         lastUpdate={lastUpdate}
         isLoading={isLoading}
       />

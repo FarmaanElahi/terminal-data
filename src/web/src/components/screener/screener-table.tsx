@@ -9,6 +9,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ChevronUp, ChevronDown } from "lucide-react";
+
+type SortDirection = "asc" | "desc" | null;
+
+interface SortConfig {
+  key: string | null;
+  direction: SortDirection;
+}
 
 interface ScreenerTableProps {
   tickers: ScreenerFilterRow[];
@@ -23,10 +31,60 @@ export function ScreenerTable({
   columns,
   isLoading,
 }: ScreenerTableProps) {
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    key: "ticker",
+    direction: "asc",
+  });
+
   const visibleColumns = useMemo(
     () => columns.filter((c) => c.visible !== false),
     [columns],
   );
+
+  const handleSort = (key: string) => {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        if (prev.direction === "asc") return { key, direction: "desc" };
+        if (prev.direction === "desc") return { key: null, direction: null };
+      }
+      return { key, direction: "asc" };
+    });
+  };
+
+  const sortedIndices = useMemo(() => {
+    const indices = tickers.map((_, i) => i);
+    const { key, direction } = sortConfig;
+    if (!key || !direction) return indices;
+
+    return [...indices].sort((a, b) => {
+      let valA: any;
+      let valB: any;
+
+      if (key === "ticker") {
+        valA = tickers[a].ticker;
+        valB = tickers[b].ticker;
+      } else if (key === "name") {
+        valA = tickers[a].name ?? "";
+        valB = tickers[b].name ?? "";
+      } else {
+        valA = values[key]?.[a];
+        valB = values[key]?.[b];
+      }
+
+      if (valA === valB) return 0;
+      if (valA == null) return 1;
+      if (valB == null) return -1;
+
+      const multiplier = direction === "asc" ? 1 : -1;
+
+      // Handle strings vs other types
+      if (typeof valA === "string" && typeof valB === "string") {
+        return valA.localeCompare(valB) * multiplier;
+      }
+
+      return (valA < valB ? -1 : 1) * multiplier;
+    });
+  }, [tickers, values, sortConfig]);
 
   if (isLoading) {
     return (
@@ -72,37 +130,65 @@ export function ScreenerTable({
     );
   }
 
+  const renderSortIcon = (key: string) => {
+    if (sortConfig.key !== key) return null;
+    return sortConfig.direction === "asc" ? (
+      <ChevronUp className="w-3 h-3 ml-1" />
+    ) : (
+      <ChevronDown className="w-3 h-3 ml-1" />
+    );
+  };
+
   return (
-    <div className="h-full overflow-auto scrollbar-thin">
+    <div className="h-full overflow-auto scrollbar-thin pb-10">
       <Table>
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="hover:bg-transparent border-b border-border">
-            <TableHead className="w-32 text-xs font-semibold h-8 sticky left-0 bg-card z-20">
-              Ticker
+            <TableHead
+              onClick={() => handleSort("ticker")}
+              className="w-32 text-xs font-bold h-8 sticky left-0 bg-card z-20 cursor-pointer hover:text-foreground transition-colors group"
+            >
+              <div className="flex items-center">
+                Ticker
+                {renderSortIcon("ticker")}
+              </div>
             </TableHead>
-            <TableHead className="w-48 text-xs font-semibold h-8">
-              Name
+            <TableHead
+              onClick={() => handleSort("name")}
+              className="w-48 text-xs font-bold h-8 cursor-pointer hover:text-foreground transition-colors group"
+            >
+              <div className="flex items-center">
+                Name
+                {renderSortIcon("name")}
+              </div>
             </TableHead>
             {visibleColumns.map((col) => (
               <TableHead
                 key={col.id}
-                className="text-xs font-semibold h-8 text-right min-w-[80px] cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => handleSort(col.id)}
+                className="text-xs font-bold h-8 text-right min-w-[80px] cursor-pointer hover:text-foreground transition-colors group"
               >
-                {col.name}
+                <div className="flex items-center justify-end">
+                  {col.name}
+                  {renderSortIcon(col.id)}
+                </div>
               </TableHead>
             ))}
           </TableRow>
         </TableHeader>
         <TableBody>
-          {tickers.map((ticker, rowIndex) => (
-            <ScreenerRow
-              key={ticker.ticker}
-              ticker={ticker}
-              rowIndex={rowIndex}
-              columns={visibleColumns}
-              values={values}
-            />
-          ))}
+          {sortedIndices.map((originalIndex) => {
+            const ticker = tickers[originalIndex];
+            return (
+              <ScreenerRow
+                key={ticker.ticker}
+                ticker={ticker}
+                rowIndex={originalIndex}
+                columns={visibleColumns}
+                values={values}
+              />
+            );
+          })}
         </TableBody>
       </Table>
     </div>

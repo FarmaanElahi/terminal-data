@@ -62,3 +62,15 @@ The project follows a functional service pattern inspired by the Netflix Dispatc
 - **Avoid Intermediate Diffing**: Do not generate intermediate schema diff migrations during the active development phase.
 - Use `alembic revision --autogenerate -m "description"` only for finalized schema changes.
 - **Model Registration**: All database models must be imported in `src/terminal/__init__.py` (wrapped in try/except). This allows `env.py` to auto-discover models by simply importing the `terminal` package.
+
+## Frontend Standards
+
+### CSS & Styling
+
+- **Tailwind Only**: All styling must be implemented using standard Tailwind CSS utility classes.
+- **No Hardcoded Values**: Avoid hardcoded pixel values in class names (e.g., `text-[11px]`, `w-[240px]`).
+- **Standard Sizes**: Always use Tailwind's standard scales for spacing, sizing, and typography:
+  - **Typography**: `text-xs`, `text-sm`, `text-base`, etc.
+  - **Spacing**: `p-2`, `m-4`, `gap-3`, etc.
+  - **Sizing**: `w-4`, `h-9`, `w-full`, etc.
+- **Consistency**: Ensure UI elements (labels, buttons, inputs) use the same standard scale across the application to maintain a unified look and feel.

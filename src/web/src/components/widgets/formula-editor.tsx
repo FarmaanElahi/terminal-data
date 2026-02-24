@@ -185,8 +185,7 @@ export function FormulaEditor({
 
   const handleChange = useCallback(
     (val: string | undefined) => {
-      const clean = (val ?? "").replace(/\n/g, "");
-      onChange(clean);
+      onChange(val ?? "");
     },
     [onChange],
   );
@@ -205,7 +204,7 @@ export function FormulaEditor({
 
   return (
     <div
-      className="border border-border rounded-sm overflow-visible bg-card"
+      className="border border-border rounded-sm overflow-visible bg-card relative"
       style={{ height: `${height}px` }}
     >
       <Editor
@@ -217,30 +216,26 @@ export function FormulaEditor({
         onMount={handleMount}
         theme="formula-dark"
         options={{
-          // Single-line / compact mode
           lineNumbers: "off",
           glyphMargin: false,
           folding: false,
           lineDecorationsWidth: 0,
           lineNumbersMinChars: 0,
           minimap: { enabled: false },
-          scrollbar: { horizontal: "hidden", vertical: "hidden" },
-          wordWrap: "off",
+          scrollbar: { horizontal: "auto", vertical: "auto" },
+          wordWrap: "on",
           overviewRulerLanes: 0,
           renderLineHighlight: "none",
           hideCursorInOverviewRuler: true,
           contextmenu: false,
-          // Font
           fontSize: 12,
           fontFamily:
             "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-          // Suggestions — render outside the editor to avoid clipping
           suggestOnTriggerCharacters: true,
           quickSuggestions: true,
           wordBasedSuggestions: "off",
-          fixedOverflowWidgets: true,
-          // Padding
-          padding: { top: 4, bottom: 4 },
+          fixedOverflowWidgets: false, // Fixed widgets collide with Dialog transforms
+          padding: { top: 8, bottom: 8 },
           scrollBeyondLastLine: false,
           automaticLayout: true,
         }}

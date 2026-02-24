@@ -41,6 +41,11 @@ export function useScreener(
     "lastUpdate",
     null,
   );
+  const [totalSymbols, setTotalSymbols] = useWidgetState<number>(
+    instanceId,
+    "totalSymbols",
+    0,
+  );
   // Track active session ID across re-renders
   const sessionRef = useRef<string | null>(null);
 
@@ -88,9 +93,14 @@ export function useScreener(
 
       const unsubs = [
         ws.on("screener_filter", (msg: WSMessage) => {
-          const [sid, tickerList] = msg.p as [string, ScreenerFilterRow[]];
+          const [sid, tickerList, totalCount] = msg.p as [
+            string,
+            ScreenerFilterRow[],
+            number,
+          ];
           if (sid === sessionId) {
             setTickers(tickerList);
+            setTotalSymbols(totalCount ?? tickerList.length);
             setIsLoading(false);
             setLastUpdate(Date.now());
           }
@@ -124,5 +134,5 @@ export function useScreener(
     };
   }, [paramsKey, listId, columnsHash, createSession, ws]);
 
-  return { tickers, values, isLoading, lastUpdate };
+  return { tickers, values, isLoading, lastUpdate, totalSymbols };
 }

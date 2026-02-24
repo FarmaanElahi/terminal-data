@@ -200,7 +200,7 @@ class ScreenerFilterResponse(ServerMessage):
     """Emitted when the filtered ticker set changes."""
 
     m: Literal["screener_filter"] = "screener_filter"
-    p: tuple[str, list[ScreenerFilterRow]]  # (session_id, rows)
+    p: tuple[str, list[ScreenerFilterRow], int]  # (session_id, rows, total_count)
 
 
 class ScreenerValuesResponse(ServerMessage):
