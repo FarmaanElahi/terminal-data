@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import { useScreener } from "@/hooks/use-screener";
 import { columnsApi } from "@/lib/api";
@@ -51,7 +52,6 @@ function formatValue(
   isDark = true,
 ): React.ReactNode {
   if (val == null) return "—";
-  if (typeof val === "boolean") return val ? "✓" : "✗";
 
   const adjustColor = (color: string | null | undefined) => {
     if (!color) return undefined;
@@ -62,6 +62,16 @@ function formatValue(
 
   let finalColor = adjustColor(col?.display_color);
 
+  // Boolean handling
+  if (typeof val === "boolean") {
+    return (
+      <span style={{ color: finalColor }} className="font-bold">
+        {val ? "✓" : "✗"}
+      </span>
+    );
+  }
+
+  // Numeric handling
   if (typeof val === "number") {
     if (!Number.isFinite(val)) return "—";
 
@@ -86,11 +96,14 @@ function formatValue(
       formatted = "+" + formatted;
     }
 
-    // Apply specific numeric colors if defined
-    if (val > 0 && col?.display_numeric_positive_color) {
-      finalColor = adjustColor(col.display_numeric_positive_color);
-    } else if (val < 0 && col?.display_numeric_negative_color) {
-      finalColor = adjustColor(col.display_numeric_negative_color);
+    // Apply specific numeric colors if defined AND column is of type 'value'
+    // Condition columns with numeric outputs (e.g. Rank) should NOT have positive/negative coloring
+    if (col?.type === "value") {
+      if (val > 0 && col?.display_numeric_positive_color) {
+        finalColor = adjustColor(col.display_numeric_positive_color);
+      } else if (val < 0 && col?.display_numeric_negative_color) {
+        finalColor = adjustColor(col.display_numeric_negative_color);
+      }
     }
 
     // Apply prefix/suffix
@@ -107,6 +120,39 @@ function formatValue(
   }
 
   return <span style={{ color: finalColor }}>{String(val)}</span>;
+}
+
+function AnimatedValue({
+  value,
+  col,
+  isDark,
+}: {
+  value: unknown;
+  col?: ColumnDef;
+  isDark: boolean;
+}) {
+  const [isFlashing, setIsFlashing] = useState(false);
+  const prevValue = useRef(value);
+
+  useEffect(() => {
+    if (value !== prevValue.current) {
+      setIsFlashing(true);
+      const timer = setTimeout(() => setIsFlashing(false), 1000);
+      prevValue.current = value;
+      return () => clearTimeout(timer);
+    }
+  }, [value]);
+
+  return (
+    <div
+      className={cn(
+        "transition-all duration-300",
+        isFlashing && "font-bold scale-105 brightness-125",
+      )}
+    >
+      {formatValue(value, col, isDark)}
+    </div>
+  );
 }
 
 // ─── Color Mapping ──────────────────────────────────────────────────
@@ -725,11 +771,11 @@ export function ScreenerWidget({
                           }}
                           className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
                         >
-                          {formatValue(
-                            values[colId]?.[originalIndex],
-                            col,
-                            isDark,
-                          )}
+                          <AnimatedValue
+                            value={values[colId]?.[originalIndex]}
+                            col={col}
+                            isDark={isDark}
+                          />
                         </td>
                       );
                     })}
