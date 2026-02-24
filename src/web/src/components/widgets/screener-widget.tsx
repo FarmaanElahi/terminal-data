@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useScreener } from "@/hooks/use-screener";
 import { columnsApi } from "@/lib/api";
@@ -96,6 +96,7 @@ export function ScreenerWidget({
   const lists = useAuthStore((st) => st.lists);
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
+  const tableRef = useRef<HTMLTableElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     key: "ticker",
     direction: "asc",
@@ -198,6 +199,61 @@ export function ScreenerWidget({
     [selectedColumnSet, columnMap],
   );
 
+  const onResizeStart = useCallback(
+    (e: React.MouseEvent, colId: string, currentWidth: number) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const startX = e.clientX;
+      let finalWidth = currentWidth;
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        const delta = moveEvent.clientX - startX;
+        finalWidth = Math.max(10, currentWidth + delta);
+
+        if (tableRef.current) {
+          // Find the specific column in the table (including ticker)
+          const ths = tableRef.current.querySelectorAll("th");
+          const idx =
+            colId === "ticker"
+              ? 0
+              : visibleColumns.indexOf(colId) + (colId === "ticker" ? 0 : 1);
+
+          if (ths[idx]) {
+            ths[idx].style.width = `${finalWidth}px`;
+          }
+        }
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+
+        if (colId === "ticker") {
+          onSettingsChange({ ticker_width: finalWidth });
+        } else if (selectedColumnSet) {
+          useAuthStore.setState((state) => ({
+            columnSets: state.columnSets.map((cs) => {
+              if (cs.id !== selectedColumnSet.id) return cs;
+              return {
+                ...cs,
+                columns: cs.columns.map((c) =>
+                  c.id === colId
+                    ? { ...c, display_column_width: finalWidth }
+                    : c,
+                ),
+              };
+            }),
+          }));
+        }
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    [onSettingsChange, selectedColumnSet, visibleColumns],
+  );
+
   const renderSortIcon = (key: string) => {
     if (sortConfig.key !== key) return null;
     return sortConfig.direction === "asc" ? (
@@ -259,17 +315,33 @@ export function ScreenerWidget({
             No data
           </div>
         ) : (
-          <table className="w-full text-xs">
+          <table ref={tableRef} className="w-max text-xs table-fixed">
             <thead>
               <tr className="border-b border-border sticky top-0 bg-card z-10">
                 <th
-                  onClick={() => handleSort("ticker")}
-                  className="text-left p-1.5 font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors group"
+                  style={{
+                    width: (s.ticker_width as number) ?? 100,
+                  }}
+                  className="text-left p-1.5 font-medium text-muted-foreground transition-colors group relative overflow-hidden whitespace-nowrap"
                 >
-                  <div className="flex items-center">
+                  <div
+                    className="flex items-center h-full cursor-pointer hover:text-foreground truncate"
+                    onClick={() => handleSort("ticker")}
+                  >
                     Ticker
                     {renderSortIcon("ticker")}
                   </div>
+                  <div
+                    onMouseDown={(e) =>
+                      onResizeStart(
+                        e,
+                        "ticker",
+                        (s.ticker_width as number) ?? 100,
+                      )
+                    }
+                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
+                  />
+                  <div className="absolute right-0 top-1 bottom-1 w-px bg-border group-hover:bg-primary/50 transition-colors pointer-events-none" />
                 </th>
                 {visibleColumns.map((colId) => {
                   const col = columnMap.get(colId);
@@ -280,14 +352,9 @@ export function ScreenerWidget({
                     <th
                       key={colId}
                       style={{
-                        width: col?.display_column_width
-                          ? `${col.display_column_width}px`
-                          : undefined,
-                        minWidth: col?.display_column_width
-                          ? `${col.display_column_width}px`
-                          : undefined,
+                        width: col?.display_column_width ?? 100,
                       }}
-                      className="text-right p-1.5 font-medium text-muted-foreground group/col"
+                      className="text-right p-1.5 font-medium text-muted-foreground group/col relative overflow-hidden whitespace-nowrap"
                     >
                       <div className="flex items-center justify-end gap-1">
                         {hasFilter && (
@@ -305,12 +372,23 @@ export function ScreenerWidget({
                         )}
                         <span
                           onClick={() => handleSort(colId)}
-                          className="cursor-pointer hover:text-foreground transition-colors inline-flex items-center"
+                          className="cursor-pointer hover:text-foreground transition-colors inline-flex items-center truncate"
                         >
                           {col?.name ?? colId}
                           {renderSortIcon(colId)}
                         </span>
                       </div>
+                      <div
+                        onMouseDown={(e) =>
+                          onResizeStart(
+                            e,
+                            colId,
+                            col?.display_column_width ?? 100,
+                          )
+                        }
+                        className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
+                      />
+                      <div className="absolute right-0 top-1 bottom-1 w-px bg-border group-hover/col:bg-primary/50 transition-colors pointer-events-none" />
                     </th>
                   );
                 })}
@@ -324,7 +402,12 @@ export function ScreenerWidget({
                     key={row.ticker}
                     className="border-b border-border/50 hover:bg-muted/30 transition-colors"
                   >
-                    <td className="p-1.5 font-medium text-foreground">
+                    <td
+                      style={{
+                        width: (s.ticker_width as number) ?? 100,
+                      }}
+                      className="p-1.5 font-medium text-foreground truncate"
+                    >
                       {row.ticker}
                     </td>
                     {visibleColumns.map((colId) => {
@@ -333,14 +416,9 @@ export function ScreenerWidget({
                         <td
                           key={colId}
                           style={{
-                            width: col?.display_column_width
-                              ? `${col.display_column_width}px`
-                              : undefined,
-                            minWidth: col?.display_column_width
-                              ? `${col.display_column_width}px`
-                              : undefined,
+                            width: col?.display_column_width ?? 100,
                           }}
-                          className="p-1.5 text-right tabular-nums text-muted-foreground"
+                          className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
                         >
                           {formatValue(values[colId]?.[originalIndex], col)}
                         </td>

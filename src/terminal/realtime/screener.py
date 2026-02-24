@@ -125,7 +125,7 @@ class ScreenerSession:
 
         # Initial evaluation
         try:
-            await self._run_filter()
+            await self._run_filter(force=True)
             await self._run_values()
         except Exception:
             logger.exception(
@@ -234,7 +234,7 @@ class ScreenerSession:
     # Filter evaluation
     # ------------------------------------------------------------------
 
-    async def _run_filter(self) -> bool:
+    async def _run_filter(self, force: bool = False) -> bool:
         """Evaluate conditions and emit screener_filter if the set changed.
 
         Returns True if the visible ticker set changed.
@@ -245,8 +245,8 @@ class ScreenerSession:
         else:
             new_tickers = self._evaluate_filter()
 
-        # Only emit if the set has changed
-        if new_tickers != self._visible_tickers:
+        # Only emit if the set has changed or force is True
+        if force or new_tickers != self._visible_tickers:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
             rows = [ScreenerFilterRow(ticker=t) for t in self._visible_tickers]

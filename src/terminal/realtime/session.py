@@ -111,7 +111,6 @@ class RealtimeSession:
             await self.send(
                 ServerMessage(m="screener_session_created", p=(session_id,))
             )
-            return
 
         if msg.m == "destroy_screener":
             screener = self._screeners.pop(session_id, None)
