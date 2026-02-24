@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useWebSocket } from "./use-websocket";
 import { useWidgetState } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
@@ -46,93 +46,112 @@ export function useScreener(
     "totalSymbols",
     0,
   );
-  // Track active session ID across re-renders
-  const sessionRef = useRef<string | null>(null);
 
-  // Hash columns to detect real changes, ignore reference changes
-  const columnsHash = columns ? JSON.stringify(columns) : null;
-  const paramsKey = listId && columnsHash ? `${listId}:${columnsHash}` : null;
+  // ─── Session Stability ────────────────────────────────────────────
 
-  // Track what we actually launched through the socket
-  const activeParamsRef = useRef<string | null>(null);
+  // Session ID stays stable for the lifetime of this hook instance (normally widget mount)
+  const sessionId = useMemo(() => crypto.randomUUID(), []);
 
-  // Use a ref for the latest columns to avoid createSession stability issues
-  const columnsRef = useRef(columns);
+  // Track functional hash to avoid restarting on UI-only changes (width, name, etc.)
+  const functionalHash = useMemo(() => {
+    if (!listId || !columns) return null;
+    const functionalCols = columns.map(
+      ({
+        name,
+        visible,
+        display_color,
+        display_column_width,
+        sort,
+        display_numeric_positive_color,
+        display_numeric_negative_color,
+        display_numeric_prefix,
+        display_numeric_suffix,
+        display_numeric_show_positive_sign,
+        ...f
+      }) => f,
+    );
+    return JSON.stringify({ listId, columns: functionalCols });
+  }, [listId, columns]);
+
+  const isCreatedRef = useRef(false);
+  const lastFunctionalHashRef = useRef<string | null>(null);
+
+  // ─── Session Update Effect ────────────────────────────────────────
   useEffect(() => {
-    columnsRef.current = columns;
-  }, [columnsHash]);
+    if (!listId || !columns || !functionalHash) return;
 
-  const createSession = useCallback(() => {
-    if (!listId || !columnsRef.current || !paramsKey) return;
-    if (activeParamsRef.current === paramsKey) return;
-
-    const sessionId = crypto.randomUUID();
-    sessionRef.current = sessionId;
-    activeParamsRef.current = paramsKey;
-    setIsLoading(true);
-
-    ws.send({
-      m: "create_screener",
-      p: [sessionId, { source: listId, columns: columnsRef.current }],
-    });
-
-    return sessionId;
-  }, [listId, ws, setIsLoading, paramsKey]);
-
-  useEffect(() => {
-    if (!listId || !columnsHash || !paramsKey) {
-      // If we had a session, it will be destroyed by the cleanup of the previous effect
-      // or we can explicitly clear it if needed.
-      return;
-    }
-
-    // Small debounce to avoid flapping during boot/rapid switches
     const timer = setTimeout(() => {
-      const sessionId = createSession();
-      if (!sessionId) return;
-
-      const unsubs = [
-        ws.on("screener_filter", (msg: WSMessage) => {
-          const [sid, tickerList, totalCount] = msg.p as [
-            string,
-            ScreenerFilterRow[],
-            number,
-          ];
-          if (sid === sessionId) {
-            setTickers(tickerList);
-            setTotalSymbols(totalCount ?? tickerList.length);
-            setIsLoading(false);
-            setLastUpdate(Date.now());
-          }
-        }),
-
-        ws.on("screener_values", (msg: WSMessage) => {
-          const [sid, partialVals] = msg.p as [string, ScreenerValues];
-          if (sid === sessionId) {
-            setValues((prev) => ({
-              ...prev,
-              ...partialVals,
-            }));
-            setLastUpdate(Date.now());
-          }
-        }),
-      ];
-
-      sessionRef.current = sessionId; // Ensure ref is set for cleanup
-
-      // Store unsubs in a local variable for the cleanup closure
-      return () => unsubs.forEach((u) => u());
+      if (!isCreatedRef.current) {
+        // First initialization
+        ws.send({
+          m: "create_screener",
+          p: [sessionId, { source: listId, columns }],
+        });
+        isCreatedRef.current = true;
+        lastFunctionalHashRef.current = functionalHash;
+        setIsLoading(true);
+      } else if (functionalHash !== lastFunctionalHashRef.current) {
+        // Parameters updated (formulas, timeframe, etc.) — reuse session
+        ws.send({
+          m: "modify_screener",
+          p: [sessionId, { source: listId, columns }],
+        });
+        lastFunctionalHashRef.current = functionalHash;
+        setIsLoading(true);
+      }
     }, 100);
 
+    return () => clearTimeout(timer);
+  }, [listId, functionalHash, ws, sessionId, columns, setIsLoading]);
+
+  // ─── Message Subscriptions ────────────────────────────────────────
+  useEffect(() => {
+    const unsubs = [
+      ws.on("screener_filter", (msg: WSMessage) => {
+        const [sid, tickerList, totalCount] = msg.p as [
+          string,
+          ScreenerFilterRow[],
+          number,
+        ];
+        if (sid === sessionId) {
+          setTickers(tickerList);
+          setTotalSymbols(totalCount ?? tickerList.length);
+          setIsLoading(false);
+          setLastUpdate(Date.now());
+        }
+      }),
+
+      ws.on("screener_values", (msg: WSMessage) => {
+        const [sid, partialVals] = msg.p as [string, ScreenerValues];
+        if (sid === sessionId) {
+          setValues((prev) => ({
+            ...prev,
+            ...partialVals,
+          }));
+          setLastUpdate(Date.now());
+        }
+      }),
+    ];
+
+    return () => unsubs.forEach((u) => u());
+  }, [
+    ws,
+    sessionId,
+    setTickers,
+    setTotalSymbols,
+    setIsLoading,
+    setLastUpdate,
+    setValues,
+  ]);
+
+  // ─── Cleanup Effect (Unmount only) ─────────────────────────────────
+  useEffect(() => {
     return () => {
-      clearTimeout(timer);
-      if (sessionRef.current) {
-        ws.send({ m: "destroy_screener", p: [sessionRef.current] });
-        sessionRef.current = null;
-        activeParamsRef.current = null;
+      if (isCreatedRef.current) {
+        ws.send({ m: "destroy_screener", p: [sessionId] });
       }
     };
-  }, [paramsKey, listId, columnsHash, createSession, ws]);
+  }, [sessionId, ws]);
 
   return { tickers, values, isLoading, lastUpdate, totalSymbols };
 }

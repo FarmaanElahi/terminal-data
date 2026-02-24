@@ -46,6 +46,8 @@ function newValueColumn(): ColumnDef {
     value_formula_filter_op: "gt",
     value_formula_filter_params: [0],
     value_formula_filter_evaluate_on: "now",
+    value_formula_refresh_interval: 0,
+    display_column_width: 100,
   };
 }
 
@@ -56,9 +58,14 @@ function newConditionColumn(): ColumnDef {
     visible: true,
     type: "condition",
     filter: "off",
-    conditions: [{ formula: "C > C.1", evaluate_as: "true" }],
+    conditions: [
+      { formula: "C > C.1", evaluate_as: "true", evaluate_as_params: [] },
+    ],
     conditions_logic: "and",
+    condition_tf_mode: "fixed",
     conditions_tf: "D",
+    condition_value_x_bar_ago: 0,
+    display_column_width: 100,
   };
 }
 

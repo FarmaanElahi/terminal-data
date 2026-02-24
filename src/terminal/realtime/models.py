@@ -80,6 +80,16 @@ class ModifyScreenerRequest(ScreenerRequest):
     p: tuple[str, ScreenerParams]
 
 
+class DestroyScreenerRequest(ScreenerRequest):
+    """Destroy an existing screener session.
+
+    p structure: (session_id,)
+    """
+
+    m: Literal["destroy_screener"]
+    p: tuple[str]
+
+
 # ------------------------------------------------------------------
 # Quote requests
 # ------------------------------------------------------------------
@@ -219,6 +229,7 @@ MESSAGE_TYPES: dict[str, type[ClientMessage]] = {
     "ping": PingRequest,
     "create_screener": CreateScreenerRequest,
     "modify_screener": ModifyScreenerRequest,
+    "destroy_screener": DestroyScreenerRequest,
     "create_quote_session": CreateQuoteSessionRequest,
     "subscribe_symbols": SubscribeSymbolsRequest,
     "unsubscribe_symbols": UnsubscribeSymbolsRequest,

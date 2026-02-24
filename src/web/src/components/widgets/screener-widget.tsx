@@ -17,33 +17,53 @@ import { ScreenerStatus } from "@/components/screener/screener-status";
 
 // ─── Value Formatter ─────────────────────────────────────────────────
 
-function formatValue(val: unknown): string {
+function formatValue(val: unknown, col?: ColumnDef): React.ReactNode {
   if (val == null) return "—";
   if (typeof val === "boolean") return val ? "✓" : "✗";
   if (typeof val === "number") {
     if (!Number.isFinite(val)) return "—";
-    if (Math.abs(val) >= 1_000_000) {
-      return val.toLocaleString("en-US", {
-        maximumFractionDigits: 2,
-        minimumFractionDigits: 0,
-      });
-    }
-    if (Math.abs(val) >= 100) {
-      return val.toLocaleString("en-US", {
-        maximumFractionDigits: 2,
-        minimumFractionDigits: 2,
-      });
-    }
-    if (Math.abs(val) >= 1) {
-      return val.toLocaleString("en-US", {
-        maximumFractionDigits: 2,
-        minimumFractionDigits: 2,
-      });
-    }
-    return val.toLocaleString("en-US", {
-      maximumFractionDigits: 4,
+
+    let formatted = "";
+    const absVal = Math.abs(val);
+
+    const localeOptions: Intl.NumberFormatOptions = {
+      maximumFractionDigits: 2,
       minimumFractionDigits: 2,
-    });
+    };
+
+    if (absVal >= 1_000_000) {
+      localeOptions.minimumFractionDigits = 0;
+    } else if (absVal < 1) {
+      localeOptions.maximumFractionDigits = 4;
+    }
+
+    formatted = val.toLocaleString("en-US", localeOptions);
+
+    // Apply show positive sign
+    if (col?.display_numeric_show_positive_sign && val > 0) {
+      formatted = "+" + formatted;
+    }
+
+    // Apply prefix/suffix
+    const prefix = col?.display_numeric_prefix ?? "";
+    const suffix = col?.display_numeric_suffix ?? "";
+
+    return (
+      <span
+        style={{
+          color:
+            val > 0
+              ? col?.display_numeric_positive_color || undefined
+              : val < 0
+                ? col?.display_numeric_negative_color || undefined
+                : undefined,
+        }}
+      >
+        {prefix}
+        {formatted}
+        {suffix}
+      </span>
+    );
   }
   return String(val);
 }
@@ -259,6 +279,14 @@ export function ScreenerWidget({
                   return (
                     <th
                       key={colId}
+                      style={{
+                        width: col?.display_column_width
+                          ? `${col.display_column_width}px`
+                          : undefined,
+                        minWidth: col?.display_column_width
+                          ? `${col.display_column_width}px`
+                          : undefined,
+                      }}
                       className="text-right p-1.5 font-medium text-muted-foreground group/col"
                     >
                       <div className="flex items-center justify-end gap-1">
@@ -299,14 +327,25 @@ export function ScreenerWidget({
                     <td className="p-1.5 font-medium text-foreground">
                       {row.ticker}
                     </td>
-                    {visibleColumns.map((colId) => (
-                      <td
-                        key={colId}
-                        className="p-1.5 text-right tabular-nums text-muted-foreground"
-                      >
-                        {formatValue(values[colId]?.[originalIndex])}
-                      </td>
-                    ))}
+                    {visibleColumns.map((colId) => {
+                      const col = columnMap.get(colId);
+                      return (
+                        <td
+                          key={colId}
+                          style={{
+                            width: col?.display_column_width
+                              ? `${col.display_column_width}px`
+                              : undefined,
+                            minWidth: col?.display_column_width
+                              ? `${col.display_column_width}px`
+                              : undefined,
+                          }}
+                          className="p-1.5 text-right tabular-nums text-muted-foreground"
+                        >
+                          {formatValue(values[colId]?.[originalIndex], col)}
+                        </td>
+                      );
+                    })}
                   </tr>
                 );
               })}

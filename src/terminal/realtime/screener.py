@@ -279,7 +279,8 @@ class ScreenerSession:
                 tf = col.conditions_tf or "D"
                 df = manager.get_ohlcv(symbol, timeframe=tf)
                 if df is None or len(df) == 0:
-                    continue
+                    passes = False
+                    break
 
                 logic = col.conditions_logic or "and"
                 condition_results = self._eval_conditions(col.id, df, logic)

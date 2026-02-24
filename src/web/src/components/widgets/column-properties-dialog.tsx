@@ -4,6 +4,8 @@ import type {
   ConditionDef,
   Timeframe,
   FilterEvaluateOn,
+  TimeframeMode,
+  EvaluateAs,
 } from "@/types/models";
 import {
   Dialog,
@@ -45,6 +47,11 @@ const EVALUATE_ON: { value: FilterEvaluateOn; label: string }[] = [
   { value: "x_bar_ago", label: "X Bar Ago" },
   { value: "within_x_bars", label: "Within X Bars" },
   { value: "x_bar_in_row", label: "X Bar in Row" },
+];
+
+const TIMEFRAME_MODES: { value: TimeframeMode; label: string }[] = [
+  { value: "context", label: "Context (Inherit)" },
+  { value: "fixed", label: "Fixed Timeframe" },
 ];
 
 export function ColumnPropertiesDialog({
@@ -154,11 +161,31 @@ export function ColumnPropertiesDialog({
                       />
                     </div>
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold">
+                        Refresh (s)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={edited.value_formula_refresh_interval ?? 0}
+                        onChange={(e) =>
+                          update({
+                            value_formula_refresh_interval:
+                              parseInt(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
                 </>
               ) : (
                 <ConditionsEditor
                   conditions={edited.conditions ?? []}
                   tf={edited.conditions_tf ?? "D"}
+                  tfMode={edited.condition_tf_mode ?? "fixed"}
+                  barAgo={edited.condition_value_x_bar_ago ?? 0}
                   logic={edited.conditions_logic ?? "and"}
                   onChange={(patch) => update(patch)}
                 />
@@ -178,7 +205,6 @@ export function ColumnPropertiesDialog({
                       const nextFilter = v as ColumnDef["filter"];
                       update({
                         filter: nextFilter,
-                        // Sync numeric filter enabled state for value columns
                         ...(isValue
                           ? {
                               value_formula_filter_enabled:
@@ -199,7 +225,6 @@ export function ColumnPropertiesDialog({
                   </Select>
                 </div>
 
-                {/* Value-specific criteria filter - shown automatically when filter is on */}
                 {isValue && edited.filter !== "off" && (
                   <div className="space-y-6 pt-6 border-t animate-in fade-in slide-in-from-top-2 duration-200">
                     <div className="grid grid-cols-2 gap-4">
@@ -317,39 +342,91 @@ export function ColumnPropertiesDialog({
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold">Display Color</Label>
+                  <Label className="text-xs font-semibold">
+                    Positive Color
+                  </Label>
                   <Input
                     type="color"
                     className="h-9 p-1"
-                    value={edited.display_color ?? "#000000"}
-                    onChange={(e) => update({ display_color: e.target.value })}
+                    value={edited.display_numeric_positive_color ?? "#10b981"}
+                    onChange={(e) =>
+                      update({ display_numeric_positive_color: e.target.value })
+                    }
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-xs font-semibold">Column Width</Label>
+                  <Label className="text-xs font-semibold">
+                    Negative Color
+                  </Label>
                   <Input
-                    type="number"
-                    value={edited.display_column_width ?? 100}
+                    type="color"
+                    className="h-9 p-1"
+                    value={edited.display_numeric_negative_color ?? "#ef4444"}
                     onChange={(e) =>
-                      update({
-                        display_column_width: parseInt(e.target.value) || 0,
-                      })
+                      update({ display_numeric_negative_color: e.target.value })
                     }
                   />
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="vis-toggle"
-                  checked={edited.visible}
-                  onChange={(e) => update({ visible: e.target.checked })}
-                  className="w-4 h-4"
-                />
-                <Label htmlFor="vis-toggle" className="text-sm cursor-pointer">
-                  Visible in table
-                </Label>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Prefix</Label>
+                  <Input
+                    value={edited.display_numeric_prefix ?? ""}
+                    onChange={(e) =>
+                      update({ display_numeric_prefix: e.target.value })
+                    }
+                    placeholder="$"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Suffix</Label>
+                  <Input
+                    value={edited.display_numeric_suffix ?? ""}
+                    onChange={(e) =>
+                      update({ display_numeric_suffix: e.target.value })
+                    }
+                    placeholder="%"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="show-pos-sign"
+                    checked={edited.display_numeric_show_positive_sign ?? false}
+                    onChange={(e) =>
+                      update({
+                        display_numeric_show_positive_sign: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4"
+                  />
+                  <Label
+                    htmlFor="show-pos-sign"
+                    className="text-xs cursor-pointer"
+                  >
+                    Show + sign
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="vis-toggle"
+                    checked={edited.visible}
+                    onChange={(e) => update({ visible: e.target.checked })}
+                    className="w-4 h-4"
+                  />
+                  <Label
+                    htmlFor="vis-toggle"
+                    className="text-xs cursor-pointer"
+                  >
+                    Visible
+                  </Label>
+                </div>
               </div>
             </TabsContent>
           </div>
@@ -371,11 +448,15 @@ export function ColumnPropertiesDialog({
 function ConditionsEditor({
   conditions,
   tf,
+  tfMode,
+  barAgo,
   logic,
   onChange,
 }: {
   conditions: ConditionDef[];
   tf: Timeframe;
+  tfMode: TimeframeMode;
+  barAgo: number;
   logic: "and" | "or";
   onChange: (patch: Partial<ColumnDef>) => void;
 }) {
@@ -397,26 +478,8 @@ function ConditionsEditor({
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-4">
-        <div className="flex-1 space-y-2">
-          <Label className="text-xs font-semibold">Timeframe</Label>
-          <Select
-            value={tf}
-            onValueChange={(v) => onChange({ conditions_tf: v as Timeframe })}
-          >
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TIMEFRAMES.map((tf) => (
-                <SelectItem key={tf.value} value={tf.value}>
-                  {tf.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex-1 space-y-2">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
           <Label className="text-xs font-semibold">Logic</Label>
           <Select
             value={logic}
@@ -432,6 +495,62 @@ function ConditionsEditor({
               <SelectItem value="or">Any (OR)</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Timeframe Mode</Label>
+          <Select
+            value={tfMode}
+            onValueChange={(v) =>
+              onChange({ condition_tf_mode: v as TimeframeMode })
+            }
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEFRAME_MODES.map((tm) => (
+                <SelectItem key={tm.value} value={tm.value}>
+                  {tm.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Timeframe</Label>
+          <Select
+            disabled={tfMode === "context"}
+            value={tf}
+            onValueChange={(v) => onChange({ conditions_tf: v as Timeframe })}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEFRAMES.map((tf) => (
+                <SelectItem key={tf.value} value={tf.value}>
+                  {tf.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs font-semibold">Bar Ago</Label>
+          <Input
+            type="number"
+            min={0}
+            value={barAgo}
+            onChange={(e) =>
+              onChange({
+                condition_value_x_bar_ago: parseInt(e.target.value) || 0,
+              })
+            }
+            className="h-9"
+          />
         </div>
       </div>
 
@@ -449,41 +568,104 @@ function ConditionsEditor({
         </Label>
         <div className="space-y-3">
           {conditions.map((c, i) => (
-            <div key={i} className="flex gap-2 items-start group">
-              <div className="flex-1">
+            <div
+              key={i}
+              className="flex flex-col gap-2 p-3 border rounded-md bg-muted/10 relative group"
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500"
+                onClick={() => removeCond(i)}
+              >
+                <X className="w-3 h-3" />
+              </Button>
+
+              <div className="space-y-1.5">
                 <FormulaEditor
                   value={c.formula}
                   onChange={(v) => updateCond(i, { formula: v })}
                   height={64}
                 />
               </div>
-              <Select
-                value={c.evaluate_as ?? "true"}
-                onValueChange={(v) =>
-                  updateCond(i, {
-                    evaluate_as: v as ConditionDef["evaluate_as"],
-                  })
-                }
-              >
-                <SelectTrigger className="h-8 w-24 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="true">Is True</SelectItem>
-                  <SelectItem value="gt">Greater Than</SelectItem>
-                  <SelectItem value="lt">Less Than</SelectItem>
-                  <SelectItem value="in_between">In Between</SelectItem>
-                  <SelectItem value="rank">Rank</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-red-500"
-                onClick={() => removeCond(i)}
-              >
-                <X className="w-3 h-3" />
-              </Button>
+
+              <div className="flex items-center gap-2">
+                <Select
+                  value={c.evaluate_as ?? "true"}
+                  onValueChange={(v) => {
+                    const nextEval = v as EvaluateAs;
+                    let nextParams: any[] = [];
+                    if (nextEval === "gt" || nextEval === "lt")
+                      nextParams = [0];
+                    if (nextEval === "in_between") nextParams = [0, 100];
+                    if (nextEval === "rank") nextParams = [10];
+
+                    updateCond(i, {
+                      evaluate_as: nextEval,
+                      evaluate_as_params: nextParams,
+                    });
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-32 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Is True</SelectItem>
+                    <SelectItem value="gt">Greater Than</SelectItem>
+                    <SelectItem value="lt">Less Than</SelectItem>
+                    <SelectItem value="in_between">In Between</SelectItem>
+                    <SelectItem value="rank">Rank (Top X)</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {(c.evaluate_as === "gt" ||
+                  c.evaluate_as === "lt" ||
+                  c.evaluate_as === "rank") && (
+                  <Input
+                    type="number"
+                    className="h-8 w-20 text-xs"
+                    value={String(c.evaluate_as_params?.[0] ?? 0)}
+                    onChange={(e) =>
+                      updateCond(i, {
+                        evaluate_as_params: [parseFloat(e.target.value) || 0],
+                      })
+                    }
+                  />
+                )}
+                {c.evaluate_as === "in_between" && (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      type="number"
+                      className="h-8 w-16 text-xs"
+                      value={String(c.evaluate_as_params?.[0] ?? 0)}
+                      onChange={(e) =>
+                        updateCond(i, {
+                          evaluate_as_params: [
+                            parseFloat(e.target.value) || 0,
+                            c.evaluate_as_params?.[1] ?? 100,
+                          ],
+                        })
+                      }
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      to
+                    </span>
+                    <Input
+                      type="number"
+                      className="h-8 w-16 text-xs"
+                      value={String(c.evaluate_as_params?.[1] ?? 100)}
+                      onChange={(e) =>
+                        updateCond(i, {
+                          evaluate_as_params: [
+                            c.evaluate_as_params?.[0] ?? 0,
+                            parseFloat(e.target.value) || 0,
+                          ],
+                        })
+                      }
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           ))}
           {conditions.length === 0 && (
