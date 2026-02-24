@@ -14,8 +14,10 @@ if TYPE_CHECKING:
 
 from terminal.column.models import ColumnDef
 from terminal.lists import service as lists_service
+from terminal.symbols import service as symbols_service
 from terminal.database.core import engine
 from terminal.formula import FormulaError, evaluate, parse
+from terminal.config import settings
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -57,6 +59,9 @@ class ScreenerSession:
         self._symbols: list[str] = []
         self._columns: list[ColumnDef] = []
         self._visible_tickers: list[str] | None = None  # None = never emitted
+        self._metadata: dict[
+            str, dict[str, Any]
+        ] = {}  # ticker -> metadata (name, logo, etc.)
 
         # Cached parsed ASTs (built once at _start)
         self._parsed_columns: list[tuple[ColumnDef, object | None]] = []
@@ -104,7 +109,7 @@ class ScreenerSession:
     async def _start(self) -> None:
         """Load data, run initial evaluation, and start background loops."""
         try:
-            self._load_data()
+            await self._load_data()
         except Exception:
             logger.exception("Failed to load data for screener %s", self.session_id)
             return
@@ -153,7 +158,7 @@ class ScreenerSession:
     # Data loading (DB) + Formula caching
     # ------------------------------------------------------------------
 
-    def _load_data(self) -> None:
+    async def _load_data(self) -> None:
         """Load list symbols and column definitions from the database."""
         self._symbols = []
         self._columns = []
@@ -193,6 +198,16 @@ class ScreenerSession:
                 "Screener %s: loaded %d columns",
                 self.session_id,
                 len(self._columns),
+            )
+
+            # Fetch metadata for all symbols
+            self._metadata = await symbols_service.get_metadata_by_tickers(
+                self.realtime.manager.provider.fs, settings, self._symbols
+            )
+            logger.info(
+                "Screener %s: loaded metadata for %d symbols",
+                self.session_id,
+                len(self._metadata),
             )
 
     def _cache_formulas(self) -> None:
@@ -249,7 +264,28 @@ class ScreenerSession:
         if force or new_tickers != self._visible_tickers:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
-            rows = [ScreenerFilterRow(ticker=t) for t in self._visible_tickers]
+
+            # Get initial values for the "full dataframe" response
+            initial_values = self._evaluate_columns()
+            self._last_values.update(initial_values)
+
+            rows = []
+            for t in self._visible_tickers:
+                meta = self._metadata.get(t, {})
+                # Extract values for this specific row
+                row_values = {
+                    cid: vals[self._visible_tickers.index(t)]
+                    for cid, vals in initial_values.items()
+                }
+                rows.append(
+                    ScreenerFilterRow(
+                        ticker=t,
+                        name=meta.get("name"),
+                        logo=meta.get("logo"),
+                        v=row_values,
+                    )
+                )
+
             await self.realtime.send(
                 ScreenerFilterResponse(p=(self.session_id, rows, len(self._symbols)))
             )
@@ -360,6 +396,13 @@ class ScreenerSession:
             col_values = []
             for symbol in self._visible_tickers:
                 if col.type == "value":
+                    if col.value_type == "field":
+                        # Pull from symbol metadata
+                        meta = self._metadata.get(symbol, {})
+                        val = meta.get(col.id)
+                        col_values.append(val)
+                        continue
+
                     if col_ast is None:
                         col_values.append(None)
                         continue
@@ -513,6 +556,12 @@ class ScreenerSession:
             col_result: dict[str, Any] = {}
             for symbol in symbols:
                 if col.type == "value":
+                    if col.value_type == "field":
+                        # Pull from symbol metadata
+                        meta = self._metadata.get(symbol, {})
+                        col_result[symbol] = meta.get(col.id)
+                        continue
+
                     if col_ast is None:
                         col_result[symbol] = None
                         continue

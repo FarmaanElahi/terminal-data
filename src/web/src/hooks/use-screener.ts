@@ -116,6 +116,22 @@ export function useScreener(
         if (sid === sessionId) {
           setTickers(tickerList);
           setTotalSymbols(totalCount ?? tickerList.length);
+
+          // Full dataframe: Extract initial values from the filter rows
+          const initialValues: ScreenerValues = {};
+          tickerList.forEach((row) => {
+            if (row.v) {
+              Object.entries(row.v).forEach(([colId, val]) => {
+                if (!initialValues[colId]) initialValues[colId] = [];
+                initialValues[colId].push(val);
+              });
+            }
+          });
+
+          if (Object.keys(initialValues).length > 0) {
+            setValues(initialValues);
+          }
+
           setIsLoading(false);
           setLastUpdate(Date.now());
         }

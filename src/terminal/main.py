@@ -10,7 +10,8 @@ from fastapi.responses import ORJSONResponse
 from .api import api_router as api_router
 from .logging import configure_logging
 from .realtime.handler import router as realtime_router
-from .dependencies import get_market_manager
+from .dependencies import get_market_manager, get_fs, get_settings
+from .symbols import service as symbols_service
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,10 @@ async def lifespan(application: FastAPI):
     task = asyncio.create_task(manager.start())
     task.add_done_callback(handle_startup_task)
     application.state.md_startup_task = task
+
+    # Preload symbols
+    logger.info("Preloading symbols...")
+    await symbols_service.init(get_fs(), get_settings())
 
     yield
 

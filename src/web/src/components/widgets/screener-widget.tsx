@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useScreener } from "@/hooks/use-screener";
 import { columnsApi } from "@/lib/api";
@@ -101,6 +101,8 @@ export function ScreenerWidget({
     key: "ticker",
     direction: "asc",
   });
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement>(null);
 
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
   const columnSetId = (s.columnSetId as string) ?? columnSets?.[0]?.id ?? null;
@@ -254,6 +256,33 @@ export function ScreenerWidget({
     [onSettingsChange, selectedColumnSet, visibleColumns],
   );
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (sortedIndices.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => {
+        if (prev === null) return 0;
+        return Math.min(prev + 1, sortedIndices.length - 1);
+      });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => {
+        if (prev === null) return 0;
+        return Math.max(prev - 1, 0);
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (selectedIndex !== null && selectedRowRef.current) {
+      selectedRowRef.current.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [selectedIndex]);
+
   const renderSortIcon = (key: string) => {
     if (sortConfig.key !== key) return null;
     return sortConfig.direction === "asc" ? (
@@ -309,7 +338,11 @@ export function ScreenerWidget({
         </button>
       </div>
 
-      <div className="flex-1 overflow-auto pb-10">
+      <div
+        className="flex-1 overflow-auto pb-10 outline-none focus-within:ring-1 focus-within:ring-primary/20"
+        tabIndex={0}
+        onKeyDown={handleKeyDown}
+      >
         {tickers.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             No data
@@ -395,12 +428,16 @@ export function ScreenerWidget({
               </tr>
             </thead>
             <tbody>
-              {sortedIndices.map((originalIndex) => {
+              {sortedIndices.map((originalIndex, i) => {
                 const row = tickers[originalIndex];
+                const isSelected = i === selectedIndex;
                 return (
                   <tr
                     key={row.ticker}
-                    className="border-b border-border/50 hover:bg-muted/30 transition-colors"
+                    ref={isSelected ? selectedRowRef : null}
+                    className={`border-b border-border/50 transition-colors ${
+                      isSelected ? "bg-primary/10" : "hover:bg-muted/30"
+                    }`}
                   >
                     <td
                       style={{
@@ -408,7 +445,30 @@ export function ScreenerWidget({
                       }}
                       className="p-1.5 font-medium text-foreground truncate"
                     >
-                      {row.ticker}
+                      <div className="flex items-center gap-2">
+                        {row.logo ? (
+                          <img
+                            src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
+                            alt=""
+                            className="w-4 h-4 rounded-full bg-muted shrink-0"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display =
+                                "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
+                            {row.ticker.substring(0, 1)}
+                          </div>
+                        )}
+                        <div className="flex items-center min-w-0">
+                          <span className="truncate">
+                            {row.ticker.includes(":")
+                              ? row.ticker.split(":")[1]
+                              : row.ticker}
+                          </span>
+                        </div>
+                      </div>
                     </td>
                     {visibleColumns.map((colId) => {
                       const col = columnMap.get(colId);

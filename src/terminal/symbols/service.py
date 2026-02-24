@@ -25,7 +25,9 @@ async def search(
     """
     Search symbols using Pandas DataFrame.
     """
-    df = await _ensure_data_loaded(fs, settings)
+    if _symbols_df is None:
+        raise RuntimeError("Symbols service not initialized. Call init() first.")
+    df = _symbols_df
 
     if df.empty:
         return []
@@ -120,7 +122,7 @@ async def refresh(
     return len(symbols)
 
 
-async def _ensure_data_loaded(fs: Any, settings: Settings) -> pd.DataFrame:
+async def init(fs: Any, settings: Settings) -> pd.DataFrame:
     global _symbols_df
     if _symbols_df is not None:
         return _symbols_df
@@ -158,7 +160,9 @@ async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str
     """
     Returns available filter options (markets, indexes, types).
     """
-    df = await _ensure_data_loaded(fs, settings)
+    if _symbols_df is None:
+        return {"markets": [], "types": [], "indexes": []}
+    df = _symbols_df
 
     if df.empty:
         return {"markets": [], "types": [], "indexes": []}
@@ -186,10 +190,29 @@ async def all_ticker(fs: AbstractFileSystem, settings: Settings) -> list[str]:
     """
     Returns a list of all symbol tickers.
     """
-    df = await _ensure_data_loaded(fs, settings)
+    if _symbols_df is None:
+        return []
+    df = _symbols_df
     if df.empty:
         return []
     return df["ticker"].dropna().unique().tolist()
+
+
+async def get_metadata_by_tickers(
+    fs: AbstractFileSystem, settings: Settings, tickers: list[str]
+) -> dict[str, dict[str, Any]]:
+    """
+    Returns metadata for a list of tickers.
+    """
+    if _symbols_df is None:
+        return {}
+    df = _symbols_df
+    if df.empty:
+        return {}
+
+    # Filter by tickers
+    filtered_df = df[df["ticker"].isin(tickers)]
+    return filtered_df.set_index("ticker").to_dict(orient="index")
 
 
 async def get_all_symbols_external() -> list[dict[str, Any]]:

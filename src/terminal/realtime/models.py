@@ -204,6 +204,7 @@ class ScreenerFilterRow(BaseModel):
     ticker: str
     name: str | None = None
     logo: str | None = None
+    v: dict[str, Any] | None = None  # Full row values (id -> value)
 
 
 class ScreenerFilterResponse(ServerMessage):

@@ -29,7 +29,8 @@ export type ServerMessageType =
 export interface ScreenerFilterRow {
   ticker: string;
   name: string;
-  logo_id?: string;
+  logo?: string;
+  v?: Record<string, unknown>;
 }
 
 import type { ColumnDef } from "./models";
