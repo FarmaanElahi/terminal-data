@@ -139,6 +139,19 @@ export function ScreenerWidget({
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(true);
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
+  const [ringStyle, setRingStyle] = useState({ top: 0, height: 0, opacity: 0 });
+
+  useEffect(() => {
+    if (selectedIndex !== null && selectedRowRef.current) {
+      setRingStyle({
+        top: selectedRowRef.current.offsetTop,
+        height: selectedRowRef.current.offsetHeight,
+        opacity: 1,
+      });
+    } else {
+      setRingStyle((prev) => ({ ...prev, opacity: 0 }));
+    }
+  }, [selectedIndex, sortConfig]);
 
   useEffect(() => {
     // Basic theme detection
@@ -471,7 +484,15 @@ export function ScreenerWidget({
                 })}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="relative">
+              <div
+                className="absolute left-0 right-0 pointer-events-none transition-all duration-200 ease-out z-20 ring-1 ring-inset ring-primary"
+                style={{
+                  top: ringStyle.top,
+                  height: ringStyle.height,
+                  opacity: ringStyle.opacity,
+                }}
+              />
               {sortedIndices.map((originalIndex, i) => {
                 const row = tickers[originalIndex];
                 const isSelected = i === selectedIndex;
@@ -479,9 +500,8 @@ export function ScreenerWidget({
                   <tr
                     key={row.ticker}
                     ref={isSelected ? selectedRowRef : null}
-                    className={`border-b border-border/50 transition-colors ${
-                      isSelected ? "bg-primary/10" : "hover:bg-muted/30"
-                    }`}
+                    onClick={() => setSelectedIndex(i)}
+                    className="border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer"
                   >
                     <td
                       style={{
