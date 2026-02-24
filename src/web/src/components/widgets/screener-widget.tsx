@@ -12,6 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Filter, Settings, ChevronUp, ChevronDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { listsApi } from "@/lib/api";
 import { ColumnEditor } from "./column-editor";
 import { ScreenerStatus } from "@/components/screener/screener-status";
 
@@ -101,6 +107,189 @@ function formatValue(
   }
 
   return <span style={{ color: finalColor }}>{String(val)}</span>;
+}
+
+// ─── Color Mapping ──────────────────────────────────────────────────
+
+const FLAG_COLORS: Record<string, string> = {
+  red: "text-red-500 fill-red-500",
+  green: "text-green-500 fill-green-500",
+  yellow: "text-yellow-500 fill-yellow-500",
+  blue: "text-blue-500 fill-blue-500",
+  purple: "text-purple-500 fill-purple-500",
+};
+
+// Custom Flag Icon matching user image (horizontal ribbon)
+function FlagIcon({
+  className,
+  onClick,
+}: {
+  className?: string;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      preserveAspectRatio="none"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      onClick={onClick}
+    >
+      <path d="M0 0h24l-8 12 8 12H0V0z" fill="currentColor" />
+    </svg>
+  );
+}
+
+const COLOR_OPTIONS = [
+  { label: "Red", value: "red", className: "bg-red-500" },
+  { label: "Green", value: "green", className: "bg-green-500" },
+  { label: "Yellow", value: "yellow", className: "bg-yellow-500" },
+  { label: "Blue", value: "blue", className: "bg-blue-500" },
+  { label: "Purple", value: "purple", className: "bg-purple-500" },
+];
+
+// ─── FlagCell Component ─────────────────────────────────────────────
+
+interface FlagCellProps {
+  ticker: string;
+}
+
+function FlagCell({ ticker }: FlagCellProps) {
+  const lists = useAuthStore((st) => st.lists);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+
+  // Find if this symbol is in any color list
+  const colorList = useMemo(() => {
+    return lists.find((l) => l.type === "color" && l.symbols.includes(ticker));
+  }, [lists, ticker]);
+
+  const currentColor = colorList?.color ?? null;
+
+  const handleFlagClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    // If already flagged, toggle off
+    if (currentColor) {
+      try {
+        await listsApi.removeSymbols(colorList!.id, [ticker]);
+        // Update local store state optimistically
+        useAuthStore.setState((state) => ({
+          lists: state.lists.map((l) =>
+            l.id === colorList!.id
+              ? { ...l, symbols: l.symbols.filter((s) => s !== ticker) }
+              : l,
+          ),
+        }));
+      } catch (err) {
+        console.error("Failed to remove symbol from list:", err);
+      }
+      return;
+    }
+
+    // If not flagged, add to last used color or red
+    const lastUsedColor = localStorage.getItem("last_flag_color") || "red";
+    const targetList = lists.find(
+      (l) => l.type === "color" && l.color === lastUsedColor,
+    );
+
+    if (targetList) {
+      try {
+        await listsApi.appendSymbols(targetList.id, [ticker]);
+        useAuthStore.setState((state) => ({
+          lists: state.lists.map((l) =>
+            l.id === targetList.id
+              ? { ...l, symbols: [...l.symbols, ticker] }
+              : l,
+          ),
+        }));
+      } catch (err) {
+        console.error("Failed to add symbol to list:", err);
+      }
+    }
+  };
+
+  const handleColorSelect = async (color: string) => {
+    setPopoverOpen(false);
+
+    // If same color is clicked, clear it
+    if (currentColor === color) {
+      await handleFlagClick({ stopPropagation: () => {} } as any);
+      return;
+    }
+
+    localStorage.setItem("last_flag_color", color);
+
+    const targetList = lists.find(
+      (l) => l.type === "color" && l.color === color,
+    );
+    if (!targetList) return;
+
+    try {
+      await listsApi.appendSymbols(targetList.id, [ticker]);
+      // Note: Backend handles removal from other color lists, but we need to update local state
+      // To be safe and simple, let's just update all color lists in state
+      useAuthStore.setState((state) => ({
+        lists: state.lists.map((l) => {
+          if (l.type !== "color") return l;
+          if (l.id === targetList.id) {
+            return {
+              ...l,
+              symbols: Array.from(new Set([...l.symbols, ticker])),
+            };
+          }
+          return { ...l, symbols: l.symbols.filter((s) => s !== ticker) };
+        }),
+      }));
+    } catch (err) {
+      console.error("Failed to add symbol to list:", err);
+    }
+  };
+
+  return (
+    <DropdownMenu open={popoverOpen} onOpenChange={setPopoverOpen}>
+      <DropdownMenuTrigger asChild>
+        <button
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setPopoverOpen(true);
+          }}
+          className={`group/flag relative h-full w-3 outline-none transition-opacity ${
+            currentColor ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          <FlagIcon
+            onClick={handleFlagClick}
+            className={`w-full h-full transition-all ${
+              currentColor
+                ? FLAG_COLORS[currentColor] || "text-primary/80"
+                : "text-muted-foreground/10 hover:text-muted-foreground/20"
+            }`}
+          />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className="w-auto p-2 flex gap-2 bg-card border-border"
+        align="start"
+      >
+        {COLOR_OPTIONS.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => handleColorSelect(opt.value)}
+            className={`w-5 h-5 rounded-full ${opt.className} hover:scale-110 transition-transform ${
+              currentColor === opt.value
+                ? "ring-2 ring-white ring-offset-1 ring-offset-background"
+                : ""
+            }`}
+            title={opt.label}
+          />
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 const FILTER_CYCLE: Record<FilterState, FilterState> = {
@@ -392,22 +581,30 @@ export function ScreenerWidget({
             No data
           </div>
         ) : (
-          <table ref={tableRef} className="w-max text-xs table-fixed">
+          <table
+            ref={tableRef}
+            className="w-max text-xs table-fixed border-separate border-spacing-0"
+          >
             <thead>
-              <tr className="border-b border-border sticky top-0 bg-card z-10">
+              <tr className="z-10">
                 <th
                   style={{
                     width: (s.ticker_width as number) ?? 100,
                   }}
-                  className="text-left p-1.5 font-medium text-muted-foreground transition-colors group relative overflow-hidden whitespace-nowrap"
+                  className="text-left py-1.5 pr-1.5 font-medium text-muted-foreground transition-colors group/ticker overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20"
                 >
-                  <div
-                    className="flex items-center h-full cursor-pointer hover:text-foreground truncate"
-                    onClick={() => handleSort("ticker")}
-                  >
-                    Ticker
-                    {renderSortIcon("ticker")}
+                  <div className="flex items-center h-full">
+                    <div className="w-4 shrink-0" />{" "}
+                    {/* Spacer for flag + gap */}
+                    <div
+                      className="flex items-center h-full cursor-pointer hover:text-foreground truncate"
+                      onClick={() => handleSort("ticker")}
+                    >
+                      Ticker
+                      {renderSortIcon("ticker")}
+                    </div>
                   </div>
+                  <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
                   <div
                     onMouseDown={(e) =>
                       onResizeStart(
@@ -431,7 +628,7 @@ export function ScreenerWidget({
                       style={{
                         width: col?.display_column_width ?? 100,
                       }}
-                      className="text-right p-1.5 font-medium text-muted-foreground group/col relative overflow-hidden whitespace-nowrap"
+                      className="text-right p-1.5 font-medium text-muted-foreground group/col overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20"
                     >
                       <div className="flex items-center justify-end gap-1">
                         {hasFilter && (
@@ -455,6 +652,7 @@ export function ScreenerWidget({
                           {renderSortIcon(colId)}
                         </span>
                       </div>
+                      <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
                       <div
                         onMouseDown={(e) =>
                           onResizeStart(
@@ -481,7 +679,7 @@ export function ScreenerWidget({
                     ref={isSelected ? selectedRowRef : null}
                     onClick={() => setSelectedIndex(i)}
                     data-selected={isSelected}
-                    className="border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
+                    className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
                   >
                     <td
                       style={{
@@ -489,28 +687,31 @@ export function ScreenerWidget({
                       }}
                       className="p-1.5 font-medium text-foreground truncate"
                     >
-                      <div className="flex items-center gap-2">
-                        {row.logo ? (
-                          <img
-                            src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
-                            alt=""
-                            className="w-4 h-4 rounded-full bg-muted shrink-0"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display =
-                                "none";
-                            }}
-                          />
-                        ) : (
-                          <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
-                            {row.ticker.substring(0, 1)}
+                      <div className="flex items-center h-full gap-1">
+                        <FlagCell ticker={row.ticker} />
+                        <div className="flex items-center gap-2 flex-1 min-w-0 pr-1.5">
+                          {row.logo ? (
+                            <img
+                              src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
+                              alt=""
+                              className="w-4 h-4 rounded-full bg-muted shrink-0"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display =
+                                  "none";
+                              }}
+                            />
+                          ) : (
+                            <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
+                              {row.ticker.substring(0, 1)}
+                            </div>
+                          )}
+                          <div className="flex items-center min-w-0">
+                            <span className="truncate">
+                              {row.ticker.includes(":")
+                                ? row.ticker.split(":")[1]
+                                : row.ticker}
+                            </span>
                           </div>
-                        )}
-                        <div className="flex items-center min-w-0">
-                          <span className="truncate">
-                            {row.ticker.includes(":")
-                              ? row.ticker.split(":")[1]
-                              : row.ticker}
-                          </span>
                         </div>
                       </div>
                     </td>
