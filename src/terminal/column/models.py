@@ -1,12 +1,12 @@
 """Models for the column module."""
 
-from typing import Literal
+from typing import Literal, Any
 
 from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from terminal.condition.models import TimeframeLiteral
+from terminal.condition.models import TimeframeLiteral, TimeframeMode
 from terminal.database.core import Base
 from terminal.models import PrimaryKeyModel, TerminalBase, TimeStampMixin
 
@@ -21,13 +21,8 @@ class ColumnDef(BaseModel):
 
     id: str
     name: str
-    type: Literal["value", "condition", "tag"]
-    timeframe: TimeframeLiteral | None = "D"
-    formula: str | None = None
-    bar_ago: int | None = None
     visible: bool = True
-    condition_id: str | None = None  # reference to a ConditionSet
-    condition_logic: Literal["and", "or"] = "and"
+    type: Literal["value", "condition"]
     filter: Literal["active", "inactive", "off"] = "off"
 
 

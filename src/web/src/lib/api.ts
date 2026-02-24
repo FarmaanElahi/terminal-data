@@ -133,10 +133,29 @@ export interface BootResponse {
   column_sets: ColumnSet[];
   condition_sets: ConditionSet[];
   formulas: Formula[];
+  editor_config: FormulaEditorConfig;
 }
 
 export const bootApi = {
   boot: () => api.get<BootResponse>("/boot"),
 };
+// ─── Formulas API ──────────────────────────────────────────────────
+export const formulasApi = {
+  editorConfig: () => api.get<FormulaEditorConfig>("/formulas/editor-config"),
+};
+
+export interface FormulaEditorConfig {
+  languageId: string;
+  tokenizerRules: Record<string, unknown>;
+  languageConfig: Record<string, unknown>;
+  completionItems: Array<{
+    label: string;
+    kind: string;
+    detail: string;
+    documentation?: string;
+    insertText: string;
+    insertTextRules?: string;
+  }>;
+}
 
 export default api;

@@ -6,7 +6,7 @@ import type {
   ConditionSet,
   Formula,
 } from "@/types/models";
-import { authApi, bootApi } from "@/lib/api";
+import { authApi, bootApi, type FormulaEditorConfig } from "@/lib/api";
 import { terminalWS } from "@/lib/ws";
 
 interface AuthState {
@@ -21,6 +21,7 @@ interface AuthState {
   columnSets: ColumnSet[];
   conditionSets: ConditionSet[];
   formulas: Formula[];
+  editorConfig: FormulaEditorConfig | null;
 
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
@@ -40,6 +41,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   columnSets: [],
   conditionSets: [],
   formulas: [],
+  editorConfig: null,
 
   login: async (username: string, password: string) => {
     set({ isLoading: true });
@@ -58,6 +60,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         columnSets: boot.column_sets,
         conditionSets: boot.condition_sets,
         formulas: boot.formulas,
+        editorConfig: boot.editor_config,
         isAuthenticated: true,
         isBooted: true,
         isLoading: false,
@@ -92,6 +95,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       columnSets: [],
       conditionSets: [],
       formulas: [],
+      editorConfig: null,
     });
   },
 
@@ -108,6 +112,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         columnSets: boot.column_sets,
         conditionSets: boot.condition_sets,
         formulas: boot.formulas,
+        editorConfig: boot.editor_config,
         isAuthenticated: true,
         isBooted: true,
       });

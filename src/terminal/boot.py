@@ -18,6 +18,7 @@ async def boot(
     from terminal.column import service as column_service
     from terminal.condition import service as condition_service
     from terminal.formula import service as formula_service
+    from terminal.formula.monaco import editor_config
 
     lists_service.ensure_default_lists(session, current_user.id)
 
@@ -31,4 +32,5 @@ async def boot(
         "column_sets": column_service.all(session, current_user.id),
         "condition_sets": condition_service.all(session, current_user.id),
         "formulas": formula_service.all(session, current_user.id),
+        "editor_config": editor_config(),
     }
