@@ -8,6 +8,7 @@ literal and a validated ``p`` shape.
 from typing import Any, Literal
 
 from pydantic import BaseModel
+import orjson
 
 
 # ------------------------------------------------------------------
@@ -129,6 +130,12 @@ class ServerMessage(BaseModel):
 
     m: str
     p: tuple[Any, ...] | None = None
+
+    def serialize(self) -> bytes:
+        return orjson.dumps(
+            self.model_dump(exclude_none=True),
+            option=orjson.OPT_SERIALIZE_NUMPY | orjson.OPT_NON_STR_KEYS,
+        )
 
 
 class ErrorMessage(ServerMessage):

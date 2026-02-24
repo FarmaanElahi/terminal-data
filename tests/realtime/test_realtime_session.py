@@ -1,5 +1,6 @@
 """Unit tests for RealtimeSession."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,9 +10,9 @@ from terminal.realtime.session import RealtimeSession
 
 @pytest.fixture
 def ws_mock() -> AsyncMock:
-    """Fake WebSocket that records send_json calls."""
+    """Fake WebSocket that records send_text calls."""
     ws = AsyncMock()
-    ws.send_json = AsyncMock()
+    ws.send_bytes = AsyncMock()
     return ws
 
 
@@ -36,7 +37,8 @@ class TestPing:
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"m": "ping"})
-        ws_mock.send_json.assert_awaited_once_with({"m": "pong"})
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
+        assert sent == {"m": "pong"}
 
 
 class TestUnknownType:
@@ -45,7 +47,7 @@ class TestUnknownType:
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"m": "foobar"})
-        sent = ws_mock.send_json.call_args[0][0]
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
         assert sent["m"] == "error"
         assert "Unknown" in sent["p"][0]
 
@@ -56,7 +58,7 @@ class TestInvalidMessage:
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"bad": "data"})
-        sent = ws_mock.send_json.call_args[0][0]
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
         assert sent["m"] == "error"
         assert "Missing" in sent["p"][0]
 
@@ -73,9 +75,8 @@ class TestCreateScreenerSession:
         self, mock_start, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.handle({"m": "create_screener", "p": ["scr1", None]})
-        ws_mock.send_json.assert_awaited_once_with(
-            {"m": "screener_session_created", "p": ("scr1",)}
-        )
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
+        assert sent == {"m": "screener_session_created", "p": ["scr1"]}
         assert "scr1" in session._screeners
         assert session._screeners["scr1"].params.source is None
 
@@ -87,9 +88,8 @@ class TestCreateScreenerSession:
         params = {"source": "list1", "filter_active": False}
         await session.handle({"m": "create_screener", "p": ["scr2", params]})
 
-        ws_mock.send_json.assert_awaited_once_with(
-            {"m": "screener_session_created", "p": ("scr2",)}
-        )
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
+        assert sent == {"m": "screener_session_created", "p": ["scr2"]}
         assert "scr2" in session._screeners
         assert session._screeners["scr2"].params.source == "list1"
         assert session._screeners["scr2"].params.filter_active is False
@@ -115,7 +115,7 @@ class TestCreateScreenerSession:
         ws_mock.reset_mock()
 
         await session.handle({"m": "create_screener", "p": ["scr1", None]})
-        sent = ws_mock.send_json.call_args[0][0]
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
         assert sent["m"] == "error"
         assert "already exists" in sent["p"][0]
 
@@ -135,7 +135,7 @@ class TestModifyScreener:
         await session.handle({"m": "modify_screener", "p": ["scr1", new_params]})
 
         # No response expected for modify (start is mocked)
-        ws_mock.send_json.assert_not_called()
+        ws_mock.send_bytes.assert_not_called()
         assert session._screeners["scr1"].params.source == "list_updated"
         assert session._screeners["scr1"].params.column_set_id == "cs1"
 
@@ -147,7 +147,7 @@ class TestModifyScreener:
         params = {"source": "list1"}
         await session.handle({"m": "modify_screener", "p": ["unknown", params]})
 
-        sent = ws_mock.send_json.call_args[0][0]
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
         assert sent["m"] == "error"
         assert "not found" in sent["p"][0]
 
@@ -173,4 +173,5 @@ class TestMessaging:
         self, session: RealtimeSession, ws_mock: AsyncMock
     ) -> None:
         await session.send_error("bad input")
-        ws_mock.send_json.assert_awaited_once_with({"m": "error", "p": ("bad input",)})
+        sent = json.loads(ws_mock.send_bytes.call_args[0][0].decode("utf-8"))
+        assert sent == {"m": "error", "p": ["bad input"]}

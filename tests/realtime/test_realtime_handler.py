@@ -1,5 +1,7 @@
 """Integration tests for the realtime WebSocket handler."""
 
+import json
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -44,7 +46,7 @@ class TestAuth:
     def test_valid_token_accepted(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "ping"})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp == {"m": "pong"}
 
 
@@ -57,7 +59,7 @@ class TestPing:
     def test_ping_pong(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "ping"})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp == {"m": "pong"}
 
 
@@ -72,7 +74,7 @@ class TestScreener:
     ) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "create_screener", "p": ["scr1", None]})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp == {"m": "screener_session_created", "p": ["scr1"]}
 
     def test_create_screener_session_with_params(
@@ -81,7 +83,7 @@ class TestScreener:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             params = {"source": "list_a"}
             ws.send_json({"m": "create_screener", "p": ["scr2", params]})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp == {"m": "screener_session_created", "p": ["scr2"]}
 
 
@@ -94,13 +96,13 @@ class TestErrors:
     def test_unknown_type(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "foobar"})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp["m"] == "error"
 
     def test_invalid_message(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"bad": "data"})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp["m"] == "error"
             assert "Missing" in resp["p"][0]
 
@@ -109,8 +111,8 @@ class TestErrors:
     ) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"bad": "data"})
-            ws.receive_json()  # error
+            json.loads(ws.receive_bytes().decode("utf-8"))  # error
 
             ws.send_json({"m": "ping"})
-            resp = ws.receive_json()
+            resp = json.loads(ws.receive_bytes().decode("utf-8"))
             assert resp == {"m": "pong"}
