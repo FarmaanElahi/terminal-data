@@ -54,6 +54,30 @@ const TIMEFRAME_MODES: { value: TimeframeMode; label: string }[] = [
   { value: "fixed", label: "Fixed Timeframe" },
 ];
 
+// ─── Internal Components ─────────────────────────────────────────────
+
+function SettingsSection({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`space-y-3 ${className}`}>
+      <div className="flex items-center gap-2">
+        <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+          {title}
+        </h4>
+        <div className="h-px flex-1 bg-border/50" />
+      </div>
+      <div className="space-y-4 px-0.5">{children}</div>
+    </div>
+  );
+}
+
 export function ColumnPropertiesDialog({
   open,
   onClose,
@@ -84,7 +108,7 @@ export function ColumnPropertiesDialog({
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="w-4 h-4 text-muted-foreground" />
-            Column Properties: {edited.name || "New Column"}
+            {edited.name || "New Column"}
           </DialogTitle>
         </DialogHeader>
 
@@ -112,323 +136,432 @@ export function ColumnPropertiesDialog({
             </TabsList>
           </div>
 
-          <div className="p-6 h-[400px] overflow-y-auto overflow-x-visible">
-            {/* ─── Formula/Conditions Tab ────────────────────────── */}
-            <TabsContent value="formula" className="mt-0 space-y-6">
-              {isValue ? (
-                <>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold">Formula</Label>
-                    <FormulaEditor
-                      value={edited.value_formula ?? ""}
-                      onChange={(v) => update({ value_formula: v })}
-                      height={180}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
+          <div className="p-0 h-[450px] overflow-hidden flex flex-col">
+            <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+              {/* ─── Formula/Conditions Tab ────────────────────────── */}
+              <TabsContent value="formula" className="mt-0 space-y-8 pb-4">
+                {isValue ? (
+                  <>
+                    <SettingsSection title="Calculation Source">
+                      <div className="space-y-2">
+                        <Label className="text-[11px] text-muted-foreground">
+                          Formula
+                        </Label>
+                        <FormulaEditor
+                          value={edited.value_formula ?? ""}
+                          onChange={(v) => update({ value_formula: v })}
+                          height={160}
+                        />
+                      </div>
+                    </SettingsSection>
+
+                    <SettingsSection title="Evaluation Context">
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[11px] text-muted-foreground">
+                            Timeframe
+                          </Label>
+                          <Select
+                            value={edited.value_formula_tf ?? "D"}
+                            onValueChange={(v) =>
+                              update({ value_formula_tf: v as Timeframe })
+                            }
+                          >
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TIMEFRAMES.map((tf) => (
+                                <SelectItem key={tf.value} value={tf.value}>
+                                  {tf.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-[11px] text-muted-foreground">
+                            Bar Ago
+                          </Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-8 text-xs"
+                            value={edited.value_formula_x_bar_ago ?? 0}
+                            onChange={(e) =>
+                              update({
+                                value_formula_x_bar_ago:
+                                  parseInt(e.target.value) || 0,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[11px] text-muted-foreground">
+                            Refresh Interval (seconds)
+                          </Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-8 text-xs"
+                            value={edited.value_formula_refresh_interval ?? 0}
+                            onChange={(e) =>
+                              update({
+                                value_formula_refresh_interval:
+                                  parseInt(e.target.value) || 0,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </SettingsSection>
+                  </>
+                ) : (
+                  <ConditionsEditor
+                    conditions={edited.conditions ?? []}
+                    tf={edited.conditions_tf ?? "D"}
+                    tfMode={edited.condition_tf_mode ?? "fixed"}
+                    barAgo={edited.condition_value_x_bar_ago ?? 0}
+                    logic={edited.conditions_logic ?? "and"}
+                    onChange={(patch) => update(patch)}
+                  />
+                )}
+              </TabsContent>
+
+              {/* ─── Filter Tab ───────────────────────────────────── */}
+              <TabsContent value="filter" className="mt-0 space-y-8">
+                <SettingsSection title="Screener Filter">
+                  <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold">Timeframe</Label>
+                      <Label className="text-[11px] text-muted-foreground">
+                        Status
+                      </Label>
                       <Select
-                        value={edited.value_formula_tf ?? "D"}
-                        onValueChange={(v) =>
-                          update({ value_formula_tf: v as Timeframe })
-                        }
+                        value={edited.filter ?? "off"}
+                        onValueChange={(v) => {
+                          const nextFilter = v as ColumnDef["filter"];
+                          update({
+                            filter: nextFilter,
+                            ...(isValue
+                              ? {
+                                  value_formula_filter_enabled:
+                                    nextFilter !== "off",
+                                }
+                              : {}),
+                          });
+                        }}
                       >
-                        <SelectTrigger className="h-9">
+                        <SelectTrigger className="w-full h-8 text-xs">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {TIMEFRAMES.map((tf) => (
-                            <SelectItem key={tf.value} value={tf.value}>
-                              {tf.label}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="off">
+                            Off (Visible Only)
+                          </SelectItem>
+                          <SelectItem value="active">
+                            Active (Matches)
+                          </SelectItem>
+                          <SelectItem value="inactive">
+                            Inactive (Does not match)
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold">Bar Ago</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={edited.value_formula_x_bar_ago ?? 0}
-                        onChange={(e) =>
-                          update({
-                            value_formula_x_bar_ago:
-                              parseInt(e.target.value) || 0,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold">
-                        Refresh (s)
-                      </Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={edited.value_formula_refresh_interval ?? 0}
-                        onChange={(e) =>
-                          update({
-                            value_formula_refresh_interval:
-                              parseInt(e.target.value) || 0,
-                          })
-                        }
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <ConditionsEditor
-                  conditions={edited.conditions ?? []}
-                  tf={edited.conditions_tf ?? "D"}
-                  tfMode={edited.condition_tf_mode ?? "fixed"}
-                  barAgo={edited.condition_value_x_bar_ago ?? 0}
-                  logic={edited.conditions_logic ?? "and"}
-                  onChange={(patch) => update(patch)}
-                />
-              )}
-            </TabsContent>
 
-            {/* ─── Filter Tab ───────────────────────────────────── */}
-            <TabsContent value="filter" className="mt-0 space-y-6">
-              <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Filter
-                  </Label>
-                  <Select
-                    value={edited.filter ?? "off"}
-                    onValueChange={(v) => {
-                      const nextFilter = v as ColumnDef["filter"];
-                      update({
-                        filter: nextFilter,
-                        ...(isValue
-                          ? {
-                              value_formula_filter_enabled:
-                                nextFilter !== "off",
-                            }
-                          : {}),
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="w-full h-9 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="off">Off</SelectItem>
-                      <SelectItem value="active">Active</SelectItem>
-                      <SelectItem value="inactive">Inactive</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                    {isValue && edited.filter !== "off" && (
+                      <div className="space-y-6 pt-4 border-t animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="grid grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <Label className="text-[11px] text-muted-foreground">
+                              Operator
+                            </Label>
+                            <Select
+                              value={edited.value_formula_filter_op ?? "gt"}
+                              onValueChange={(v) =>
+                                update({
+                                  value_formula_filter_op: v as "gt" | "lt",
+                                })
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="gt">
+                                  Greater Than (&gt;)
+                                </SelectItem>
+                                <SelectItem value="lt">
+                                  Less Than (&lt;)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-[11px] text-muted-foreground">
+                              Threshold Value
+                            </Label>
+                            <Input
+                              type="number"
+                              className="h-8 text-xs"
+                              value={String(
+                                edited.value_formula_filter_params?.[0] ?? 0,
+                              )}
+                              onChange={(e) =>
+                                update({
+                                  value_formula_filter_params: [
+                                    parseFloat(e.target.value) || 0,
+                                  ],
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
 
-                {isValue && edited.filter !== "off" && (
-                  <div className="space-y-6 pt-6 border-t animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          Operator
-                        </Label>
-                        <Select
-                          value={edited.value_formula_filter_op ?? "gt"}
-                          onValueChange={(v) =>
-                            update({
-                              value_formula_filter_op: v as "gt" | "lt",
-                            })
-                          }
-                        >
-                          <SelectTrigger className="h-9 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="gt">
-                              Greater Than (&gt;)
-                            </SelectItem>
-                            <SelectItem value="lt">Less Than (&lt;)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          Threshold Value
-                        </Label>
-                        <Input
-                          type="number"
-                          className="h-9 text-xs"
-                          value={String(
-                            edited.value_formula_filter_params?.[0] ?? 0,
+                        <div className="grid grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <Label className="text-[11px] text-muted-foreground">
+                              Evaluation Mode
+                            </Label>
+                            <Select
+                              value={
+                                edited.value_formula_filter_evaluate_on ?? "now"
+                              }
+                              onValueChange={(v) =>
+                                update({
+                                  value_formula_filter_evaluate_on:
+                                    v as FilterEvaluateOn,
+                                })
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {EVALUATE_ON.map((o) => (
+                                  <SelectItem key={o.value} value={o.value}>
+                                    {o.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {edited.value_formula_filter_evaluate_on !==
+                            "now" && (
+                            <div className="space-y-2">
+                              <Label className="text-[11px] text-muted-foreground">
+                                Bars Lookback
+                              </Label>
+                              <Input
+                                type="number"
+                                className="h-8 text-xs"
+                                min={1}
+                                value={String(
+                                  edited
+                                    .value_formula_filter_evaluate_on_params?.[0] ??
+                                    1,
+                                )}
+                                onChange={(e) =>
+                                  update({
+                                    value_formula_filter_evaluate_on_params: [
+                                      parseInt(e.target.value) || 1,
+                                    ],
+                                  })
+                                }
+                              />
+                            </div>
                           )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </SettingsSection>
+              </TabsContent>
+
+              {/* ─── Display Tab ──────────────────────────────────── */}
+              <TabsContent
+                value="display"
+                className="mt-0 space-y-8 pb-4 focus-visible:outline-none"
+              >
+                <SettingsSection title="Identity">
+                  <div className="space-y-2">
+                    <Label className="text-[11px] text-muted-foreground">
+                      Column Display Name
+                    </Label>
+                    <Input
+                      className="h-8 text-xs"
+                      value={edited.name}
+                      onChange={(e) => update({ name: e.target.value })}
+                    />
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection title="Visual Style">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Default Color
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="color"
+                          className="h-8 w-10 p-1 shrink-0 bg-transparent"
+                          value={edited.display_color || "#94a3b8"}
+                          onChange={(e) =>
+                            update({ display_color: e.target.value })
+                          }
+                        />
+                        <Input
+                          className="h-8 text-[11px] font-mono flex-1"
+                          value={edited.display_color || ""}
+                          onChange={(e) =>
+                            update({ display_color: e.target.value })
+                          }
+                          placeholder="#RRGGBB"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col justify-end pb-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="vis-toggle"
+                          checked={edited.visible}
+                          onChange={(e) =>
+                            update({ visible: e.target.checked })
+                          }
+                          className="w-3.5 h-3.5 rounded-sm bg-muted border-border text-primary focus:ring-1 focus:ring-primary/20"
+                        />
+                        <Label
+                          htmlFor="vis-toggle"
+                          className="text-xs cursor-pointer select-none"
+                        >
+                          Visible in Table
+                        </Label>
+                      </div>
+                    </div>
+                  </div>
+                </SettingsSection>
+
+                <SettingsSection title="Numeric Highlighting">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Positive Value Color
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="color"
+                          className="h-8 w-8 p-1 shrink-0 bg-transparent border-none"
+                          value={
+                            edited.display_numeric_positive_color ?? "#10b981"
+                          }
                           onChange={(e) =>
                             update({
-                              value_formula_filter_params: [
-                                parseFloat(e.target.value) || 0,
-                              ],
+                              display_numeric_positive_color: e.target.value,
+                            })
+                          }
+                        />
+                        <Input
+                          className="h-8 text-[11px] font-mono flex-1"
+                          value={
+                            edited.display_numeric_positive_color ?? "#10b981"
+                          }
+                          onChange={(e) =>
+                            update({
+                              display_numeric_positive_color: e.target.value,
                             })
                           }
                         />
                       </div>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                          Evaluation Mode
-                        </Label>
-                        <Select
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Negative Value Color
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="color"
+                          className="h-8 w-8 p-1 shrink-0 bg-transparent border-none"
                           value={
-                            edited.value_formula_filter_evaluate_on ?? "now"
+                            edited.display_numeric_negative_color ?? "#ef4444"
                           }
-                          onValueChange={(v) =>
+                          onChange={(e) =>
                             update({
-                              value_formula_filter_evaluate_on:
-                                v as FilterEvaluateOn,
+                              display_numeric_negative_color: e.target.value,
                             })
                           }
-                        >
-                          <SelectTrigger className="h-9 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {EVALUATE_ON.map((o) => (
-                              <SelectItem key={o.value} value={o.value}>
-                                {o.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        />
+                        <Input
+                          className="h-8 text-[11px] font-mono flex-1"
+                          value={
+                            edited.display_numeric_negative_color ?? "#ef4444"
+                          }
+                          onChange={(e) =>
+                            update({
+                              display_numeric_negative_color: e.target.value,
+                            })
+                          }
+                        />
                       </div>
-                      {edited.value_formula_filter_evaluate_on !== "now" && (
-                        <div className="space-y-1.5">
-                          <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                            Bars Lookback
-                          </Label>
-                          <Input
-                            type="number"
-                            className="h-9 text-xs"
-                            min={1}
-                            value={String(
-                              edited
-                                .value_formula_filter_evaluate_on_params?.[0] ??
-                                1,
-                            )}
-                            onChange={(e) =>
-                              update({
-                                value_formula_filter_evaluate_on_params: [
-                                  parseInt(e.target.value) || 1,
-                                ],
-                              })
-                            }
-                          />
-                        </div>
-                      )}
                     </div>
                   </div>
-                )}
-              </div>
-            </TabsContent>
+                </SettingsSection>
 
-            {/* ─── Display Tab ──────────────────────────────────── */}
-            <TabsContent value="display" className="mt-0 space-y-6">
-              <div className="space-y-2">
-                <Label className="text-xs font-semibold">Column Name</Label>
-                <Input
-                  value={edited.name}
-                  onChange={(e) => update({ name: e.target.value })}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold">
-                    Positive Color
-                  </Label>
-                  <Input
-                    type="color"
-                    className="h-9 p-1"
-                    value={edited.display_numeric_positive_color ?? "#10b981"}
-                    onChange={(e) =>
-                      update({ display_numeric_positive_color: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold">
-                    Negative Color
-                  </Label>
-                  <Input
-                    type="color"
-                    className="h-9 p-1"
-                    value={edited.display_numeric_negative_color ?? "#ef4444"}
-                    onChange={(e) =>
-                      update({ display_numeric_negative_color: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold">Prefix</Label>
-                  <Input
-                    value={edited.display_numeric_prefix ?? ""}
-                    onChange={(e) =>
-                      update({ display_numeric_prefix: e.target.value })
-                    }
-                    placeholder="$"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs font-semibold">Suffix</Label>
-                  <Input
-                    value={edited.display_numeric_suffix ?? ""}
-                    onChange={(e) =>
-                      update({ display_numeric_suffix: e.target.value })
-                    }
-                    placeholder="%"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="show-pos-sign"
-                    checked={edited.display_numeric_show_positive_sign ?? false}
-                    onChange={(e) =>
-                      update({
-                        display_numeric_show_positive_sign: e.target.checked,
-                      })
-                    }
-                    className="w-4 h-4"
-                  />
-                  <Label
-                    htmlFor="show-pos-sign"
-                    className="text-xs cursor-pointer"
-                  >
-                    Show + sign
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="vis-toggle"
-                    checked={edited.visible}
-                    onChange={(e) => update({ visible: e.target.checked })}
-                    className="w-4 h-4"
-                  />
-                  <Label
-                    htmlFor="vis-toggle"
-                    className="text-xs cursor-pointer"
-                  >
-                    Visible
-                  </Label>
-                </div>
-              </div>
-            </TabsContent>
+                <SettingsSection title="Data Formatting">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Prefix
+                      </Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        value={edited.display_numeric_prefix ?? ""}
+                        onChange={(e) =>
+                          update({ display_numeric_prefix: e.target.value })
+                        }
+                        placeholder="$"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Suffix
+                      </Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        value={edited.display_numeric_suffix ?? ""}
+                        onChange={(e) =>
+                          update({ display_numeric_suffix: e.target.value })
+                        }
+                        placeholder="%"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-2">
+                    <input
+                      type="checkbox"
+                      id="show-pos-sign"
+                      checked={
+                        edited.display_numeric_show_positive_sign ?? false
+                      }
+                      onChange={(e) =>
+                        update({
+                          display_numeric_show_positive_sign: e.target.checked,
+                        })
+                      }
+                      className="w-3.5 h-3.5 rounded-sm bg-muted border-border text-primary focus:ring-1 focus:ring-primary/20"
+                    />
+                    <Label
+                      htmlFor="show-pos-sign"
+                      className="text-xs cursor-pointer select-none"
+                    >
+                      Show positive (+) sign for upticks
+                    </Label>
+                  </div>
+                </SettingsSection>
+              </TabsContent>
+            </div>
           </div>
         </Tabs>
 

@@ -54,15 +54,15 @@ function registerFormulaLanguage(
     ],
     colors: {
       "editor.background": "#00000000", // transparent — inherits from container
-      "editor.foreground": "#e2e8f0",
+      "editor.foreground": "#e2e8f0", // --foreground
       "editorCursor.foreground": "#e2e8f0",
       "editor.lineHighlightBackground": "#00000000",
-      "editor.selectionBackground": "#334155",
-      "editorSuggestWidget.background": "#1e293b",
-      "editorSuggestWidget.border": "#334155",
+      "editor.selectionBackground": "#26272d", // --muted/border
+      "editorSuggestWidget.background": "#18191e", // --popover
+      "editorSuggestWidget.border": "#2a2b32", // --border
       "editorSuggestWidget.foreground": "#e2e8f0",
-      "editorSuggestWidget.selectedBackground": "#334155",
-      "editorSuggestWidget.highlightForeground": "#93c5fd",
+      "editorSuggestWidget.selectedBackground": "#26272d",
+      "editorSuggestWidget.highlightForeground": "#4f87ff", // --primary
     },
   });
 
@@ -204,7 +204,7 @@ export function FormulaEditor({
 
   return (
     <div
-      className="border border-border rounded-sm overflow-visible bg-card relative"
+      className="border border-border rounded-sm overflow-visible bg-background relative pr-2"
       style={{ height: `${height}px` }}
     >
       <Editor
@@ -219,7 +219,7 @@ export function FormulaEditor({
           lineNumbers: "off",
           glyphMargin: false,
           folding: false,
-          lineDecorationsWidth: 0,
+          lineDecorationsWidth: 8,
           lineNumbersMinChars: 0,
           minimap: { enabled: false },
           scrollbar: { horizontal: "auto", vertical: "auto" },
@@ -229,12 +229,11 @@ export function FormulaEditor({
           hideCursorInOverviewRuler: true,
           contextmenu: false,
           fontSize: 12,
-          fontFamily:
-            "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
+          fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
           suggestOnTriggerCharacters: true,
           quickSuggestions: true,
           wordBasedSuggestions: "off",
-          fixedOverflowWidgets: false, // Fixed widgets collide with Dialog transforms
+          fixedOverflowWidgets: true, // Allow widgets to overflow container bounds
           padding: { top: 8, bottom: 8 },
           scrollBeyondLastLine: false,
           automaticLayout: true,

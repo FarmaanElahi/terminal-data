@@ -48,6 +48,7 @@ function newValueColumn(): ColumnDef {
     value_formula_filter_evaluate_on: "now",
     value_formula_refresh_interval: 0,
     display_column_width: 100,
+    display_color: "#94a3b8",
   };
 }
 
@@ -66,6 +67,7 @@ function newConditionColumn(): ColumnDef {
     conditions_tf: "D",
     condition_value_x_bar_ago: 0,
     display_column_width: 100,
+    display_color: "#94a3b8",
   };
 }
 
@@ -212,6 +214,14 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
                 {/* Name / Info */}
                 <div className="pr-2 flex flex-col justify-center overflow-hidden">
                   <div className="flex items-center gap-2">
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{
+                        backgroundColor:
+                          col.display_color || "var(--muted-foreground)",
+                      }}
+                      title={`Color: ${col.display_color || "Default"}`}
+                    />
                     <span className="text-xs font-medium text-foreground truncate">
                       {col.name}
                     </span>

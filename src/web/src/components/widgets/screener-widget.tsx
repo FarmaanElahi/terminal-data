@@ -17,9 +17,45 @@ import { ScreenerStatus } from "@/components/screener/screener-status";
 
 // ─── Value Formatter ─────────────────────────────────────────────────
 
-function formatValue(val: unknown, col?: ColumnDef): React.ReactNode {
+function isWhite(color: string): boolean {
+  const c = color.toLowerCase();
+  return (
+    c === "white" ||
+    c === "#fff" ||
+    c === "#ffffff" ||
+    c === "rgb(255,255,255)" ||
+    c === "rgba(255,255,255,1)"
+  );
+}
+
+function isBlack(color: string): boolean {
+  const c = color.toLowerCase();
+  return (
+    c === "black" ||
+    c === "#000" ||
+    c === "#000000" ||
+    c === "rgb(0,0,0)" ||
+    c === "rgba(0,0,0,1)"
+  );
+}
+
+function formatValue(
+  val: unknown,
+  col?: ColumnDef,
+  isDark = true,
+): React.ReactNode {
   if (val == null) return "—";
   if (typeof val === "boolean") return val ? "✓" : "✗";
+
+  const adjustColor = (color: string | null | undefined) => {
+    if (!color) return undefined;
+    if (isDark && isBlack(color)) return "var(--foreground)";
+    if (!isDark && isWhite(color)) return "var(--foreground)";
+    return color;
+  };
+
+  let finalColor = adjustColor(col?.display_color);
+
   if (typeof val === "number") {
     if (!Number.isFinite(val)) return "—";
 
@@ -44,28 +80,27 @@ function formatValue(val: unknown, col?: ColumnDef): React.ReactNode {
       formatted = "+" + formatted;
     }
 
+    // Apply specific numeric colors if defined
+    if (val > 0 && col?.display_numeric_positive_color) {
+      finalColor = adjustColor(col.display_numeric_positive_color);
+    } else if (val < 0 && col?.display_numeric_negative_color) {
+      finalColor = adjustColor(col.display_numeric_negative_color);
+    }
+
     // Apply prefix/suffix
     const prefix = col?.display_numeric_prefix ?? "";
     const suffix = col?.display_numeric_suffix ?? "";
 
     return (
-      <span
-        style={{
-          color:
-            val > 0
-              ? col?.display_numeric_positive_color || undefined
-              : val < 0
-                ? col?.display_numeric_negative_color || undefined
-                : undefined,
-        }}
-      >
+      <span style={{ color: finalColor }}>
         {prefix}
         {formatted}
         {suffix}
       </span>
     );
   }
-  return String(val);
+
+  return <span style={{ color: finalColor }}>{String(val)}</span>;
 }
 
 const FILTER_CYCLE: Record<FilterState, FilterState> = {
@@ -102,7 +137,16 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [isDark, setIsDark] = useState(true);
   const selectedRowRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    // Basic theme detection
+    const theme =
+      document.documentElement.classList.contains("dark") ||
+      !document.documentElement.classList.contains("light");
+    setIsDark(theme);
+  }, []);
 
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
   const columnSetId = (s.columnSetId as string) ?? columnSets?.[0]?.id ?? null;
@@ -480,7 +524,11 @@ export function ScreenerWidget({
                           }}
                           className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
                         >
-                          {formatValue(values[colId]?.[originalIndex], col)}
+                          {formatValue(
+                            values[colId]?.[originalIndex],
+                            col,
+                            isDark,
+                          )}
                         </td>
                       );
                     })}
