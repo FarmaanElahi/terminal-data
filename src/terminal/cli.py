@@ -123,7 +123,7 @@ def refresh_symbols(
 
     async def _run():
         typer.echo(f"Fetching symbols for market '{market}' from TradingView...")
-        fs = await get_fs()
+        fs = get_fs()
         symbols = await symbol_service.get_all_symbols_external()
 
         if not symbols:
