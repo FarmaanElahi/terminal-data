@@ -1,10 +1,20 @@
-import { useMemo, useState, useCallback, useRef, useEffect } from "react";
+import {
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useDeferredValue,
+  memo,
+} from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import { useScreener } from "@/hooks/use-screener";
 import { columnsApi } from "@/lib/api";
 import type { WidgetProps } from "@/types/layout";
 import type { ColumnDef, FilterState } from "@/types/models";
+import type { ScreenerFilterRow, ScreenerValues } from "@/types/ws";
 import {
   Select,
   SelectContent,
@@ -133,24 +143,49 @@ function AnimatedValue({
 }) {
   const [isFlashing, setIsFlashing] = useState(false);
   const prevValue = useRef(value);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Only flash if the functional value actually changed
     if (value !== prevValue.current) {
-      setIsFlashing(true);
-      const timer = setTimeout(() => setIsFlashing(false), 1000);
       prevValue.current = value;
-      return () => clearTimeout(timer);
+
+      // Clear any pending reset timer
+      if (resetTimerRef.current) {
+        clearTimeout(resetTimerRef.current);
+      }
+
+      // Force reset if already flashing to restart the animation cleanly
+      setIsFlashing(false);
+
+      const timer = setTimeout(() => {
+        setIsFlashing(true);
+        resetTimerRef.current = setTimeout(() => {
+          setIsFlashing(false);
+          resetTimerRef.current = null;
+        }, 800);
+      }, 10); // Small delay to allow CSS reset
+
+      return () => {
+        clearTimeout(timer);
+        if (resetTimerRef.current) clearTimeout(resetTimerRef.current);
+      };
     }
   }, [value]);
+
+  const formatted = useMemo(
+    () => formatValue(value, col, isDark),
+    [value, col, isDark],
+  );
 
   return (
     <div
       className={cn(
-        "transition-all duration-300",
-        isFlashing && "font-bold scale-105 brightness-125",
+        "transition-all duration-300 will-change-[transform,filter]",
+        isFlashing && "font-bold scale-110 brightness-125",
       )}
     >
-      {formatValue(value, col, isDark)}
+      {formatted}
     </div>
   );
 }
@@ -338,6 +373,97 @@ function FlagCell({ ticker }: FlagCellProps) {
   );
 }
 
+// ─── ScreenerRow Component ──────────────────────────────────────────
+const ScreenerRow = memo(
+  ({
+    row,
+    originalIndex,
+    visualIndex,
+    isSelected,
+    onSelect,
+    visibleColumns,
+    columnMap,
+    values,
+    isDark,
+    getColWidth,
+  }: {
+    row: ScreenerFilterRow;
+    originalIndex: number;
+    visualIndex: number;
+    isSelected: boolean;
+    onSelect: (index: number) => void;
+    visibleColumns: string[];
+    columnMap: Map<string, ColumnDef>;
+    values: ScreenerValues;
+    isDark: boolean;
+    getColWidth: (colId: string, fallback: number) => number;
+  }) => {
+    return (
+      <tr
+        onClick={() => onSelect(visualIndex)}
+        data-selected={isSelected}
+        className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
+      >
+        <td
+          style={{
+            width: getColWidth("ticker", 100),
+            minWidth: getColWidth("ticker", 100),
+            maxWidth: getColWidth("ticker", 100),
+          }}
+          className="p-1.5 font-medium text-foreground truncate"
+        >
+          <div className="flex items-center h-full gap-1">
+            <FlagCell ticker={row.ticker} />
+            <div className="flex items-center gap-2 flex-1 min-w-0 pr-1.5">
+              {row.logo ? (
+                <img
+                  src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
+                  alt=""
+                  className="w-4 h-4 rounded-full bg-muted shrink-0"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              ) : (
+                <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
+                  {row.ticker.substring(0, 1)}
+                </div>
+              )}
+              <div className="flex items-center min-w-0">
+                <span className="truncate">
+                  {row.ticker.includes(":")
+                    ? row.ticker.split(":")[1]
+                    : row.ticker}
+                </span>
+              </div>
+            </div>
+          </div>
+        </td>
+        {visibleColumns.map((colId) => {
+          const col = columnMap.get(colId);
+          return (
+            <td
+              key={colId}
+              style={{
+                width: getColWidth(colId, 100),
+                minWidth: getColWidth(colId, 100),
+                maxWidth: getColWidth(colId, 100),
+              }}
+              className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
+            >
+              <AnimatedValue
+                value={values[colId]?.[originalIndex]}
+                col={col}
+                isDark={isDark}
+              />
+            </td>
+          );
+        })}
+      </tr>
+    );
+  },
+);
+
 const FILTER_CYCLE: Record<FilterState, FilterState> = {
   off: "active",
   active: "inactive",
@@ -367,13 +493,16 @@ export function ScreenerWidget({
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
     key: "ticker",
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [isDark, setIsDark] = useState(true);
-  const selectedRowRef = useRef<HTMLTableRowElement>(null);
+
+  // Live column widths during resize — overrides stored widths while dragging
+  const [liveWidths, setLiveWidths] = useState<Record<string, number>>({});
 
   useEffect(() => {
     // Basic theme detection
@@ -414,6 +543,10 @@ export function ScreenerWidget({
     selectedColumnSet?.columns || null,
   );
 
+  // Defer high-frequency updates to keep the UI responsive during massive re-renders
+  const deferredTickers = useDeferredValue(tickers);
+  const deferredValues = useDeferredValue(values);
+
   const handleSort = (key: string) => {
     setSortConfig((prev) => {
       if (prev.key === key) {
@@ -425,33 +558,35 @@ export function ScreenerWidget({
   };
 
   const sortedIndices = useMemo(() => {
-    const indices = tickers.map((_, i) => i);
+    if (deferredTickers.length === 0) return [];
+    // Only pre-allocate array once to avoid GC pressure
+    const indices = Array.from({ length: deferredTickers.length }, (_, i) => i);
     const { key, direction } = sortConfig;
     if (!key || !direction) return indices;
 
-    return [...indices].sort((a, b) => {
+    return indices.sort((a, b) => {
       let valA: any;
       let valB: any;
 
       if (key === "ticker") {
-        valA = tickers[a].ticker;
-        valB = tickers[b].ticker;
+        valA = deferredTickers[a].ticker;
+        valB = deferredTickers[b].ticker;
       } else {
-        valA = values[key]?.[a];
-        valB = values[key]?.[b];
+        valA = deferredValues[key]?.[a];
+        valB = deferredValues[key]?.[b];
       }
 
-      if (valA === valB) return 0;
+      const multiplier = direction === "asc" ? 1 : -1;
+      if (valA === valB) return (a - b) * multiplier;
       if (valA == null) return 1;
       if (valB == null) return -1;
 
-      const multiplier = direction === "asc" ? 1 : -1;
       if (typeof valA === "string" && typeof valB === "string") {
         return valA.localeCompare(valB) * multiplier;
       }
       return (valA < valB ? -1 : 1) * multiplier;
     });
-  }, [tickers, values, sortConfig]);
+  }, [deferredTickers, deferredValues, sortConfig]);
 
   const handleFilterToggle = useCallback(
     async (colId: string) => {
@@ -486,54 +621,69 @@ export function ScreenerWidget({
       e.stopPropagation();
 
       const startX = e.clientX;
-      let finalWidth = currentWidth;
 
       const onMouseMove = (moveEvent: MouseEvent) => {
         const delta = moveEvent.clientX - startX;
-        finalWidth = Math.max(10, currentWidth + delta);
-
-        if (tableRef.current) {
-          // Find the specific column in the table (including ticker)
-          const ths = tableRef.current.querySelectorAll("th");
-          const idx =
-            colId === "ticker"
-              ? 0
-              : visibleColumns.indexOf(colId) + (colId === "ticker" ? 0 : 1);
-
-          if (ths[idx]) {
-            ths[idx].style.width = `${finalWidth}px`;
-          }
-        }
+        const newWidth = Math.max(40, currentWidth + delta);
+        setLiveWidths((prev) => ({ ...prev, [colId]: newWidth }));
       };
 
       const onMouseUp = () => {
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
 
-        if (colId === "ticker") {
-          onSettingsChange({ ticker_width: finalWidth });
-        } else if (selectedColumnSet) {
-          useAuthStore.setState((state) => ({
-            columnSets: state.columnSets.map((cs) => {
-              if (cs.id !== selectedColumnSet.id) return cs;
-              return {
-                ...cs,
-                columns: cs.columns.map((c) =>
-                  c.id === colId
-                    ? { ...c, display_column_width: finalWidth }
-                    : c,
-                ),
-              };
-            }),
-          }));
-        }
+        // Read the final width from liveWidths
+        setLiveWidths((prev) => {
+          const finalWidth = prev[colId] ?? currentWidth;
+
+          if (colId === "ticker") {
+            onSettingsChange({ ticker_width: finalWidth });
+          } else if (selectedColumnSet) {
+            useAuthStore.setState((state) => ({
+              columnSets: state.columnSets.map((cs) => {
+                if (cs.id !== selectedColumnSet.id) return cs;
+                return {
+                  ...cs,
+                  columns: cs.columns.map((c) =>
+                    c.id === colId
+                      ? { ...c, display_column_width: finalWidth }
+                      : c,
+                  ),
+                };
+              }),
+            }));
+          }
+
+          // Clear the live width for this column
+          const { [colId]: _, ...rest } = prev;
+          return rest;
+        });
       };
 
       window.addEventListener("mousemove", onMouseMove);
       window.addEventListener("mouseup", onMouseUp);
     },
-    [onSettingsChange, selectedColumnSet, visibleColumns],
+    [onSettingsChange, selectedColumnSet],
   );
+
+  // Helper to get effective column width (live during drag, stored otherwise)
+  const getColWidth = useCallback(
+    (colId: string, fallback: number) => {
+      if (colId in liveWidths) return liveWidths[colId];
+      if (colId === "ticker") return (s.ticker_width as number) ?? fallback;
+      return columnMap.get(colId)?.display_column_width ?? fallback;
+    },
+    [liveWidths, s.ticker_width, columnMap],
+  );
+
+  const ROW_HEIGHT = 28; // px — matches p-1.5 + text-xs
+
+  const rowVirtualizer = useVirtualizer({
+    count: sortedIndices.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 15,
+  });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (sortedIndices.length === 0) return;
@@ -554,13 +704,10 @@ export function ScreenerWidget({
   };
 
   useEffect(() => {
-    if (selectedIndex !== null && selectedRowRef.current) {
-      selectedRowRef.current.scrollIntoView({
-        block: "nearest",
-        behavior: "smooth",
-      });
+    if (selectedIndex !== null) {
+      rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
     }
-  }, [selectedIndex]);
+  }, [selectedIndex, rowVirtualizer]);
 
   const renderSortIcon = (key: string) => {
     if (sortConfig.key !== key) return null;
@@ -618,6 +765,7 @@ export function ScreenerWidget({
       </div>
 
       <div
+        ref={scrollContainerRef}
         className="flex-1 overflow-auto pb-10 outline-none focus-within:ring-1 focus-within:ring-primary/20"
         tabIndex={0}
         onKeyDown={handleKeyDown}
@@ -629,15 +777,17 @@ export function ScreenerWidget({
         ) : (
           <table
             ref={tableRef}
-            className="w-max text-xs table-fixed border-separate border-spacing-0"
+            className="w-max text-xs table-fixed border-collapse"
           >
             <thead>
               <tr className="z-10">
                 <th
                   style={{
-                    width: (s.ticker_width as number) ?? 100,
+                    width: getColWidth("ticker", 100),
+                    minWidth: getColWidth("ticker", 100),
+                    maxWidth: getColWidth("ticker", 100),
                   }}
-                  className="text-left py-1.5 pr-1.5 font-medium text-muted-foreground transition-colors group/ticker overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20"
+                  className="text-left py-1.5 pr-1.5 font-medium text-muted-foreground transition-colors group/ticker overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20 will-change-transform backface-hidden"
                 >
                   <div className="flex items-center h-full">
                     <div className="w-4 shrink-0" />{" "}
@@ -653,11 +803,7 @@ export function ScreenerWidget({
                   <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
                   <div
                     onMouseDown={(e) =>
-                      onResizeStart(
-                        e,
-                        "ticker",
-                        (s.ticker_width as number) ?? 100,
-                      )
+                      onResizeStart(e, "ticker", getColWidth("ticker", 100))
                     }
                     className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
                   />
@@ -672,9 +818,11 @@ export function ScreenerWidget({
                     <th
                       key={colId}
                       style={{
-                        width: col?.display_column_width ?? 100,
+                        width: getColWidth(colId, 100),
+                        minWidth: getColWidth(colId, 100),
+                        maxWidth: getColWidth(colId, 100),
                       }}
-                      className="text-right p-1.5 font-medium text-muted-foreground group/col overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20"
+                      className="text-right p-1.5 font-medium text-muted-foreground group/col overflow-hidden whitespace-nowrap sticky top-0 bg-card z-20 will-change-transform backface-hidden"
                     >
                       <div className="flex items-center justify-end gap-1">
                         {hasFilter && (
@@ -701,11 +849,7 @@ export function ScreenerWidget({
                       <div className="absolute bottom-0 left-0 right-0 h-px bg-border" />
                       <div
                         onMouseDown={(e) =>
-                          onResizeStart(
-                            e,
-                            colId,
-                            col?.display_column_width ?? 100,
-                          )
+                          onResizeStart(e, colId, getColWidth(colId, 100))
                         }
                         className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors z-20"
                       />
@@ -715,73 +859,60 @@ export function ScreenerWidget({
                 })}
               </tr>
             </thead>
-            <tbody className="relative">
-              {sortedIndices.map((originalIndex, i) => {
-                const row = tickers[originalIndex];
-                const isSelected = i === selectedIndex;
+            <tbody>
+              {(() => {
+                const virtualItems = rowVirtualizer.getVirtualItems();
+                const paddingTop =
+                  virtualItems.length > 0 ? virtualItems[0].start : 0;
+                const paddingBottom =
+                  virtualItems.length > 0
+                    ? rowVirtualizer.getTotalSize() -
+                      virtualItems[virtualItems.length - 1].end
+                    : 0;
+
                 return (
-                  <tr
-                    key={row.ticker}
-                    ref={isSelected ? selectedRowRef : null}
-                    onClick={() => setSelectedIndex(i)}
-                    data-selected={isSelected}
-                    className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
-                  >
-                    <td
-                      style={{
-                        width: (s.ticker_width as number) ?? 100,
-                      }}
-                      className="p-1.5 font-medium text-foreground truncate"
-                    >
-                      <div className="flex items-center h-full gap-1">
-                        <FlagCell ticker={row.ticker} />
-                        <div className="flex items-center gap-2 flex-1 min-w-0 pr-1.5">
-                          {row.logo ? (
-                            <img
-                              src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
-                              alt=""
-                              className="w-4 h-4 rounded-full bg-muted shrink-0"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display =
-                                  "none";
-                              }}
-                            />
-                          ) : (
-                            <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
-                              {row.ticker.substring(0, 1)}
-                            </div>
-                          )}
-                          <div className="flex items-center min-w-0">
-                            <span className="truncate">
-                              {row.ticker.includes(":")
-                                ? row.ticker.split(":")[1]
-                                : row.ticker}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    {visibleColumns.map((colId) => {
-                      const col = columnMap.get(colId);
-                      return (
+                  <>
+                    {paddingTop > 0 && (
+                      <tr>
                         <td
-                          key={colId}
-                          style={{
-                            width: col?.display_column_width ?? 100,
-                          }}
-                          className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
-                        >
-                          <AnimatedValue
-                            value={values[colId]?.[originalIndex]}
-                            col={col}
-                            isDark={isDark}
-                          />
-                        </td>
+                          colSpan={visibleColumns.length + 1}
+                          style={{ height: paddingTop, padding: 0, border: 0 }}
+                        />
+                      </tr>
+                    )}
+                    {virtualItems.map((virtualRow) => {
+                      const originalIndex = sortedIndices[virtualRow.index];
+                      return (
+                        <ScreenerRow
+                          key={deferredTickers[originalIndex].ticker}
+                          row={deferredTickers[originalIndex]}
+                          originalIndex={originalIndex}
+                          visualIndex={virtualRow.index}
+                          isSelected={virtualRow.index === selectedIndex}
+                          onSelect={setSelectedIndex}
+                          visibleColumns={visibleColumns}
+                          columnMap={columnMap}
+                          values={deferredValues}
+                          isDark={isDark}
+                          getColWidth={getColWidth}
+                        />
                       );
                     })}
-                  </tr>
+                    {paddingBottom > 0 && (
+                      <tr>
+                        <td
+                          colSpan={visibleColumns.length + 1}
+                          style={{
+                            height: paddingBottom,
+                            padding: 0,
+                            border: 0,
+                          }}
+                        />
+                      </tr>
+                    )}
+                  </>
                 );
-              })}
+              })()}
             </tbody>
           </table>
         )}

@@ -47,15 +47,28 @@ export const useWidgetStateStore = create<WidgetStateStore>((set, get) => ({
   },
 
   merge: (instanceId, patch) => {
-    set((state) => ({
-      states: {
-        ...state.states,
-        [instanceId]: {
-          ...state.states[instanceId],
-          ...patch,
+    set((state) => {
+      const currentInstance = state.states[instanceId] || {};
+      const resolvedPatch: Record<string, unknown> = {};
+
+      for (const [key, val] of Object.entries(patch)) {
+        if (typeof val === "function") {
+          resolvedPatch[key] = val(currentInstance[key]);
+        } else {
+          resolvedPatch[key] = val;
+        }
+      }
+
+      return {
+        states: {
+          ...state.states,
+          [instanceId]: {
+            ...currentInstance,
+            ...resolvedPatch,
+          },
         },
-      },
-    }));
+      };
+    });
   },
 
   get: (instanceId, key) => {

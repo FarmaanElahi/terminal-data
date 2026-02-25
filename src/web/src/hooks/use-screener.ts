@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useWebSocket } from "./use-websocket";
-import { useWidgetState } from "./use-widget-state";
+import { useWidgetState, useWidgetStateMerge } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
 
 import type { ColumnDef } from "@/types/models";
@@ -19,6 +19,8 @@ export function useScreener(
   columns: ColumnDef[] | null,
 ) {
   const ws = useWebSocket();
+  const mergeState = useWidgetStateMerge(instanceId);
+  const lastUpdateThrottleRef = useRef<number>(0);
 
   // ─── Framework-level persistent state ─────────────────────────────
   const [tickers, setTickers] = useWidgetState<ScreenerFilterRow[]>(
@@ -114,9 +116,6 @@ export function useScreener(
           number,
         ];
         if (sid === sessionId) {
-          setTickers(tickerList);
-          setTotalSymbols(totalCount ?? tickerList.length);
-
           // Full dataframe: Extract initial values from the filter rows
           const initialValues: ScreenerValues = {};
           tickerList.forEach((row) => {
@@ -128,23 +127,44 @@ export function useScreener(
             }
           });
 
+          const patch: any = {
+            tickers: tickerList,
+            totalSymbols: totalCount ?? tickerList.length,
+            isLoading: false,
+          };
+
           if (Object.keys(initialValues).length > 0) {
-            setValues(initialValues);
+            patch.values = initialValues;
           }
 
-          setIsLoading(false);
-          setLastUpdate(Date.now());
+          // Throttle timestamp updates to 200ms
+          const now = Date.now();
+          if (now - lastUpdateThrottleRef.current > 200) {
+            patch.lastUpdate = now;
+            lastUpdateThrottleRef.current = now;
+          }
+
+          mergeState(patch);
         }
       }),
 
       ws.on("screener_values", (msg: WSMessage) => {
         const [sid, partialVals] = msg.p as [string, ScreenerValues];
         if (sid === sessionId) {
-          setValues((prev) => ({
-            ...prev,
-            ...partialVals,
-          }));
-          setLastUpdate(Date.now());
+          const now = Date.now();
+          const patch: any = {
+            values: (prev: ScreenerValues) => ({
+              ...prev,
+              ...partialVals,
+            }),
+          };
+
+          if (now - lastUpdateThrottleRef.current > 200) {
+            patch.lastUpdate = now;
+            lastUpdateThrottleRef.current = now;
+          }
+
+          mergeState(patch);
         }
       }),
     ];
