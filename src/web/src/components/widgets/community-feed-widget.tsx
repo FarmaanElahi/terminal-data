@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
 import { MessageSquare } from "lucide-react";
@@ -8,16 +9,15 @@ export function CommunityFeedWidget({
   onSettingsChange,
 }: WidgetProps) {
   const s = (settings ?? {}) as Record<string, unknown>;
-  const { useChannelEvent } = useWidget(instanceId);
+  const { channelContext } = useWidget(instanceId);
 
-  useChannelEvent((event) => {
-    if (event.type === "context_change") {
-      const payload = event.payload as { symbol?: string };
-      if (payload.symbol) {
-        onSettingsChange({ symbol: payload.symbol });
-      }
+  // Sync symbol from channel context into local settings
+  const channelSymbol = channelContext?.symbol;
+  useEffect(() => {
+    if (channelSymbol && channelSymbol !== s.symbol) {
+      onSettingsChange({ symbol: channelSymbol });
     }
-  });
+  }, [channelSymbol]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex flex-col h-full">

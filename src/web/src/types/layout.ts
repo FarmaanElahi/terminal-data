@@ -50,11 +50,17 @@ export interface WorkspaceState {
   layouts: LayoutTab[];
   activeLayoutId: string;
   maximizedPaneId: string | null;
+  channelContexts: Record<ChannelColor, ChannelContext>;
+  globalContext: ChannelContext;
 }
 
 // ─── Channel Linking ───────────────────────────────────────────────
 
 export type ChannelColor = "blue" | "red" | "green" | "yellow";
+
+export interface ChannelContext {
+  symbol?: string;
+}
 
 export interface ChannelEvent {
   type: string;

@@ -22,6 +22,11 @@ export default defineConfig({
         target: "ws://localhost:8080",
         ws: true,
       },
+      "/tv": {
+        target: "https://charting-library.tradingview-widget.com",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/tv/, ""),
+      },
     },
   },
 });

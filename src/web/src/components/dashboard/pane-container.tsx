@@ -46,22 +46,12 @@ export const PaneContainer = memo(function PaneContainer({
   const activeTab = pane.tabs[pane.activeTabIndex] ?? pane.tabs[0];
   if (!activeTab) return null;
 
-  const widgetDef = getWidget(activeTab.widgetType);
-  const WidgetComponent = widgetDef?.component;
-
   const handleDrop = useCallback(
     (item: DragItem, zone: DropZone) => {
       const tabId = item.tabId ?? item.paneId;
       useLayoutStore.getState().moveTab(item.paneId, tabId, pane.id, zone);
     },
     [pane.id],
-  );
-
-  const handleSettingsChange = useCallback(
-    (patch: Record<string, unknown>) => {
-      useLayoutStore.getState().updateWidgetSettings(activeTab.id, patch);
-    },
-    [activeTab.id],
   );
 
   const handleTabClick = useCallback(
@@ -106,19 +96,36 @@ export const PaneContainer = memo(function PaneContainer({
           onClose={handleClose}
         />
 
-        {/* ─── Body ──────────────────────────────────────────────── */}
-        <div className="flex-1 overflow-auto">
-          {WidgetComponent ? (
-            <WidgetComponent
-              instanceId={activeTab.id}
-              settings={activeTab.settings}
-              onSettingsChange={handleSettingsChange}
-            />
-          ) : (
-            <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-              Widget "{activeTab.widgetType}" not registered
-            </div>
-          )}
+        {/* ─── Body: render ALL tabs, hide inactive with CSS ───── */}
+        <div className="flex-1 overflow-hidden relative">
+          {pane.tabs.map((tab, i) => {
+            const def = getWidget(tab.widgetType);
+            const Widget = def?.component;
+            const isActive = i === pane.activeTabIndex;
+            return (
+              <div
+                key={tab.id}
+                className="absolute inset-0 overflow-auto"
+                style={{ display: isActive ? "block" : "none" }}
+              >
+                {Widget ? (
+                  <Widget
+                    instanceId={tab.id}
+                    settings={tab.settings}
+                    onSettingsChange={(patch: Record<string, unknown>) =>
+                      useLayoutStore
+                        .getState()
+                        .updateWidgetSettings(tab.id, patch)
+                    }
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    Widget "{tab.widgetType}" not registered
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 

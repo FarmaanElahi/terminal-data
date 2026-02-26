@@ -1,45 +1,144 @@
+import { useEffect, useRef } from "react";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
-import { BarChart3 } from "lucide-react";
+import { TerminalDatafeed } from "@/lib/terminal-datafeed";
+
+const CONTAINER_PREFIX = "tv_chart_";
+
+interface ChartSettings {
+  symbol?: string;
+  interval?: string;
+}
 
 export function ChartWidget({
   instanceId,
   settings,
   onSettingsChange,
 }: WidgetProps) {
-  const s = (settings ?? {}) as Record<string, unknown>;
-  const { useChannelEvent } = useWidget(instanceId);
+  const s = (settings ?? {}) as ChartSettings;
+  const { channelContext, setChannelSymbol } = useWidget(instanceId);
 
-  useChannelEvent((event) => {
-    if (event.type === "context_change") {
-      const payload = event.payload as { symbol?: string };
-      if (payload.symbol) {
-        onSettingsChange({ symbol: payload.symbol });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widgetRef = useRef<IChartingLibraryWidget | null>(null);
+  const readyRef = useRef(false);
+  const containerId = `${CONTAINER_PREFIX}${instanceId}`;
+
+  // Track the currently loaded symbol to prevent redundant setSymbol calls
+  const currentSymbolRef = useRef<string | null>(null);
+
+  // Track latest callbacks in refs for stable closures
+  const onSettingsChangeRef = useRef(onSettingsChange);
+  onSettingsChangeRef.current = onSettingsChange;
+  const setChannelSymbolRef = useRef(setChannelSymbol);
+  setChannelSymbolRef.current = setChannelSymbol;
+
+  // Capture the initial symbol once (before the first effect runs)
+  const initialSymbolRef = useRef(
+    channelContext?.symbol || s.symbol || "NSE:RELIANCE",
+  );
+
+  // ─── Initialize TradingView widget (runs once) ─────────────────
+  useEffect(() => {
+    if (typeof TradingView === "undefined" || !containerRef.current) return;
+
+    const initialSymbol = initialSymbolRef.current;
+    currentSymbolRef.current = initialSymbol;
+
+    const datafeed = new TerminalDatafeed();
+    const tvWidget = new TradingView.widget({
+      symbol: initialSymbol,
+      interval: "D",
+      container: containerId,
+      datafeed,
+      library_path: "/tv/charting_library/",
+      locale: "en",
+      autosize: true,
+      theme: "dark",
+      disabled_features: [
+        "use_localstorage_for_settings",
+        "study_templates",
+        "header_saveload",
+      ],
+      enabled_features: [
+        "show_symbol_logos",
+        "show_exchange_logos",
+        "items_favoriting",
+      ],
+      loading_screen: {
+        backgroundColor: "#09090b",
+        foregroundColor: "#6366f1",
+      },
+      overrides: {
+        "paneProperties.background": "#09090b",
+        "paneProperties.backgroundType": "solid",
+      },
+    });
+
+    widgetRef.current = tvWidget;
+
+    tvWidget.onChartReady(() => {
+      readyRef.current = true;
+
+      // Listen for symbol changes made inside the TradingView search UI
+      tvWidget
+        .activeChart()
+        .onSymbolChanged()
+        .subscribe(null, () => {
+          const newSymbol = tvWidget.activeChart().symbol();
+          if (newSymbol === currentSymbolRef.current) return;
+          currentSymbolRef.current = newSymbol;
+          onSettingsChangeRef.current({ symbol: newSymbol });
+          setChannelSymbolRef.current(newSymbol);
+        });
+    });
+
+    return () => {
+      readyRef.current = false;
+      try {
+        tvWidget.remove();
+      } catch {
+        /* already disposed */
       }
-    }
-  });
+      widgetRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerId]);
+
+  // ─── React to channel symbol changes from other widgets ────────
+  const channelSymbol = channelContext?.symbol;
+  useEffect(() => {
+    if (
+      !channelSymbol ||
+      channelSymbol === currentSymbolRef.current ||
+      !widgetRef.current ||
+      !readyRef.current
+    )
+      return;
+
+    currentSymbolRef.current = channelSymbol;
+    widgetRef.current.activeChart().setSymbol(channelSymbol);
+    onSettingsChangeRef.current({ symbol: channelSymbol });
+  }, [channelSymbol]);
+
+  // ─── Resize handling ───────────────────────────────────────────
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      if (widgetRef.current && readyRef.current) {
+        try {
+          widgetRef.current.resize();
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 p-2 border-b border-border shrink-0">
-        <span className="text-xs font-medium text-foreground">
-          {(s.symbol as string) ?? "No symbol selected"}
-        </span>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {(s.timeframe as string) ?? "1D"}
-        </span>
-      </div>
-      <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
-        <BarChart3 className="w-12 h-12" />
-        <span className="text-sm">
-          {s.symbol
-            ? `Chart for ${s.symbol}`
-            : "Select a symbol or link to a watchlist"}
-        </span>
-        <span className="text-xs text-muted-foreground/60">
-          Chart integration coming soon
-        </span>
-      </div>
+    <div ref={containerRef} className="h-full w-full">
+      <div id={containerId} className="h-full w-full" />
     </div>
   );
 }

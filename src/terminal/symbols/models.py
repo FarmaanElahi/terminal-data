@@ -9,6 +9,7 @@ class SymbolCreate(TerminalBase):
     isin: str | None = None
     indexes: list[dict[str, str]] = []
     typespecs: list[str] = []
+    logo: str | None = None
 
 
 class SymbolSearchResultItem(TerminalBase):
@@ -17,6 +18,7 @@ class SymbolSearchResultItem(TerminalBase):
     type: str
     market: str
     typespecs: list[str] = []
+    logo: str | None = None
 
 
 class SearchResultResponse(TerminalBase):

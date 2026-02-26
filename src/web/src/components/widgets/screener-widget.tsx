@@ -11,6 +11,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import { useScreener } from "@/hooks/use-screener";
+import { useWidget } from "@/hooks/use-widget";
 import { columnsApi } from "@/lib/api";
 import type { WidgetProps } from "@/types/layout";
 import type { ColumnDef, FilterState } from "@/types/models";
@@ -490,6 +491,7 @@ export function ScreenerWidget({
   onSettingsChange,
 }: WidgetProps) {
   const s = (settings ?? {}) as Record<string, unknown>;
+  const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const lists = useAuthStore((st) => st.lists);
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -501,6 +503,7 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
   const [isDark, setIsDark] = useState(true);
 
   // Live column widths during resize — overrides stored widths while dragging
@@ -561,7 +564,6 @@ export function ScreenerWidget({
 
   const sortedIndices = useMemo(() => {
     if (deferredTickers.length === 0) return [];
-    // Only pre-allocate array once to avoid GC pressure
     const indices = Array.from({ length: deferredTickers.length }, (_, i) => i);
     const { key, direction } = sortConfig;
     if (!key || !direction) return indices;
@@ -589,6 +591,33 @@ export function ScreenerWidget({
       return (valA < valB ? -1 : 1) * multiplier;
     });
   }, [deferredTickers, deferredValues, sortConfig]);
+
+  // Select a row and update the linked channel symbol
+  const handleSelect = useCallback(
+    (visualIndex: number) => {
+      setSelectedIndex(visualIndex);
+      const originalIndex = sortedIndices[visualIndex];
+      const ticker = deferredTickers[originalIndex]?.ticker;
+      if (ticker) {
+        setChannelSymbol(ticker);
+      }
+    },
+    [setChannelSymbol, deferredTickers, sortedIndices],
+  );
+
+  // Sync selected row when channel symbol changes from another widget
+  const channelSymbol = channelContext?.symbol;
+  useEffect(() => {
+    if (!channelSymbol || sortedIndices.length === 0) return;
+    const idx = sortedIndices.findIndex(
+      (origIdx) => deferredTickers[origIdx]?.ticker === channelSymbol,
+    );
+    if (idx !== -1 && idx !== selectedIndex) {
+      setSelectedIndex(idx);
+    }
+    // Only react to channelSymbol changes, not internal selection changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelSymbol, sortedIndices, deferredTickers]);
 
   const handleFilterToggle = useCallback(
     async (colId: string) => {
@@ -690,36 +719,17 @@ export function ScreenerWidget({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (sortedIndices.length === 0) return;
 
-    if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown" || e.key === " ") {
       e.preventDefault();
-      setSelectedIndex((prev) => {
-        if (prev === null) return 0;
-        return Math.min(prev + 1, sortedIndices.length - 1);
-      });
+      const next =
+        selectedIndex === null
+          ? 0
+          : Math.min(selectedIndex + 1, sortedIndices.length - 1);
+      handleSelect(next);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((prev) => {
-        if (prev === null) return 0;
-        return Math.max(prev - 1, 0);
-      });
-    } else if (e.key === " ") {
-      e.preventDefault();
-      const containerHeight = scrollContainerRef.current?.clientHeight ?? 400;
-      const pageSize = Math.max(
-        1,
-        Math.floor(containerHeight / ROW_HEIGHT) - 1,
-      );
-      if (e.shiftKey) {
-        setSelectedIndex((prev) => {
-          if (prev === null) return 0;
-          return Math.max(prev - pageSize, 0);
-        });
-      } else {
-        setSelectedIndex((prev) => {
-          if (prev === null) return 0;
-          return Math.min(prev + pageSize, sortedIndices.length - 1);
-        });
-      }
+      const next = selectedIndex === null ? 0 : Math.max(selectedIndex - 1, 0);
+      handleSelect(next);
     }
   };
 
@@ -916,7 +926,7 @@ export function ScreenerWidget({
                           originalIndex={originalIndex}
                           visualIndex={virtualRow.index}
                           isSelected={virtualRow.index === selectedIndex}
-                          onSelect={setSelectedIndex}
+                          onSelect={handleSelect}
                           visibleColumns={visibleColumns}
                           columnMap={columnMap}
                           values={deferredValues}

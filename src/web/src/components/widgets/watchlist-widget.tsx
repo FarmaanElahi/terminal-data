@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -23,13 +24,13 @@ export function WatchlistWidget({
 }: WidgetProps) {
   const s = (settings ?? {}) as Partial<WatchlistSettings>;
   const lists = useAuthStore((st) => st.lists);
-  const { broadcast } = useWidget(instanceId);
+  const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const [createListOpen, setCreateListOpen] = useState(false);
 
   const selectedList = lists?.find((l) => l.id === s.listId) ?? lists?.[0];
 
   const handleSymbolClick = (symbol: string) => {
-    broadcast("context_change", { symbol });
+    setChannelSymbol(symbol);
   };
 
   return (
@@ -77,9 +78,22 @@ export function WatchlistWidget({
               <button
                 key={ticker}
                 onClick={() => handleSymbolClick(ticker)}
-                className="w-full flex items-center justify-between px-3 py-2 hover:bg-muted/30 transition-colors text-left"
+                className={cn(
+                  "w-full flex items-center justify-between px-3 py-2 hover:bg-muted/30 transition-colors text-left",
+                  channelContext?.symbol === ticker && "bg-primary/10",
+                )}
               >
-                <span className="text-xs font-medium">{ticker}</span>
+                <span
+                  className={cn(
+                    "text-xs font-medium",
+                    channelContext?.symbol === ticker && "text-primary",
+                  )}
+                >
+                  {ticker}
+                </span>
+                {channelContext?.symbol === ticker && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                )}
               </button>
             ))}
           </div>

@@ -29,7 +29,7 @@ registerWidget({
   title: "Chart",
   icon: "bar-chart-3",
   component: ChartWidget,
-  defaultSettings: { symbol: null, timeframe: "1D" },
+  defaultSettings: { symbol: "NSE:RELIANCE", interval: "D" },
 });
 
 registerWidget({

@@ -118,6 +118,7 @@ export interface Symbol {
   exchange: string;
   isin: string | null;
   logo_id: string | null;
+  logo: string | null;
 }
 
 export interface SearchMetadata {

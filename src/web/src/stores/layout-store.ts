@@ -10,6 +10,7 @@ import type {
   WorkspaceState,
   DropZone,
   ChannelColor,
+  ChannelContext,
 } from "@/types/layout";
 import { getWidget } from "@/lib/widget-registry";
 
@@ -160,6 +161,12 @@ interface LayoutActions {
   deleteLayout: (id: string) => void;
   switchLayout: (id: string) => void;
 
+  updateChannelContext: (
+    color: ChannelColor,
+    context: Partial<ChannelContext>,
+  ) => void;
+  updateGlobalContext: (context: Partial<ChannelContext>) => void;
+
   // Helpers
   getActiveLayout: () => LayoutTab;
 }
@@ -199,6 +206,13 @@ export const useLayoutStore = create<LayoutStore>()(
       layouts: [createDefaultLayout()],
       activeLayoutId: "",
       maximizedPaneId: null,
+      channelContexts: {
+        blue: {},
+        red: {},
+        green: {},
+        yellow: {},
+      },
+      globalContext: {},
 
       // ─── Tree mutations ──────────────────────────────────────
 
@@ -726,6 +740,21 @@ export const useLayoutStore = create<LayoutStore>()(
 
       switchLayout: (id) => set({ activeLayoutId: id, maximizedPaneId: null }),
 
+      updateChannelContext: (color, context) => {
+        set((state) => ({
+          channelContexts: {
+            ...state.channelContexts,
+            [color]: { ...state.channelContexts[color], ...context },
+          },
+        }));
+      },
+
+      updateGlobalContext: (context) => {
+        set((state) => ({
+          globalContext: { ...state.globalContext, ...context },
+        }));
+      },
+
       getActiveLayout: () => {
         const state = get();
         return (
@@ -750,6 +779,21 @@ export const useLayoutStore = create<LayoutStore>()(
           } else {
             state.activeLayoutId = state.layouts[0].id;
           }
+        }
+
+        // Initialize channelContexts if missing
+        if (state && !state.channelContexts) {
+          state.channelContexts = {
+            blue: {},
+            red: {},
+            green: {},
+            yellow: {},
+          };
+        }
+
+        // Initialize globalContext if missing
+        if (state && !state.globalContext) {
+          state.globalContext = {};
         }
       },
     },
