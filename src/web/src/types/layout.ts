@@ -46,12 +46,15 @@ export interface LayoutTab {
   floatingWindows: FloatingWindow[];
 }
 
+export type Theme = "dark" | "light";
+
 export interface WorkspaceState {
   layouts: LayoutTab[];
   activeLayoutId: string;
   maximizedPaneId: string | null;
   channelContexts: Record<ChannelColor, ChannelContext>;
   globalContext: ChannelContext;
+  theme: Theme;
 }
 
 // ─── Channel Linking ───────────────────────────────────────────────

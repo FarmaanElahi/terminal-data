@@ -11,6 +11,7 @@ import type {
   DropZone,
   ChannelColor,
   ChannelContext,
+  Theme,
 } from "@/types/layout";
 import { getWidget } from "@/lib/widget-registry";
 
@@ -166,6 +167,7 @@ interface LayoutActions {
     context: Partial<ChannelContext>,
   ) => void;
   updateGlobalContext: (context: Partial<ChannelContext>) => void;
+  setTheme: (theme: Theme) => void;
 
   // Helpers
   getActiveLayout: () => LayoutTab;
@@ -213,6 +215,7 @@ export const useLayoutStore = create<LayoutStore>()(
         yellow: {},
       },
       globalContext: {},
+      theme: "dark",
 
       // ─── Tree mutations ──────────────────────────────────────
 
@@ -755,6 +758,12 @@ export const useLayoutStore = create<LayoutStore>()(
         }));
       },
 
+      setTheme: (theme) => {
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add(theme);
+        set({ theme });
+      },
+
       getActiveLayout: () => {
         const state = get();
         return (
@@ -794,6 +803,14 @@ export const useLayoutStore = create<LayoutStore>()(
         // Initialize globalContext if missing
         if (state && !state.globalContext) {
           state.globalContext = {};
+        }
+
+        // Apply persisted theme to DOM
+        if (state) {
+          const theme = state.theme || "dark";
+          document.documentElement.classList.remove("dark", "light");
+          document.documentElement.classList.add(theme);
+          if (!state.theme) state.theme = "dark";
         }
       },
     },

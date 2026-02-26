@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useWidget } from "@/hooks/use-widget";
+import { useLayoutStore } from "@/stores/layout-store";
 import type { WidgetProps } from "@/types/layout";
 import { TerminalDatafeed } from "@/lib/terminal-datafeed";
 
@@ -17,6 +18,7 @@ export function ChartWidget({
 }: WidgetProps) {
   const s = (settings ?? {}) as ChartSettings;
   const { channelContext, setChannelSymbol } = useWidget(instanceId);
+  const theme = useLayoutStore((s) => s.theme);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<IChartingLibraryWidget | null>(null);
@@ -44,6 +46,7 @@ export function ChartWidget({
     const initialSymbol = initialSymbolRef.current;
     currentSymbolRef.current = initialSymbol;
 
+    const isDark = theme === "dark";
     const datafeed = new TerminalDatafeed();
     const tvWidget = new TradingView.widget({
       symbol: initialSymbol,
@@ -53,7 +56,7 @@ export function ChartWidget({
       library_path: "/tv/charting_library/",
       locale: "en",
       autosize: true,
-      theme: "dark",
+      theme: isDark ? "dark" : "light",
       disabled_features: [
         "use_localstorage_for_settings",
         "study_templates",
@@ -65,11 +68,11 @@ export function ChartWidget({
         "items_favoriting",
       ],
       loading_screen: {
-        backgroundColor: "#09090b",
+        backgroundColor: isDark ? "#09090b" : "#fafafa",
         foregroundColor: "#6366f1",
       },
       overrides: {
-        "paneProperties.background": "#09090b",
+        "paneProperties.background": isDark ? "#09090b" : "#ffffff",
         "paneProperties.backgroundType": "solid",
       },
     });
@@ -119,6 +122,16 @@ export function ChartWidget({
     widgetRef.current.activeChart().setSymbol(channelSymbol);
     onSettingsChangeRef.current({ symbol: channelSymbol });
   }, [channelSymbol]);
+
+  // ─── Sync TradingView theme with app theme ─────────────────────
+  useEffect(() => {
+    if (!widgetRef.current || !readyRef.current) return;
+    try {
+      widgetRef.current.changeTheme(theme === "dark" ? "dark" : "light");
+    } catch {
+      /* widget may not support changeTheme */
+    }
+  }, [theme]);
 
   // ─── Resize handling ───────────────────────────────────────────
   useEffect(() => {

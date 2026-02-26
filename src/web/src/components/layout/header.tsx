@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useLayoutStore } from "@/stores/layout-store";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -10,11 +11,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AddWidgetDialog } from "@/components/dashboard/add-widget-dialog";
-import { Plus } from "lucide-react";
+import { Plus, Moon, Sun } from "lucide-react";
 
 export function AppHeader() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const theme = useLayoutStore((s) => s.theme);
+  const setTheme = useLayoutStore((s) => s.setTheme);
   const navigate = useNavigate();
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
 
@@ -33,6 +36,23 @@ export function AppHeader() {
         >
           <Plus className="w-3.5 h-3.5" />
           Add Widget
+        </Button>
+
+        {/* Theme Toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          title={
+            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+          }
+        >
+          {theme === "dark" ? (
+            <Sun className="w-4 h-4" />
+          ) : (
+            <Moon className="w-4 h-4" />
+          )}
         </Button>
 
         {/* User menu */}
