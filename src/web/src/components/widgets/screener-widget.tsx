@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Filter, Settings, ChevronUp, ChevronDown } from "lucide-react";
+import { Filter, Settings, ChevronUp, ChevronDown, Plus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { listsApi } from "@/lib/api";
 import { ColumnEditor } from "./column-editor";
+import { CreateListDialog } from "./create-list-dialog";
 import { ScreenerStatus } from "@/components/screener/screener-status";
 
 // ─── Value Formatter ─────────────────────────────────────────────────
@@ -492,6 +493,7 @@ export function ScreenerWidget({
   const lists = useAuthStore((st) => st.lists);
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [createListOpen, setCreateListOpen] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -700,6 +702,24 @@ export function ScreenerWidget({
         if (prev === null) return 0;
         return Math.max(prev - 1, 0);
       });
+    } else if (e.key === " ") {
+      e.preventDefault();
+      const containerHeight = scrollContainerRef.current?.clientHeight ?? 400;
+      const pageSize = Math.max(
+        1,
+        Math.floor(containerHeight / ROW_HEIGHT) - 1,
+      );
+      if (e.shiftKey) {
+        setSelectedIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.max(prev - pageSize, 0);
+        });
+      } else {
+        setSelectedIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.min(prev + pageSize, sortedIndices.length - 1);
+        });
+      }
     }
   };
 
@@ -736,6 +756,13 @@ export function ScreenerWidget({
             ))}
           </SelectContent>
         </Select>
+        <button
+          onClick={() => setCreateListOpen(true)}
+          className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title="Create list"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
 
         <Select
           value={columnSetId ?? ""}
@@ -932,6 +959,12 @@ export function ScreenerWidget({
           columnSet={selectedColumnSet}
         />
       )}
+
+      <CreateListDialog
+        open={createListOpen}
+        onClose={() => setCreateListOpen(false)}
+        onCreated={(list) => onSettingsChange({ listId: list.id })}
+      />
     </div>
   );
 }

@@ -31,12 +31,10 @@ export function useWidget<T = Record<string, unknown>>(instanceId: string) {
   const layout = useLayoutStore((s) => s.getActiveLayout());
   const updateWidgetSettings = useLayoutStore((s) => s.updateWidgetSettings);
 
-  // Find this widget's pane to get channel color
+  // Find this widget's pane and tab
   const pane = findPaneByWidgetId(layout.root, instanceId);
-  const channelColor = pane?.channelColor ?? null;
-
-  // Find this widget instance
   const tab = pane?.tabs.find((t) => t.id === instanceId);
+  const channelColor = tab?.channelColor ?? null;
   const settings = (tab?.settings ?? {}) as T;
 
   const updateSettings = useCallback(

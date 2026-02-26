@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
@@ -8,7 +9,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ListIcon } from "lucide-react";
+import { ListIcon, Plus } from "lucide-react";
+import { CreateListDialog } from "./create-list-dialog";
 
 interface WatchlistSettings {
   listId: string | null;
@@ -22,6 +24,7 @@ export function WatchlistWidget({
   const s = (settings ?? {}) as Partial<WatchlistSettings>;
   const lists = useAuthStore((st) => st.lists);
   const { broadcast } = useWidget(instanceId);
+  const [createListOpen, setCreateListOpen] = useState(false);
 
   const selectedList = lists?.find((l) => l.id === s.listId) ?? lists?.[0];
 
@@ -48,6 +51,13 @@ export function WatchlistWidget({
             ))}
           </SelectContent>
         </Select>
+        <button
+          onClick={() => setCreateListOpen(true)}
+          className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          title="Create list"
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Symbol list */}
@@ -75,6 +85,12 @@ export function WatchlistWidget({
           </div>
         )}
       </div>
+
+      <CreateListDialog
+        open={createListOpen}
+        onClose={() => setCreateListOpen(false)}
+        onCreated={(list) => onSettingsChange({ listId: list.id })}
+      />
     </div>
   );
 }

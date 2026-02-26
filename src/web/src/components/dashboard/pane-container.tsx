@@ -10,6 +10,11 @@ import { useLayoutStore } from "@/stores/layout-store";
 import { getWidget } from "@/lib/widget-registry";
 import { DropCompass } from "./drop-compass";
 import { AddWidgetDialog } from "./add-widget-dialog";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Maximize2, Minimize2, X, ExternalLink, Plus } from "lucide-react";
 
 const CHANNEL_COLORS: Record<ChannelColor, string> = {
@@ -86,13 +91,6 @@ export const PaneContainer = memo(function PaneContainer({
     useLayoutStore.getState().removePane(pane.id);
   }, [pane.id]);
 
-  const handleChannelChange = useCallback(
-    (color: ChannelColor | null) => {
-      useLayoutStore.getState().setPaneChannel(pane.id, color);
-    },
-    [pane.id],
-  );
-
   return (
     <DropCompass paneId={pane.id} onDrop={handleDrop}>
       <div className="flex flex-col h-full border border-border rounded-sm bg-card overflow-hidden">
@@ -106,7 +104,6 @@ export const PaneContainer = memo(function PaneContainer({
           onMaximize={handleMaximize}
           onFloat={handleFloat}
           onClose={handleClose}
-          onChannelChange={handleChannelChange}
         />
 
         {/* ─── Body ──────────────────────────────────────────────── */}
@@ -146,7 +143,6 @@ interface PaneHeaderProps {
   onMaximize: () => void;
   onFloat: () => void;
   onClose: () => void;
-  onChannelChange: (color: ChannelColor | null) => void;
 }
 
 const PaneHeader = memo(function PaneHeader({
@@ -158,7 +154,6 @@ const PaneHeader = memo(function PaneHeader({
   onMaximize,
   onFloat,
   onClose,
-  onChannelChange,
 }: PaneHeaderProps) {
   // Drag the whole pane
   const [{ isDragging }, dragRef] = useDrag(
@@ -185,9 +180,6 @@ const PaneHeader = memo(function PaneHeader({
         ${isDragging ? "opacity-40" : ""}
       `}
     >
-      {/* Channel indicator */}
-      <ChannelDot color={pane.channelColor} onChange={onChannelChange} />
-
       {/* Tabs */}
       <div className="flex-1 flex items-center gap-0.5 overflow-x-auto scrollbar-none min-w-0">
         {pane.tabs.map((tab, i) => (
@@ -274,67 +266,69 @@ const TabButton = memo(function TabButton({
     [paneId, tab.id],
   );
 
+  const channelColor = tab.channelColor;
+  const borderColor = channelColor ? CHANNEL_COLORS[channelColor] : null;
+
+  const handleChannelChange = (color: ChannelColor | null) => {
+    useLayoutStore.getState().setTabChannel(tab.id, color);
+  };
+
   return (
-    <div
-      ref={dragRef as unknown as React.Ref<HTMLDivElement>}
-      className={`
-        flex items-center gap-1 px-2 py-1 text-xs rounded-t-sm cursor-pointer
-        min-w-0 max-w-[150px] group
-        ${isDragging ? "opacity-40" : ""}
-        ${
-          isActive
-            ? "bg-card text-foreground border-t border-x border-border"
-            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-        }
-      `}
-      onClick={onClick}
-    >
-      <span className="truncate">{tab.title}</span>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }}
-        className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all"
-      >
-        <X className="w-2.5 h-2.5" />
-      </button>
-    </div>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={dragRef as unknown as React.Ref<HTMLDivElement>}
+          className={`
+            flex items-center gap-1 px-2 py-1 text-xs rounded-t-sm cursor-pointer
+            min-w-0 max-w-[150px] group relative
+            ${isDragging ? "opacity-40" : ""}
+            ${
+              isActive
+                ? "bg-card text-foreground border-t border-x border-border"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            }
+          `}
+          onClick={onClick}
+        >
+          <span className="truncate">{tab.title}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all"
+          >
+            <X className="w-2.5 h-2.5" />
+          </button>
+          {/* Colored bottom border for channel link */}
+          {borderColor && (
+            <div
+              className={`absolute bottom-0 left-1 right-1 h-0.5 rounded-full ${borderColor}`}
+            />
+          )}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-[140px]">
+        <div className="px-2 py-1.5">
+          <p className="text-xs font-medium text-muted-foreground mb-2">
+            Symbol Link
+          </p>
+          <div className="flex items-center gap-1.5">
+            {ALL_CHANNELS.map((c) => (
+              <button
+                key={c ?? "none"}
+                onClick={() => handleChannelChange(c)}
+                className={`
+                  w-4 h-4 rounded-full border transition-all
+                  ${c ? CHANNEL_COLORS[c] : "bg-muted"}
+                  ${c === channelColor ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "border-border hover:scale-110"}
+                `}
+                title={c ?? "None"}
+              />
+            ))}
+          </div>
+        </div>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
-
-// ─── Channel Dot ───────────────────────────────────────────────────
-
-interface ChannelDotProps {
-  color: ChannelColor | null;
-  onChange: (color: ChannelColor | null) => void;
-}
-
-function ChannelDot({ color, onChange }: ChannelDotProps) {
-  return (
-    <div className="relative group shrink-0">
-      <button
-        className={`
-          w-3 h-3 rounded-full border border-border transition-colors
-          ${color ? CHANNEL_COLORS[color] : "bg-muted"}
-        `}
-        title={color ? `Channel: ${color}` : "No channel"}
-      />
-      {/* Dropdown on hover */}
-      <div className="absolute top-full left-0 mt-1 hidden group-hover:flex gap-1 bg-popover border border-border rounded-md p-1 shadow-lg z-50">
-        {ALL_CHANNELS.map((c) => (
-          <button
-            key={c ?? "none"}
-            onClick={() => onChange(c)}
-            className={`
-              w-4 h-4 rounded-full border transition-all
-              ${c ? CHANNEL_COLORS[c] : "bg-muted"}
-              ${c === color ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : "border-border hover:scale-110"}
-            `}
-            title={c ?? "None"}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}

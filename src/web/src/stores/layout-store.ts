@@ -33,10 +33,10 @@ function createPane(
         widgetType,
         title: def?.title ?? widgetType,
         settings: settings ?? def?.defaultSettings ?? {},
+        channelColor: null,
       },
     ],
     activeTabIndex: 0,
-    channelColor: null,
   };
 }
 
@@ -140,7 +140,7 @@ interface LayoutActions {
   ) => void;
 
   // Channel
-  setPaneChannel: (paneId: string, color: ChannelColor | null) => void;
+  setTabChannel: (tabId: string, color: ChannelColor | null) => void;
 
   // Floating
   floatPane: (paneId: string) => void;
@@ -239,6 +239,7 @@ export const useLayoutStore = create<LayoutStore>()(
             widgetType,
             title: def?.title ?? widgetType,
             settings: def?.defaultSettings ?? {},
+            channelColor: null,
           };
 
           const newRoot = mutateNode(layout.root, paneId, (node) => {
@@ -332,13 +333,13 @@ export const useLayoutStore = create<LayoutStore>()(
                 ...tab,
                 id: uid(),
                 settings: { ...tab.settings },
+                channelColor: tab.channelColor,
               };
               const clonedPane: PaneNode = {
                 type: "pane",
                 id: uid(),
                 tabs: [clonedTab],
                 activeTabIndex: 0,
-                channelColor: null,
               };
 
               const newRoot = mutateNode(layout.root, fromPaneId, (node) => {
@@ -363,7 +364,6 @@ export const useLayoutStore = create<LayoutStore>()(
                 id: uid(),
                 tabs: [tab],
                 activeTabIndex: 0,
-                channelColor: null,
               };
 
               const newRoot = mutateNode(layout.root, fromPaneId, (node) => {
@@ -439,7 +439,6 @@ export const useLayoutStore = create<LayoutStore>()(
               id: uid(),
               tabs: [tab],
               activeTabIndex: 0,
-              channelColor: null,
             };
 
             newRoot = mutateNode(newRoot, toPaneId, (node) => {
@@ -536,19 +535,29 @@ export const useLayoutStore = create<LayoutStore>()(
 
       // ─── Channel ─────────────────────────────────────────────
 
-      setPaneChannel: (paneId, color) => {
+      setTabChannel: (tabId, color) => {
         set((state) => {
           const layout = state.layouts.find(
             (l) => l.id === state.activeLayoutId,
           );
           if (!layout) return state;
 
-          const newRoot = mutateNode(layout.root, paneId, (node) => {
-            if (node.type !== "pane") return node;
-            return { ...node, channelColor: color };
-          });
+          function updateTabInNode(node: LayoutNode): LayoutNode {
+            if (node.type === "pane") {
+              const updatedTabs = node.tabs.map((t) =>
+                t.id === tabId ? { ...t, channelColor: color } : t,
+              );
+              return { ...node, tabs: updatedTabs };
+            }
+            return {
+              ...node,
+              children: node.children.map(updateTabInNode),
+            };
+          }
 
-          return mutateActiveLayout(state, () => ({ root: newRoot }));
+          return mutateActiveLayout(state, (l) => ({
+            root: updateTabInNode(l.root),
+          }));
         });
       },
 

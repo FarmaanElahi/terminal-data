@@ -25,7 +25,7 @@ from terminal.market_feed.manager import MarketDataManager
 router = APIRouter(prefix="/lists", tags=["List"])
 
 
-@router.get("/", response_model=list[ListPublic])
+@router.get("", response_model=list[ListPublic])
 async def all(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -35,7 +35,7 @@ async def all(
     return lists_service.all(session, current_user.id)
 
 
-@router.post("/", response_model=ListPublic)
+@router.post("", response_model=ListPublic)
 async def create_list(
     data: ListCreate,
     session: Session = Depends(get_session),

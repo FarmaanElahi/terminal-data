@@ -15,7 +15,6 @@ export interface PaneNode {
   id: string;
   tabs: WidgetInstance[];
   activeTabIndex: number;
-  channelColor: ChannelColor | null;
 }
 
 export interface WidgetInstance {
@@ -23,6 +22,7 @@ export interface WidgetInstance {
   widgetType: string;
   title: string;
   settings: Record<string, unknown>;
+  channelColor: ChannelColor | null;
 }
 
 // ─── Floating Windows ──────────────────────────────────────────────
