@@ -733,11 +733,24 @@ export function ScreenerWidget({
     }
   };
 
+  // Keep selected row visible during keyboard navigation
   useEffect(() => {
-    if (selectedIndex !== null) {
-      rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+    if (selectedIndex === null || !scrollContainerRef.current) return;
+
+    const container = scrollContainerRef.current;
+    const rowTop = selectedIndex * ROW_HEIGHT;
+    const rowBottom = rowTop + ROW_HEIGHT;
+    const scrollTop = container.scrollTop;
+    const viewHeight = container.clientHeight;
+
+    if (rowBottom > scrollTop + viewHeight) {
+      // Row is below viewport — scroll down just enough
+      container.scrollTop = rowBottom - viewHeight;
+    } else if (rowTop < scrollTop) {
+      // Row is above viewport — scroll up just enough
+      container.scrollTop = rowTop;
     }
-  }, [selectedIndex, rowVirtualizer]);
+  }, [selectedIndex]);
 
   const renderSortIcon = (key: string) => {
     if (sortConfig.key !== key) return null;
