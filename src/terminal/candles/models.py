@@ -97,15 +97,15 @@ def is_intraday_unit(unit: str) -> bool:
 def upstox_chunk_days(unit: str) -> int:
     """Max days per single Upstox historical API request for a given unit.
 
-    Upstox enforces per-request limits:
-      minutes / hours → 30 days
+    upstox enforces per-request limits (around 5000-10000 bars):
+      minutes / hours → 7 days (safer for lower resolutions)
       days            → 365 days (1 year)
       weeks / months  → effectively unlimited
     """
     if unit in ("minutes", "hours"):
-        return 30
+        return 7
     if unit == "days":
-        return 365
+        return 3650  # 10 years
     return 3650  # weeks / months
 
 

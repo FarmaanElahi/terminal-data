@@ -169,7 +169,14 @@ class ChartSession:
 
             await self.realtime.send(
                 ChartSeriesResponse(
-                    p=(self.session_id, params.symbol, interval, data, series_id)
+                    p=(
+                        self.session_id,
+                        params.symbol,
+                        interval,
+                        data,
+                        series_id,
+                        len(data) == 0,
+                    )
                 )
             )
             logger.info(

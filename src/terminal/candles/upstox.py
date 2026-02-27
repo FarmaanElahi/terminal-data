@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.upstox.com/v3"
 
 # Retry config
-MAX_RETRIES = 3
+MAX_RETRIES = 5
 RETRY_BACKOFF = 0.5  # seconds, doubled each retry
 
 # Exchange prefixes that belong to Indian markets
@@ -194,6 +194,23 @@ class UpstoxClient(CandleProvider):
         # Never request data beyond today
         effective_to = min(effective_to, today)
 
+        # Enforce minimum data windows for better "scroll back" performance
+        if from_date is None:
+            if unit in ("days", "weeks", "months"):
+                # 10 years back
+                from_date = effective_to - timedelta(days=3650)
+            else:
+                # 30 days back for intraday
+                from_date = effective_to - timedelta(days=30)
+        else:
+            # If from_date is provided, ensure it covers at least the minimum window if requested range is small
+            if unit in ("days", "weeks", "months"):
+                min_from = effective_to - timedelta(days=3650)
+                from_date = min(from_date, min_from)
+            else:
+                min_from = effective_to - timedelta(days=30)
+                from_date = min(from_date, min_from)
+
         # ── 1. Historical candles ──────────────────────────────────────────
         historical_candles = await self._fetch_all_historical(
             encoded_token, unit, num, from_date, effective_to
@@ -222,6 +239,14 @@ class UpstoxClient(CandleProvider):
                 merged_dict[c.timestamp] = c
 
         merged = sorted(merged_dict.values(), key=lambda x: x.timestamp)
+        logger.info(
+            "get_candles for %s %s: total %d bars (hist: %d, intra: %d)",
+            ticker,
+            interval,
+            len(merged),
+            len(historical_candles),
+            len(intraday_candles),
+        )
         return merged
 
     async def _fetch_all_historical(
@@ -229,54 +254,62 @@ class UpstoxClient(CandleProvider):
         encoded_token: str,
         unit: str,
         num: str,
-        from_date: date | None,
+        from_date: date,
         to_date: date,
     ) -> list[Candle]:
-        """Fetch historical data in chunks to respect Upstox per-request limits.
-
-        Chunks go *backward* in time starting from to_date.
-        Stops immediately when an API request returns no data (end of history).
-        """
-        all_candles: list[Candle] = []
+        """Fetch historical data in parallel chunks."""
         chunk_days = upstox_chunk_days(unit)
 
-        # Default from_date: one chunk back from to_date
-        effective_from = (
-            from_date
-            if from_date is not None
-            else (to_date - timedelta(days=chunk_days))
-        )
-
+        # Calculate all required chunks upfront
+        chunks = []
         current_to = to_date
-        while current_to >= effective_from:
-            current_from = max(
-                effective_from, current_to - timedelta(days=chunk_days - 1)
-            )
-
-            path = (
-                f"/historical-candle/{encoded_token}/{unit}/{num}"
-                f"/{current_to.isoformat()}/{current_from.isoformat()}"
-            )
-            candles = await self._fetch_candles(path)
-
-            if not candles:
-                # Upstox returned nothing → no more history exists
-                logger.debug(
-                    "No historical data for %s %s/%s range %s→%s — stopping",
-                    encoded_token,
-                    unit,
-                    num,
-                    current_from,
-                    current_to,
-                )
-                break
-
-            all_candles.extend(candles)
-
-            # Advance window backward
+        while current_to >= from_date:
+            current_from = max(from_date, current_to - timedelta(days=chunk_days - 1))
+            chunks.append((current_from, current_to))
             current_to = current_from - timedelta(days=1)
 
-        return all_candles
+        if not chunks:
+            return []
+
+        logger.info(
+            "Fetching %d historical chunks for %s %s/%s from %s to %s",
+            len(chunks),
+            encoded_token,
+            unit,
+            num,
+            from_date,
+            to_date,
+        )
+
+        # Create tasks for parallel fetching
+        tasks = []
+        for c_from, c_to in chunks:
+            path = (
+                f"/historical-candle/{encoded_token}/{unit}/{num}"
+                f"/{c_to.isoformat()}/{c_from.isoformat()}"
+            )
+            tasks.append(self._fetch_candles(path))
+
+        # Run in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        all_candles: list[Candle] = []
+        for i, res in enumerate(results):
+            if isinstance(res, Exception):
+                logger.error("Chunk fetch failed: %s", res)
+                continue
+            if res:
+                all_candles.extend(res)
+            else:
+                c_from, c_to = chunks[i]
+                logger.debug("Chunk %s to %s returned no data", c_from, c_to)
+
+        # Final deduplication and sorting
+        merged_dict: dict[str, Candle] = {}
+        for c in all_candles:
+            merged_dict[c.timestamp] = c
+
+        return sorted(merged_dict.values(), key=lambda x: x.timestamp)
 
     async def _fetch_candles(self, path: str) -> list[Candle]:
         """Execute the HTTP request with retry logic and parse candle data."""

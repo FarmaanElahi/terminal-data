@@ -74,11 +74,14 @@ export class TerminalDatafeed {
       reject: (err: string) => void;
     }
   >();
-  private _lastBarTimes: Map<string, number> = new Map(); // series_id -> last timestamp
   private _historyCallbacks = new Map<
     string,
-    { resolve: (bars: Bar[]) => void; reject: (err: string) => void }
+    {
+      resolve: (bars: ChartCandleData[], noData: boolean) => void;
+      reject: (error: string) => void;
+    }
   >();
+  private _lastBarTimes: Map<string, number> = new Map(); // series_id -> last timestamp
 
   constructor() {
     this._setupWSListener();
@@ -125,12 +128,13 @@ export class TerminalDatafeed {
 
     unsubs.push(
       terminalWS.on("chart_series", (msg: WSMessage) => {
-        const [sid, symbol, interval, candles, seriesId] = msg.p as [
+        const [sid, symbol, interval, candles, requestId, noData] = msg.p as [
           string,
           string,
           string,
           ChartCandleData[],
           string | null,
+          boolean | undefined,
         ];
         if (sid !== this._sessionId) return;
 
@@ -144,9 +148,8 @@ export class TerminalDatafeed {
         }));
         bars.sort((a, b) => a.time - b.time);
 
-        // Find matching history request by seriesId or ticker+interval
-        const symbolInterval = `${symbol}-${interval}`;
-        const targetId = seriesId || symbolInterval;
+        // Find matching history request by requestId
+        const targetId = requestId || `${symbol}-${interval}`;
 
         // Update last bar time to the latest from history
         if (bars.length > 0) {
@@ -157,11 +160,11 @@ export class TerminalDatafeed {
         const cb = this._historyCallbacks.get(targetId);
 
         console.log(
-          `[Datafeed ${this._sessionId}] Received chart_series for ${targetId}. sid=${sid}, bars=${bars.length}, cb_found=${!!cb}`,
+          `[Datafeed ${this._sessionId}] Received chart_series for ${targetId}. bars=${bars.length}, noData=${noData}, cb_found=${!!cb}`,
         );
 
         if (cb) {
-          cb.resolve(bars);
+          cb.resolve(candles, !!noData);
           this._historyCallbacks.delete(targetId);
         }
       }),
@@ -304,9 +307,12 @@ export class TerminalDatafeed {
     setTimeout(() => {
       if (this._resolveCallbacks.has(symbolName)) {
         this._resolveCallbacks.delete(symbolName);
-        onError("Symbol resolution timeout");
+        console.error(
+          `[Datafeed ${this._sessionId}] Symbol resolution timeout for ${symbolName}`,
+        );
+        onError(`Symbol resolution timeout for ${symbolName}`);
       }
-    }, 5000);
+    }, 10000); // 10s for symbol resolve
   }
 
   async getBars(
@@ -320,25 +326,28 @@ export class TerminalDatafeed {
     const interval = this._mapResolution(resolution);
     const requestId = `history-${Math.random().toString(36).substring(2, 10)}`;
 
-    console.log(
-      `[Datafeed ${this._sessionId}] getBars for ${symbol} @ ${resolution}. requestId=${requestId}`,
-    );
-
     const fromDate = new Date(periodParams.from * 1000)
       .toISOString()
       .split("T")[0];
     const toDate = new Date(periodParams.to * 1000).toISOString().split("T")[0];
 
+    console.log(
+      `[Datafeed ${this._sessionId}] getBars for ${symbol} @ ${resolution}. requestId=${requestId}, range=${fromDate} to ${toDate}`,
+    );
+
     // Register callback
     this._historyCallbacks.set(requestId, {
-      resolve: (bars) => {
-        const filtered = bars.filter(
-          (b) =>
-            b.time >= periodParams.from * 1000 &&
-            b.time <= periodParams.to * 1000,
-        );
+      resolve: (candles, noDataFromServer) => {
+        const bars: Bar[] = candles.map((c) => ({
+          time: c.time,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        }));
         console.log(
-          `[Datafeed ${this._sessionId}] Resolved getBars for ${requestId}. Original: ${bars.length}, Filtered: ${filtered.length}. Range: ${periodParams.from * 1000} to ${periodParams.to * 1000}`,
+          `[Datafeed ${this._sessionId}] Resolved getBars for ${requestId}. Bars: ${bars.length}, Server noData: ${noDataFromServer}`,
         );
         if (bars.length > 0) {
           console.log(
@@ -346,7 +355,7 @@ export class TerminalDatafeed {
             bars[0],
           );
         }
-        onResult(filtered, { noData: filtered.length === 0 });
+        onResult(bars, { noData: noDataFromServer });
       },
       reject: onError,
     });
@@ -372,9 +381,12 @@ export class TerminalDatafeed {
     setTimeout(() => {
       if (this._historyCallbacks.has(requestId)) {
         this._historyCallbacks.delete(requestId);
+        console.error(
+          `[Datafeed ${this._sessionId}] Data load timeout for ${symbol} @ ${resolution}. requestId=${requestId}`,
+        );
         onError("Data load timeout");
       }
-    }, 10000);
+    }, 15000); // Increased to 15s for multi-chunk history
   }
 
   subscribeBars(

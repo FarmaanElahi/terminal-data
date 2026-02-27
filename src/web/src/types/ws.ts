@@ -103,8 +103,15 @@ export interface ChartCandleData {
   volume: number;
 }
 
-// m: "chart_series", p: [sessionId, symbol, interval, candles]
-export type ChartSeriesResponse = [string, string, string, ChartCandleData[]];
+// m: "chart_series", p: [sessionId, symbol, interval, candles, seriesId, noData]
+export type ChartSeriesResponse = [
+  string,
+  string,
+  string,
+  ChartCandleData[],
+  string | null,
+  boolean,
+];
 
 // m: "chart_update", p: [sessionId, symbol, candle]
 export type ChartUpdateResponse = [string, string, ChartCandleData];

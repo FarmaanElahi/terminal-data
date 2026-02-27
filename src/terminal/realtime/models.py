@@ -376,8 +376,8 @@ class ChartSeriesResponse(ServerMessage):
 
     m: Literal["chart_series"] = "chart_series"
     p: tuple[
-        str, str, str, list[ChartCandleData], str | None
-    ]  # session_id, symbol, interval, candles, series_id
+        str, str, str, list[ChartCandleData], str | None, bool
+    ]  # session_id, symbol, interval, candles, series_id, no_data
 
 
 class ChartUpdateResponse(ServerMessage):
