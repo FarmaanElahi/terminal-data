@@ -204,15 +204,27 @@ async def get_metadata_by_tickers(
     """
     Returns metadata for a list of tickers.
     """
-    if _symbols_df is None:
-        return {}
-    df = _symbols_df
-    if df.empty:
+    if _symbols_df is None or _symbols_df.empty:
         return {}
 
     # Filter by tickers
-    filtered_df = df[df["ticker"].isin(tickers)]
+    filtered_df = _symbols_df[_symbols_df["ticker"].isin(tickers)]
     return filtered_df.set_index("ticker").to_dict(orient="index")
+
+
+def get_symbol(ticker: str) -> dict[str, Any] | None:
+    """
+    Returns symbol information for a single ticker.
+    Sync (uses cache).
+    """
+    if _symbols_df is None or _symbols_df.empty:
+        return None
+
+    row = _symbols_df[_symbols_df["ticker"] == ticker]
+    if row.empty:
+        return None
+
+    return row.iloc[0].to_dict()
 
 
 async def get_all_symbols_external() -> list[dict[str, Any]]:

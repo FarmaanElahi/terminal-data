@@ -10,7 +10,7 @@ from fastapi.responses import ORJSONResponse
 from .api import api_router as api_router
 from .logging import configure_logging
 from .realtime.handler import router as realtime_router
-from .dependencies import get_market_manager, get_fs, get_settings
+from .dependencies import get_market_manager, get_fs, get_settings, get_candle_manager
 from .symbols import service as symbols_service
 
 logger = logging.getLogger(__name__)
@@ -24,22 +24,27 @@ configure_logging()
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    # Startup: Start the market data manager to stream real-time updates
+    # Startup: Start the managers
     manager = await get_market_manager()
+    candle_manager = await get_candle_manager()
 
-    logger.info("Initializing MarketDataManager in the background...")
+    logger.info("Initializing managers...")
 
-    def handle_startup_task(task: asyncio.Task):
+    def handle_startup_task(task: asyncio.Task, name: str):
         try:
             task.result()
         except asyncio.CancelledError:
             pass
         except Exception:
-            logger.exception("Background md_startup_task failed")
+            logger.exception("Background %s startup failed", name)
 
-    task = asyncio.create_task(manager.start())
-    task.add_done_callback(handle_startup_task)
-    application.state.md_startup_task = task
+    md_task = asyncio.create_task(manager.start())
+    md_task.add_done_callback(lambda t: handle_startup_task(t, "MarketDataManager"))
+    application.state.md_startup_task = md_task
+
+    candle_task = asyncio.create_task(candle_manager.start_feed())
+    candle_task.add_done_callback(lambda t: handle_startup_task(t, "CandleManager"))
+    application.state.candle_startup_task = candle_task
 
     # Preload symbols
     logger.info("Preloading symbols...")
@@ -48,8 +53,9 @@ async def lifespan(application: FastAPI):
     yield
 
     # Shutdown: Stop the streams
-    logger.info("Shutting down MarketDataManager...")
+    logger.info("Shutting down managers...")
     await manager.stop_realtime_streaming()
+    await candle_manager.close()
 
 
 api = FastAPI(

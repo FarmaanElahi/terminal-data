@@ -57,16 +57,9 @@ export function ChartWidget({
       locale: "en",
       autosize: true,
       theme: isDark ? "dark" : "light",
-      disabled_features: [
-        "use_localstorage_for_settings",
-        "study_templates",
-        "header_saveload",
-      ],
-      enabled_features: [
-        "show_symbol_logos",
-        "show_exchange_logos",
-        "items_favoriting",
-      ],
+      timezone: "exchange" as any, // Follow symbol metadata (Asia/Kolkata)
+      disabled_features: ["study_templates", "header_saveload"],
+      enabled_features: ["show_symbol_logos", "show_exchange_logos"],
       loading_screen: {
         backgroundColor: isDark ? "#09090b" : "#fafafa",
         foregroundColor: "#6366f1",
@@ -102,6 +95,7 @@ export function ChartWidget({
       } catch {
         /* already disposed */
       }
+      datafeed.destroy(); // Clean up WS session
       widgetRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

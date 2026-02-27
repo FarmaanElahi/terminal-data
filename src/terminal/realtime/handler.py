@@ -7,8 +7,9 @@ from starlette.websockets import WebSocketState
 
 from terminal.auth import service as auth_service
 from terminal.database.core import engine
-from terminal.dependencies import get_market_manager
+from terminal.dependencies import get_market_manager, get_candle_manager
 from terminal.market_feed.manager import MarketDataManager
+from terminal.candles.service import CandleManager
 
 from .session import RealtimeSession
 
@@ -22,6 +23,7 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(default=None),
     manager: MarketDataManager = Depends(get_market_manager),
+    candle_manager: CandleManager = Depends(get_candle_manager),
 ) -> None:
     """
     Main realtime WebSocket endpoint.
@@ -55,7 +57,12 @@ async def websocket_endpoint(
 
     # --- Accept & run ---
     await websocket.accept()
-    session = RealtimeSession(websocket, user_id=user_id, manager=manager)
+    session = RealtimeSession(
+        websocket,
+        user_id=user_id,
+        manager=manager,
+        candle_manager=candle_manager,
+    )
     logger.info("Realtime connection opened for user=%s", user_id)
 
     try:

@@ -99,7 +99,7 @@ export interface ConditionSetCreate {
   timeframe_value?: string;
 }
 
-export interface ConditionSetUpdate extends Partial<ConditionSetCreate> {}
+export type ConditionSetUpdate = Partial<ConditionSetCreate>;
 
 // ─── Columns ───────────────────────────────────────────────────────
 export interface ColumnSetCreate {
@@ -107,7 +107,7 @@ export interface ColumnSetCreate {
   columns: ColumnDef[];
 }
 
-export interface ColumnSetUpdate extends Partial<ColumnSetCreate> {}
+export type ColumnSetUpdate = Partial<ColumnSetCreate>;
 
 // ─── Re-exports for convenience ────────────────────────────────────
 export type { User, List, Formula, ConditionSet, ColumnSet, Symbol };

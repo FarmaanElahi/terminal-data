@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # logging
     log_level: LogLevels = LogLevels.info
 
+    # Upstox
+    upstox_access_token: str = ""  # Required only for WebSocket feed
+
     # Auth
     secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"
     algorithm: str = "HS256"

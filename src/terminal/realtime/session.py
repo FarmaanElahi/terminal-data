@@ -12,12 +12,15 @@ from .models import (
     ScreenerRequest,
     ServerMessage,
     QuoteRequest,
+    ChartRequest,
 )
 from .screener import ScreenerSession
 from .quote import QuoteSession
+from .chart import ChartSession
 
 if TYPE_CHECKING:
     from terminal.market_feed.manager import MarketDataManager
+    from terminal.candles.service import CandleManager
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +37,20 @@ class RealtimeSession:
     """
 
     def __init__(
-        self, websocket: WebSocket, *, user_id: str, manager: "MarketDataManager"
+        self,
+        websocket: WebSocket,
+        *,
+        user_id: str,
+        manager: "MarketDataManager",
+        candle_manager: "CandleManager | None" = None,
     ) -> None:
         self.websocket = websocket
         self.user_id = user_id
         self.manager = manager
+        self.candle_manager = candle_manager
         self._screeners: dict[str, ScreenerSession] = {}
         self._quotes: dict[str, QuoteSession] = {}
+        self._charts: dict[str, ChartSession] = {}
 
     def cleanup(self) -> None:
         """Stop all active sub-sessions. Call on WebSocket disconnect."""
@@ -51,6 +61,10 @@ class RealtimeSession:
         for quote in self._quotes.values():
             quote.stop()
         self._quotes.clear()
+
+        for chart in self._charts.values():
+            chart.stop()
+        self._charts.clear()
 
     # ------------------------------------------------------------------
     # Message dispatch
@@ -81,6 +95,8 @@ class RealtimeSession:
             await self._route_screener(msg)
         elif isinstance(msg, QuoteRequest):
             await self._route_quote(msg)
+        elif isinstance(msg, ChartRequest):
+            await self._route_chart(msg)
         else:
             match msg.m:
                 case "ping":
@@ -158,6 +174,49 @@ class RealtimeSession:
             return
 
         await quote_session.handle(msg)
+
+    async def _route_chart(self, msg: ChartRequest) -> None:
+        """Route a chart request — create, modify, or destroy."""
+        session_id = msg.p[0]
+
+        if msg.m == "create_chart":
+            if session_id in self._charts:
+                # Stop existing and recreate
+                self._charts[session_id].stop()
+
+            if not self.candle_manager:
+                await self.send_error("Chart sessions require candle manager")
+                return
+
+            chart = ChartSession(
+                session_id,
+                realtime=self,
+                candle_manager=self.candle_manager,
+            )
+            self._charts[session_id] = chart
+            logger.info(
+                "Created chart session %s for user=%s", session_id, self.user_id
+            )
+            await self.send(ServerMessage(m="chart_session_created", p=(session_id,)))
+
+        if msg.m == "destroy_chart":
+            chart = self._charts.pop(session_id, None)
+            if chart:
+                chart.stop()
+                logger.info(
+                    "Destroyed chart session %s for user=%s",
+                    session_id,
+                    self.user_id,
+                )
+            return
+
+        # Forward to the session
+        chart = self._charts.get(session_id)
+        if chart is None:
+            await self.send_error(f"Chart session {session_id!r} not found")
+            return
+
+        await chart.handle(msg)
 
     # ------------------------------------------------------------------
     # Messaging helpers

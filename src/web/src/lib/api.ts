@@ -23,6 +23,7 @@ import type {
   Formula,
   ConditionSet,
   ColumnSet,
+  Symbol,
 } from "@/types/models";
 
 // ─── Axios Instance ────────────────────────────────────────────────
@@ -127,12 +128,14 @@ export const communityApi = {
 };
 
 // ─── Boot API ──────────────────────────────────────────────────────
+
 export interface BootResponse {
   user: User;
   lists: List[];
   column_sets: ColumnSet[];
   condition_sets: ConditionSet[];
   formulas: Formula[];
+  symbols: Symbol[];
   editor_config: FormulaEditorConfig;
 }
 
