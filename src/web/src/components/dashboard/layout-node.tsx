@@ -1,6 +1,7 @@
 import { Group, Panel, Separator } from "react-resizable-panels";
 import type { LayoutNode } from "@/types/layout";
 import { PaneContainer } from "./pane-container";
+import { useLayoutStore } from "@/stores/layout-store";
 
 interface LayoutNodeRendererProps {
   node: LayoutNode;
@@ -26,6 +27,7 @@ export function LayoutNodeRenderer({ node }: LayoutNodeRendererProps) {
     elements.push(
       <Panel
         key={child.id}
+        id={child.id}
         defaultSize={node.sizes[i] * 100}
         minSize={5}
         className="overflow-hidden"
@@ -62,6 +64,15 @@ export function LayoutNodeRenderer({ node }: LayoutNodeRendererProps) {
     <Group
       orientation={orientation as "horizontal" | "vertical"}
       className="w-full h-full"
+      onLayoutChanged={(layout: { [id: string]: number }) => {
+        const { resizeSplit } = useLayoutStore.getState();
+        // Extract sizes in the same order as children
+        const sizes = node.children.map((child) => layout[child.id] || 0);
+        // The numbers from react-resizable-panels are percentages (0-100)
+        // Our store expects decimals (0-1)
+        const normalized = sizes.map((s) => s / 100);
+        resizeSplit(node.id, normalized);
+      }}
     >
       {elements}
     </Group>
