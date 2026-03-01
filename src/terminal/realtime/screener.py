@@ -176,8 +176,10 @@ class ScreenerSession:
         )
 
         with Session(engine) as session:
-            # Load list and its symbols
-            lst = lists_service.get(session, self.params.source, user_id=user_id)
+            # Load list and its symbols (handling both DB and virtual system lists)
+            lst = lists_service.get_any_list(
+                session, self.params.source, user_id=user_id
+            )
             if not lst:
                 logger.warning(
                     "Screener %s: list %s not found for user %s",
@@ -187,7 +189,14 @@ class ScreenerSession:
                 )
                 return
 
-            self._symbols = lists_service.get_symbols(session, lst, user_id=user_id)
+            # Resolve symbols asynchronously (handles COMBO and SYSTEM lists)
+            self._symbols = await lists_service.get_symbols_async(
+                session,
+                lst,
+                user_id=user_id,
+                fs=self.realtime.manager.provider.fs,
+                settings=settings,
+            )
             logger.info(
                 "Screener %s: loaded %d symbols", self.session_id, len(self._symbols)
             )

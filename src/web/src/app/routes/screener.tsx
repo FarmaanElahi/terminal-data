@@ -4,19 +4,16 @@ import { useScreener } from "@/hooks/use-screener";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { ScreenerToolbar } from "@/components/screener/screener-toolbar";
 import { ScreenerStatus } from "@/components/screener/screener-status";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ListSelectionDialog } from "@/components/widgets/list-selection-dialog";
+import { Button } from "@/components/ui/button";
+import { ChevronDown, List as ListIcon } from "lucide-react";
 
 export function ScreenerPage() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   // Read from boot data — already loaded on auth
   const lists = useAuthStore((s) => s.lists);
   const columnSets = useAuthStore((s) => s.columnSets);
+  const [listDialogOpen, setListDialogOpen] = useState(false);
 
   // Auto-select first available
   const listId = selectedListId ?? lists?.[0]?.id ?? null;
@@ -54,18 +51,23 @@ export function ScreenerPage() {
         </div>
 
         {/* List selector */}
-        <Select value={listId ?? ""} onValueChange={setSelectedListId}>
-          <SelectTrigger className="w-48 h-8 text-xs bg-background/50">
-            <SelectValue placeholder="Select list..." />
-          </SelectTrigger>
-          <SelectContent>
-            {lists?.map((list) => (
-              <SelectItem key={list.id} value={list.id} className="text-xs">
-                {list.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-2 px-3 bg-background/50 hover:bg-background/80 border-border/50 text-xs font-medium"
+          onClick={() => setListDialogOpen(true)}
+        >
+          <ListIcon className="w-3.5 h-3.5 text-primary" />
+          {lists.find((l) => l.id === listId)?.name || "Select List"}
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground ml-1" />
+        </Button>
+
+        <ListSelectionDialog
+          open={listDialogOpen}
+          onOpenChange={setListDialogOpen}
+          selectedId={listId}
+          onSelect={setSelectedListId}
+        />
       </div>
 
       {/* Toolbar */}

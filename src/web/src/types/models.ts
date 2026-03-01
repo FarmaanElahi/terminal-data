@@ -6,7 +6,7 @@ export interface User {
   is_active: boolean;
 }
 
-export type ListType = "simple" | "color" | "combo";
+export type ListType = "simple" | "color" | "combo" | "system";
 
 export interface List {
   id: string;

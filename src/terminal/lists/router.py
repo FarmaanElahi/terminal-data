@@ -29,10 +29,14 @@ router = APIRouter(prefix="/lists", tags=["List"])
 async def all(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    fs: AbstractFileSystem = Depends(get_fs),
+    settings: Settings = Depends(get_settings),
 ):
-    """List all lists owned by the current user."""
+    """List all lists owned by the current user and system lists."""
     lists_service.ensure_default_lists(session, current_user.id)
-    return lists_service.all(session, current_user.id)
+    user_lists = lists_service.all(session, current_user.id)
+    system_lists = await lists_service.get_all_system_lists(fs, settings)
+    return user_lists + system_lists
 
 
 @router.post("", response_model=ListPublic)
@@ -54,13 +58,21 @@ async def get(
     id: str,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
+    fs: AbstractFileSystem = Depends(get_fs),
+    settings: Settings = Depends(get_settings),
 ):
     """Get list details and its symbols (aggregated for Combo lists)."""
-    lst = lists_service.get(session, id, user_id=current_user.id)
+    if id.startswith(lists_service.SYSTEM_LIST_PREFIX):
+        lst = lists_service.get_system_list_by_id(id)
+    else:
+        lst = lists_service.get(session, id, user_id=current_user.id)
+
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
 
-    symbols = lists_service.get_symbols(session, lst, user_id=current_user.id)
+    symbols = await lists_service.get_symbols_async(
+        session, lst, user_id=current_user.id, fs=fs, settings=settings
+    )
     return {
         "id": lst.id,
         "user_id": lst.user_id,
@@ -68,7 +80,9 @@ async def get(
         "type": lst.type,
         "color": lst.color,
         "symbols": symbols,
-        "source_list_ids": lst.source_list_ids,
+        "source_list_ids": lst.source_list_ids
+        if hasattr(lst, "source_list_ids")
+        else [],
     }
 
 
@@ -177,11 +191,17 @@ async def run_list_scan(
     settings: Settings = Depends(get_settings),
 ):
     """Run the scan engine using this list's symbols and column definitions."""
-    lst = lists_service.get(session, id, user_id=current_user.id)
+    if id.startswith(lists_service.SYSTEM_LIST_PREFIX):
+        lst = lists_service.get_system_list_by_id(id)
+    else:
+        lst = lists_service.get(session, id, user_id=current_user.id)
+
     if not lst:
         raise HTTPException(status_code=404, detail="List not found")
 
-    symbols = lists_service.get_symbols(session, lst, user_id=current_user.id)
+    symbols = await lists_service.get_symbols_async(
+        session, lst, user_id=current_user.id, fs=fs, settings=settings
+    )
     if not symbols:
         return {"total": 0, "columns": [], "tickers": [], "values": []}
 

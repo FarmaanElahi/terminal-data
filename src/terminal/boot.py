@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from terminal.dependencies import get_session
+from terminal.dependencies import get_session, get_fs, get_settings
 from terminal.auth.router import get_current_user
 from terminal.auth.models import User
 
@@ -12,6 +12,8 @@ router = APIRouter(prefix="/boot", tags=["Boot"])
 async def boot(
     current_user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
+    fs=Depends(get_fs),
+    settings=Depends(get_settings),
 ):
     """Return all user data needed for UI initialization in a single request."""
     from terminal.lists import service as lists_service
@@ -37,7 +39,8 @@ async def boot(
             "username": current_user.username,
             "is_active": current_user.is_active,
         },
-        "lists": lists_service.all(session, current_user.id),
+        "lists": lists_service.all(session, current_user.id)
+        + await lists_service.get_all_system_lists(fs, settings),
         "column_sets": column_service.all(session, current_user.id),
         "condition_sets": condition_service.all(session, current_user.id),
         "formulas": formula_service.all(session, current_user.id),

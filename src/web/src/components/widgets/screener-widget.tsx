@@ -17,18 +17,20 @@ import type { WidgetProps } from "@/types/layout";
 import type { ColumnDef, FilterState } from "@/types/models";
 import type { ScreenerFilterRow, ScreenerValues } from "@/types/ws";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Filter, Settings, ChevronUp, ChevronDown, Plus } from "lucide-react";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ListSelectionDialog } from "./list-selection-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Filter,
+  Settings,
+  ChevronUp,
+  ChevronDown,
+  Plus,
+  List as ListIcon,
+} from "lucide-react";
 import { listsApi } from "@/lib/api";
 import { ColumnEditor } from "./column-editor";
 import { CreateListDialog } from "./create-list-dialog";
@@ -496,6 +498,7 @@ export function ScreenerWidget({
   const columnSets = useAuthStore((st) => st.columnSets);
   const [editorOpen, setEditorOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
+  const [listDialogOpen, setListDialogOpen] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -764,21 +767,25 @@ export function ScreenerWidget({
   return (
     <div className="flex flex-col h-full relative">
       <div className="flex items-center gap-2 p-2 border-b border-border shrink-0">
-        <Select
-          value={listId ?? ""}
-          onValueChange={(v) => onSettingsChange({ listId: v })}
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-2 px-2.5 bg-background/50 hover:bg-background/80 border-border/50 text-xs font-medium"
+          onClick={() => setListDialogOpen(true)}
         >
-          <SelectTrigger className="h-7 w-40 text-xs">
-            <SelectValue placeholder="Select list" />
-          </SelectTrigger>
-          <SelectContent>
-            {lists?.map((l) => (
-              <SelectItem key={l.id} value={l.id}>
-                {l.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          <ListIcon className="w-3.5 h-3.5 text-primary" />
+          <span className="truncate max-w-[120px]">
+            {lists.find((l) => l.id === listId)?.name || "Select List"}
+          </span>
+          <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+        </Button>
+
+        <ListSelectionDialog
+          open={listDialogOpen}
+          onOpenChange={setListDialogOpen}
+          selectedId={listId}
+          onSelect={(id) => onSettingsChange({ listId: id })}
+        />
         <button
           onClick={() => setCreateListOpen(true)}
           className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

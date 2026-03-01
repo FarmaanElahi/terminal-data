@@ -6,8 +6,14 @@ from terminal.lists.models import (
     ListUpdate,
     SymbolsUpdate,
     SourceListsUpdate,
+    ListPublic,
 )
 from terminal.lists.enums import ListType
+from terminal.symbols import service as symbols_service
+from fsspec import AbstractFileSystem
+from terminal.config import Settings
+
+SYSTEM_LIST_PREFIX = "sys:"
 
 
 def get(session: Session, list_id: str, user_id: str | None = None) -> List | None:
@@ -16,6 +22,15 @@ def get(session: Session, list_id: str, user_id: str | None = None) -> List | No
     if user_id:
         statement = statement.where(List.user_id == user_id)
     return session.execute(statement).scalars().first()
+
+
+def get_any_list(
+    session: Session, list_id: str, user_id: str | None = None
+) -> List | ListPublic | None:
+    """Get any list (database or system) by ID."""
+    if list_id.startswith(SYSTEM_LIST_PREFIX):
+        return get_system_list_by_id(list_id)
+    return get(session, list_id, user_id=user_id)
 
 
 def all(session: Session, user_id: str) -> list[List]:
@@ -154,8 +169,20 @@ def bulk_remove_source_lists(
     return lst
 
 
-def get_symbols(session: Session, lst: List, user_id: str) -> list[str]:
-    """Get symbols for a list, aggregating for COMBO lists."""
+def get_symbols(
+    session: Session,
+    lst: List | ListPublic,
+    user_id: str,
+    fs: AbstractFileSystem | None = None,
+    settings: Settings | None = None,
+) -> list[str]:
+    """Get symbols for a list, aggregating for COMBO lists or fetching for SYSTEM lists."""
+    if lst.type == ListType.system:
+        # This is a bit of a hack since symbols_service.search is async
+        # We handle this in the router/service call if we want to be truly async
+        # But for now, we'll assume it's called from an async context and we might need to adjust
+        return []
+
     if lst.type == ListType.combo:
         # Aggregate symbols from all source lists owned by the same user
         all_symbols = set()
@@ -173,3 +200,95 @@ def get_symbols(session: Session, lst: List, user_id: str) -> list[str]:
         return list(all_symbols)
 
     return lst.symbols
+
+
+async def get_symbols_async(
+    session: Session,
+    lst: List | ListPublic,
+    user_id: str,
+    fs: AbstractFileSystem,
+    settings: Settings,
+) -> list[str]:
+    """Async version of get_symbols that handles SYSTEM lists."""
+    if lst.type == ListType.system:
+        parts = lst.id.split(":")
+        if len(parts) < 3:
+            return []
+
+        filter_type = parts[1]
+        filter_value = parts[2]
+
+        if filter_type == "mkt":
+            results = await symbols_service.search(
+                fs, settings, market=filter_value, limit=None
+            )
+        elif filter_type == "idx":
+            results = await symbols_service.search(
+                fs, settings, index=filter_value, limit=None
+            )
+        else:
+            return []
+
+        return [r["ticker"] for r in results]
+
+    return get_symbols(session, lst, user_id)
+
+
+async def get_all_system_lists(
+    fs: AbstractFileSystem, settings: Settings
+) -> list[ListPublic]:
+    """Generate virtual system lists based on available markets and indexes."""
+    metadata = await symbols_service.get_filter_metadata(fs, settings)
+    system_lists = []
+
+    # Market lists
+    for market in metadata.get("markets", []):
+        system_lists.append(
+            ListPublic(
+                id=f"{SYSTEM_LIST_PREFIX}mkt:{market}",
+                user_id="system",
+                name=f"{market.capitalize()} Stock",
+                type=ListType.system,
+            )
+        )
+
+    # Index lists
+    for index in metadata.get("indexes", []):
+        system_lists.append(
+            ListPublic(
+                id=f"{SYSTEM_LIST_PREFIX}idx:{index}",
+                user_id="system",
+                name=f"{index} Stock",
+                type=ListType.system,
+            )
+        )
+
+    return system_lists
+
+
+def get_system_list_by_id(list_id: str) -> ListPublic | None:
+    """Get a virtual system list by its ID."""
+    if not list_id.startswith(SYSTEM_LIST_PREFIX):
+        return None
+
+    parts = list_id.split(":")
+    if len(parts) < 3:
+        return None
+
+    filter_type = parts[1]
+    filter_value = parts[2]
+
+    name = ""
+    if filter_type == "mkt":
+        name = f"{filter_value.capitalize()} Stock"
+    elif filter_type == "idx":
+        name = f"{filter_value} Stock"
+    else:
+        return None
+
+    return ListPublic(
+        id=list_id,
+        user_id="system",
+        name=name,
+        type=ListType.system,
+    )
