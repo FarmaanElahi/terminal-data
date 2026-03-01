@@ -25,6 +25,7 @@ import { ListSelectionDialog } from "./list-selection-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Filter,
+  FilterX,
   Settings,
   ChevronUp,
   ChevronDown,
@@ -84,7 +85,7 @@ function formatValue(
     return color;
   };
 
-  let finalColor = adjustColor(col?.display_color);
+  let finalColor = adjustColor(col?.display_color ?? "#ffffff");
 
   // Boolean handling
   if (typeof val === "boolean") {
@@ -103,14 +104,16 @@ function formatValue(
     const absVal = Math.abs(val);
 
     const localeOptions: Intl.NumberFormatOptions = {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
+      maximumFractionDigits: col?.display_numeric_max_decimal ?? 2,
+      minimumFractionDigits: col?.display_numeric_max_decimal ?? 2,
     };
 
-    if (absVal >= 1_000_000) {
-      localeOptions.minimumFractionDigits = 0;
-    } else if (absVal < 1) {
-      localeOptions.maximumFractionDigits = 4;
+    if (col?.display_numeric_max_decimal == null) {
+      if (absVal >= 1_000_000) {
+        localeOptions.minimumFractionDigits = 0;
+      } else if (absVal < 1) {
+        localeOptions.maximumFractionDigits = 4;
+      }
     }
 
     formatted = val.toLocaleString("en-US", localeOptions);
@@ -540,6 +543,7 @@ export function ScreenerWidget({
   const [editorOpen, setEditorOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDialogOpen, setListDialogOpen] = useState(false);
+  const [filtersBypassed, setFiltersBypassed] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -586,10 +590,19 @@ export function ScreenerWidget({
       .map((c) => c.id);
   }, [selectedColumnSet]);
 
+  const hasActiveFilters = useMemo(() => {
+    return (selectedColumnSet?.columns ?? []).some((c) => c.filter !== "off");
+  }, [selectedColumnSet]);
+
+  const effectiveColumns = useMemo(() => {
+    if (!selectedColumnSet?.columns || !filtersBypassed) return selectedColumnSet?.columns || null;
+    return selectedColumnSet.columns.map((c) => ({ ...c, filter: "off" as FilterState }));
+  }, [selectedColumnSet, filtersBypassed]);
+
   const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } = useScreener(
     instanceId,
     listId,
-    selectedColumnSet?.columns || null,
+    effectiveColumns,
   );
 
   // Defer high-frequency updates to keep the UI responsive during massive re-renders
@@ -842,6 +855,21 @@ export function ScreenerWidget({
         </button>
 
         <div className="flex-1" />
+
+        {hasActiveFilters && (
+          <button
+            onClick={() => setFiltersBypassed((v) => !v)}
+            className={cn(
+              "p-1 rounded-sm transition-colors",
+              filtersBypassed
+                ? "text-yellow-500 bg-yellow-500/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted",
+            )}
+            title={filtersBypassed ? "Show filtered results" : "Show all (bypass filters)"}
+          >
+            <FilterX className="w-3.5 h-3.5" />
+          </button>
+        )}
 
         <button
           onClick={() => setEditorOpen(true)}

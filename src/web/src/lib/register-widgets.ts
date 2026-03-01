@@ -7,6 +7,7 @@ import { ScreenerWidget } from "@/components/widgets/screener-widget";
 import { WatchlistWidget } from "@/components/widgets/watchlist-widget";
 import { ChartWidget } from "@/components/widgets/chart-widget";
 import { CommunityFeedWidget } from "@/components/widgets/community-feed-widget";
+import { CommunityFeedGlobalWidget } from "@/components/widgets/community-feed-global-widget";
 
 registerWidget({
   type: "screener",
@@ -37,5 +38,13 @@ registerWidget({
   title: "Community Feed",
   icon: "message-square",
   component: CommunityFeedWidget,
-  defaultSettings: { symbol: null, feed: "general" },
+  defaultSettings: { symbol: null, feed: "trending" },
+});
+
+registerWidget({
+  type: "community_feed_global",
+  title: "Global Feed",
+  icon: "globe",
+  component: CommunityFeedGlobalWidget,
+  defaultSettings: { feed: "trending" },
 });

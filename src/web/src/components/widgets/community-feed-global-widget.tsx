@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
-import { useCommunitySymbolFeed } from "@/queries/use-community-feed";
+import { useCommunityGlobalFeed } from "@/queries/use-community-feed";
 import type { StockTwitsMessage } from "@/types/models";
-import { MessageSquare, TrendingUp, TrendingDown } from "lucide-react";
+import { TrendingUp, TrendingDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ─── Symbol conversion ────────────────────────────────────────────────
@@ -60,6 +60,7 @@ function timeAgo(dateStr: string): string {
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────
+// Falls back to an initial-based placeholder if the image fails to load.
 
 function Avatar({ src, username }: { src?: string; username: string }) {
   const [failed, setFailed] = useState(false);
@@ -86,6 +87,7 @@ function Avatar({ src, username }: { src?: string; username: string }) {
 
 const FEED_OPTIONS = [
   { value: "trending", label: "Trending" },
+  { value: "suggested", label: "Suggested" },
   { value: "popular", label: "Popular" },
 ];
 
@@ -100,6 +102,7 @@ function PostCard({
 }) {
   const sentiment = msg.entities?.sentiment?.basic;
   const likes = msg.likes?.total ?? 0;
+  const symbols = msg.symbols ?? [];
 
   return (
     <div className="px-3 py-2.5 border-b border-border/50 hover:bg-muted/20 transition-colors">
@@ -135,10 +138,27 @@ function PostCard({
           <p className="text-[11px] text-foreground/80 mt-0.5 leading-relaxed line-clamp-4">
             {renderBody(msg.body, onSymbolClick)}
           </p>
-          {likes > 0 && (
-            <span className="text-[10px] text-muted-foreground mt-1 block">
-              ♥ {likes}
-            </span>
+          {(symbols.length > 0 || likes > 0) && (
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {symbols.map((s) => {
+                const tvSymbol = stToTvSymbol(s.symbol);
+                return (
+                  <button
+                    key={s.symbol}
+                    onClick={() => onSymbolClick(tvSymbol)}
+                    className="text-[9px] font-mono bg-muted/60 text-primary px-1 py-0.5 rounded hover:bg-primary/15 transition-colors"
+                    title={s.title}
+                  >
+                    {tvSymbol}
+                  </button>
+                );
+              })}
+              {likes > 0 && (
+                <span className="text-[10px] text-muted-foreground">
+                  ♥ {likes}
+                </span>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -163,33 +183,24 @@ function PostSkeleton() {
 
 // ─── Widget ───────────────────────────────────────────────────────────
 
-export function CommunityFeedWidget({
+export function CommunityFeedGlobalWidget({
   instanceId,
   settings,
   onSettingsChange,
 }: WidgetProps) {
   const s = (settings ?? {}) as Record<string, unknown>;
-  const { channelContext, setChannelSymbol } = useWidget(instanceId);
+  const { setChannelSymbol } = useWidget(instanceId);
   const [feed, setFeed] = useState<string>((s.feed as string) ?? "trending");
 
-  // Symbol is driven entirely by the channel context — identical to how the
-  // chart widget works. Any widget that calls setChannelSymbol on the same
-  // channel will update this feed. Fall back to persisted settings on first mount
-  // (before any channel broadcast has happened).
-  const symbol = channelContext?.symbol ?? (s.symbol as string) ?? null;
-
-  const { data, isLoading, isError } = useCommunitySymbolFeed(symbol, feed, 20);
+  const { data, isLoading, isError } = useCommunityGlobalFeed(feed, 20);
   const messages = data?.messages ?? data?.data ?? [];
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-        <span className="text-xs font-medium text-foreground truncate flex-1">
-          Community
-          {symbol
-            ? ` · ${symbol.includes(":") ? symbol.split(":")[1] : symbol}`
-            : ""}
+        <span className="text-xs font-medium text-foreground flex-1">
+          Community Feed
         </span>
         <div className="flex items-center gap-0.5">
           {FEED_OPTIONS.map((opt) => (
@@ -214,12 +225,7 @@ export function CommunityFeedWidget({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {!symbol ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-            <MessageSquare className="w-10 h-10 opacity-30" />
-            <span className="text-xs">Link to a channel to view a symbol feed</span>
-          </div>
-        ) : isLoading ? (
+        {isLoading ? (
           <>
             <PostSkeleton />
             <PostSkeleton />

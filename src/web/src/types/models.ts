@@ -101,6 +101,7 @@ export interface ColumnDef {
   display_numeric_prefix?: string | null;
   display_numeric_suffix?: string | null;
   display_numeric_show_positive_sign?: boolean | null;
+  display_numeric_max_decimal?: number | null;
 }
 
 export interface ColumnSet {
@@ -125,4 +126,28 @@ export interface SearchMetadata {
   markets: string[];
   types: string[];
   indexes: string[];
+}
+
+// ─── StockTwits Community Feed ────────────────────────────────────────
+
+export interface StockTwitsUser {
+  id: number;
+  username: string;
+  name: string;
+  avatar_url_ssl?: string;
+}
+
+export interface StockTwitsMessage {
+  id: number;
+  body: string;
+  created_at: string;
+  user: StockTwitsUser;
+  symbols?: { symbol: string; title: string }[];
+  likes?: { total: number };
+  entities?: { sentiment?: { basic: "Bullish" | "Bearish" } };
+}
+
+export interface StockTwitsFeedResponse {
+  messages?: StockTwitsMessage[];
+  data?: StockTwitsMessage[];
 }

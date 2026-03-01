@@ -407,7 +407,7 @@ export function ColumnPropertiesDialog({
                         <Input
                           type="color"
                           className="h-8 w-10 p-1 shrink-0 bg-transparent"
-                          value={edited.display_color || "#94a3b8"}
+                          value={edited.display_color || "#ffffff"}
                           onChange={(e) =>
                             update({ display_color: e.target.value })
                           }
@@ -558,6 +558,27 @@ export function ColumnPropertiesDialog({
                     >
                       Show positive (+) sign for upticks
                     </Label>
+                  </div>
+                  <div className="space-y-2 pt-2">
+                    <Label className="text-[11px] text-muted-foreground">
+                      Decimal Places
+                    </Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={8}
+                      className="h-8 text-xs w-24"
+                      value={edited.display_numeric_max_decimal ?? ""}
+                      placeholder="Auto"
+                      onChange={(e) =>
+                        update({
+                          display_numeric_max_decimal:
+                            e.target.value === ""
+                              ? null
+                              : Number(e.target.value),
+                        })
+                      }
+                    />
                   </div>
                 </SettingsSection>
               </TabsContent>

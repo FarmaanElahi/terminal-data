@@ -47,7 +47,7 @@ function newValueColumn(): ColumnDef {
     value_formula_filter_evaluate_on: "now",
     value_formula_refresh_interval: 0,
     display_column_width: 100,
-    display_color: "#94a3b8",
+    display_color: "#ffffff",
   };
 }
 
@@ -66,7 +66,7 @@ function newConditionColumn(): ColumnDef {
     conditions_tf: "D",
     condition_value_x_bar_ago: 0,
     display_column_width: 100,
-    display_color: "#94a3b8",
+    display_color: "#ffffff",
   };
 }
 

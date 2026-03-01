@@ -69,6 +69,7 @@ export function useScreener(
         display_numeric_prefix,
         display_numeric_suffix,
         display_numeric_show_positive_sign,
+        display_numeric_max_decimal,
         ...f
       }) => f,
     );
