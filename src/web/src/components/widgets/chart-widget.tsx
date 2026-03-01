@@ -58,8 +58,12 @@ export function ChartWidget({
       autosize: true,
       theme: isDark ? "dark" : "light",
       timezone: "exchange" as any, // Follow symbol metadata (Asia/Kolkata)
-      disabled_features: ["study_templates", "header_saveload"],
-      enabled_features: ["show_symbol_logos", "show_exchange_logos"],
+      enabled_features: [
+        "show_symbol_logos",
+        "show_exchange_logos",
+        "use_localstorage_for_settings",
+        "save_chart_properties_to_local_storage",
+      ],
       loading_screen: {
         backgroundColor: isDark ? "#09090b" : "#fafafa",
         foregroundColor: "#6366f1",
