@@ -787,22 +787,6 @@ export function ScreenerWidget({
           <Plus className="w-3.5 h-3.5" />
         </button>
 
-        <Select
-          value={columnSetId ?? ""}
-          onValueChange={(v) => onSettingsChange({ columnSetId: v })}
-        >
-          <SelectTrigger className="h-7 w-40 text-xs">
-            <SelectValue placeholder="Select columns" />
-          </SelectTrigger>
-          <SelectContent>
-            {columnSets?.map((cs) => (
-              <SelectItem key={cs.id} value={cs.id}>
-                {cs.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
         <div className="flex-1" />
 
         <button

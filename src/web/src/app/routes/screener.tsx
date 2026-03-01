@@ -14,17 +14,13 @@ import {
 
 export function ScreenerPage() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  const [selectedColumnSetId, setSelectedColumnSetId] = useState<string | null>(
-    null,
-  );
-
   // Read from boot data — already loaded on auth
   const lists = useAuthStore((s) => s.lists);
   const columnSets = useAuthStore((s) => s.columnSets);
 
   // Auto-select first available
   const listId = selectedListId ?? lists?.[0]?.id ?? null;
-  const columnSetId = selectedColumnSetId ?? columnSets?.[0]?.id ?? null;
+  const columnSetId = columnSets?.[0]?.id ?? null;
 
   // Get column definitions for the selected column set
   const selectedColumnSet = columnSets?.find((cs) => cs.id === columnSetId);
@@ -66,23 +62,6 @@ export function ScreenerPage() {
             {lists?.map((list) => (
               <SelectItem key={list.id} value={list.id} className="text-xs">
                 {list.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {/* Column set selector */}
-        <Select
-          value={columnSetId ?? ""}
-          onValueChange={setSelectedColumnSetId}
-        >
-          <SelectTrigger className="w-48 h-8 text-xs bg-background/50">
-            <SelectValue placeholder="Select columns..." />
-          </SelectTrigger>
-          <SelectContent>
-            {columnSets?.map((cs) => (
-              <SelectItem key={cs.id} value={cs.id} className="text-xs">
-                {cs.name}
               </SelectItem>
             ))}
           </SelectContent>
