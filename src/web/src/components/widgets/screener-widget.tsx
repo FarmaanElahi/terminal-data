@@ -356,6 +356,8 @@ const ScreenerRow = memo(
     values,
     isDark,
     getColWidth,
+    screenerListId,
+    onListModified,
   }: {
     row: ScreenerFilterRow;
     originalIndex: number;
@@ -367,6 +369,8 @@ const ScreenerRow = memo(
     values: ScreenerValues;
     isDark: boolean;
     getColWidth: (colId: string, fallback: number) => number;
+    screenerListId: string | null;
+    onListModified: () => void;
   }) => {
     const { data: allLists = [] } = useListsQuery();
     const lists = useMemo(
@@ -388,6 +392,9 @@ const ScreenerRow = memo(
         } else {
           await addSymbol.mutateAsync({ listId, ticker: row.ticker });
           toast.success(`Added ${row.ticker} to ${listName}`);
+        }
+        if (listId === screenerListId) {
+          onListModified();
         }
       } catch {
         toast.error(`Failed to update list`);
@@ -579,7 +586,7 @@ export function ScreenerWidget({
       .map((c) => c.id);
   }, [selectedColumnSet]);
 
-  const { tickers, values, isLoading, lastUpdate, totalSymbols } = useScreener(
+  const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } = useScreener(
     instanceId,
     listId,
     selectedColumnSet?.columns || null,
@@ -976,6 +983,8 @@ export function ScreenerWidget({
                           values={deferredValues}
                           isDark={isDark}
                           getColWidth={getColWidth}
+                          screenerListId={listId}
+                          onListModified={refresh}
                         />
                       );
                     })}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useWebSocket } from "./use-websocket";
 import { useWidgetState, useWidgetStateMerge } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
@@ -189,5 +189,11 @@ export function useScreener(
     };
   }, [sessionId, ws]);
 
-  return { tickers, values, isLoading, lastUpdate, totalSymbols };
+  const refresh = useCallback(() => {
+    if (!isCreatedRef.current || !listId || !columns) return;
+    ws.send({ m: "modify_screener", p: [sessionId, { source: listId, columns }] });
+    setIsLoading(true);
+  }, [ws, sessionId, listId, columns, setIsLoading]);
+
+  return { tickers, values, isLoading, lastUpdate, totalSymbols, refresh };
 }
