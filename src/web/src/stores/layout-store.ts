@@ -64,9 +64,17 @@ function findNode(root: LayoutNode, id: string): LayoutNode | null {
   return null;
 }
 
-/** Deep-clone a layout node */
-function cloneNode<T extends LayoutNode>(node: T): T {
-  return JSON.parse(JSON.stringify(node));
+function recursiveGenerateIds(node: LayoutNode): LayoutNode {
+  const newNode = { ...node, id: uid() };
+  if (newNode.type === "split") {
+    newNode.children = newNode.children.map(recursiveGenerateIds);
+  } else if (newNode.type === "pane") {
+    newNode.tabs = newNode.tabs.map((tab) => ({
+      ...tab,
+      id: uid(),
+    }));
+  }
+  return newNode;
 }
 
 /**
@@ -713,13 +721,24 @@ export const useLayoutStore = create<LayoutStore>()(
         set((state) => {
           const source = state.layouts.find((l) => l.id === id);
           if (!source) return state;
+
+          const duplicatedRoot = recursiveGenerateIds(
+            JSON.parse(JSON.stringify(source.root)),
+          );
+
           const dup: LayoutTab = {
-            ...(cloneNode(
-              source as unknown as PaneNode,
-            ) as unknown as LayoutTab),
             id: uid(),
             name: `${source.name} (Copy)`,
+            root: duplicatedRoot,
+            floatingWindows: source.floatingWindows.map((fw) => ({
+              ...fw,
+              id: uid(),
+              pane: recursiveGenerateIds(
+                JSON.parse(JSON.stringify(fw.pane)),
+              ) as PaneNode,
+            })),
           };
+
           return {
             layouts: [...state.layouts, dup],
             activeLayoutId: dup.id,

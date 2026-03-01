@@ -395,7 +395,7 @@ const ScreenerRow = memo(
     originalIndex: number;
     visualIndex: number;
     isSelected: boolean;
-    onSelect: (index: number) => void;
+    onSelect: (index: number, focus?: boolean) => void;
     visibleColumns: string[];
     columnMap: Map<string, ColumnDef>;
     values: ScreenerValues;
@@ -404,7 +404,7 @@ const ScreenerRow = memo(
   }) => {
     return (
       <tr
-        onClick={() => onSelect(visualIndex)}
+        onClick={() => onSelect(visualIndex, true)}
         data-selected={isSelected}
         className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
       >
@@ -597,12 +597,15 @@ export function ScreenerWidget({
 
   // Select a row and update the linked channel symbol
   const handleSelect = useCallback(
-    (visualIndex: number) => {
+    (visualIndex: number, focus = false) => {
       setSelectedIndex(visualIndex);
       const originalIndex = sortedIndices[visualIndex];
       const ticker = deferredTickers[originalIndex]?.ticker;
       if (ticker) {
         setChannelSymbol(ticker);
+      }
+      if (focus && scrollContainerRef.current) {
+        scrollContainerRef.current.focus();
       }
     },
     [setChannelSymbol, deferredTickers, sortedIndices],
@@ -741,6 +744,21 @@ export function ScreenerWidget({
     if (selectedIndex === null || !scrollContainerRef.current) return;
 
     const container = scrollContainerRef.current;
+
+    // ─── Behavioral Checks ──────────────────────────────────────────
+    // 1. Is this widget even "visible" (not hidden in an inactive tab)?
+    if (container.offsetParent === null) return;
+
+    // 2. Is this an "internal" interaction?
+    // We only scroll if either:
+    // a) This specific container is focused (keyboard nav or just clicked)
+    // b) The change came from clicking a row in this specific instance
+    const isFocused =
+      document.activeElement === container ||
+      container.contains(document.activeElement);
+
+    if (!isFocused) return;
+
     const rowTop = selectedIndex * ROW_HEIGHT;
     const rowBottom = rowTop + ROW_HEIGHT;
     const scrollTop = container.scrollTop;
