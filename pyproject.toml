@@ -3,7 +3,7 @@ name = "terminal"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.4",
     "fastapi[standard]>=0.128.8",
@@ -27,6 +27,8 @@ dependencies = [
     "websockets>=15.0",
     "protobuf>=6.33.5",
     "grpcio-tools>=1.78.0",
+    "pydantic>=2.12.5",
+    "pandas-stubs~=3.0.0",
 ]
 
 

@@ -241,7 +241,7 @@ class ScreenerSession:
                 try:
                     ast = parse(formula)
                     parsed.append((cond, ast))
-                except FormulaError, Exception:
+                except (FormulaError, Exception):
                     parsed.append((cond, None))
             self._parsed_conditions[col.id] = parsed
 
@@ -351,7 +351,7 @@ class ScreenerSession:
                     met = bool(result[-1]) if len(result) > 0 else False
                 else:
                     met = False
-            except FormulaError, Exception:
+            except (FormulaError, Exception):
                 met = False
             results.append(met)
 

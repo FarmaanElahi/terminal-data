@@ -3,11 +3,11 @@ from typing import Generic, TypeVar, List as TypingList
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import DateTime
 from pydantic import ConfigDict, BaseModel
-from uuid import uuid7
+from uuid import uuid4
 
 
 def uuid7_str() -> str:
-    return str(uuid7())
+    return str(uuid4())
 
 
 class TerminalBase(BaseModel):
