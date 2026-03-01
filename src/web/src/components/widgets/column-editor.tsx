@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { useUpdateColumnSetMutation } from "@/queries/use-column-sets";
-import type { ColumnSet, ColumnDef, FilterState } from "@/types/models";
+import type { ColumnDef, FilterState } from "@/types/models";
 import {
   Dialog,
   DialogContent,
@@ -23,7 +22,8 @@ import { Eye, EyeOff, X, Plus, Filter, ChevronRight } from "lucide-react";
 interface ColumnEditorProps {
   open: boolean;
   onClose: () => void;
-  columnSet: ColumnSet;
+  columns: ColumnDef[];
+  onColumnsChange: (cols: ColumnDef[]) => void;
 }
 
 function makeId(): string {
@@ -78,19 +78,18 @@ const FILTER_CYCLE: Record<FilterState, FilterState> = {
 
 // ─── Main Component ──────────────────────────────────────────────────
 
-export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
+export function ColumnEditor({ open, onClose, columns: columnsProp, onColumnsChange }: ColumnEditorProps) {
   const [columns, setColumns] = useState<ColumnDef[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [editingColIdx, setEditingColIdx] = useState<number | null>(null);
-  const updateColumnSet = useUpdateColumnSetMutation();
 
   useEffect(() => {
     if (open) {
-      setColumns([...columnSet.columns]);
+      setColumns([...columnsProp]);
       setHasChanges(false);
       setEditingColIdx(null);
     }
-  }, [open, columnSet.columns]);
+  }, [open, columnsProp]);
 
   const updateColumn = useCallback(
     (index: number, patch: Partial<ColumnDef>) => {
@@ -119,18 +118,10 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
     [columns.length],
   );
 
-  const save = useCallback(async () => {
-    try {
-      await updateColumnSet.mutateAsync({
-        id: columnSet.id,
-        data: { columns: columns as unknown as ColumnDef[] },
-      });
-      setHasChanges(false);
-      onClose();
-    } catch (err) {
-      console.error("Failed to save columns:", err);
-    }
-  }, [columns, columnSet.id, onClose, updateColumnSet]);
+  const save = useCallback(() => {
+    onColumnsChange(columns);
+    onClose();
+  }, [columns, onColumnsChange, onClose]);
 
   return (
     <>
@@ -149,7 +140,7 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
             <div className="flex items-center justify-between">
               <div>
                 <DialogTitle className="text-sm font-semibold">
-                  Edit Column Set: {columnSet.name}
+                  Edit Columns
                 </DialogTitle>
                 <DialogDescription className="text-xs mt-0.5">
                   Manage visibility, formulas, and screener filters
@@ -336,10 +327,9 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
                 <Button
                   size="sm"
                   onClick={save}
-                  disabled={updateColumnSet.isPending}
                   className="h-8 text-xs font-semibold"
                 >
-                  {updateColumnSet.isPending ? "Saving..." : "Save Changes"}
+                  Save Changes
                 </Button>
               </div>
             ) : (

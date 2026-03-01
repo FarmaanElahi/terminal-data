@@ -10,7 +10,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
 import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation, useSetFlagMutation } from "@/queries/use-lists";
-import { useColumnSetsQuery, useUpdateColumnSetMutation } from "@/queries/use-column-sets";
+import { DEFAULT_SCREENER_COLUMNS } from "@/lib/register-widgets";
 import { useScreener } from "@/hooks/use-screener";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
@@ -538,8 +538,6 @@ export function ScreenerWidget({
   const s = (settings ?? {}) as Record<string, unknown>;
   const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const { data: lists = [] } = useListsQuery();
-  const { data: columnSets = [] } = useColumnSetsQuery();
-  const updateColumnSet = useUpdateColumnSetMutation();
   const [editorOpen, setEditorOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDialogOpen, setListDialogOpen] = useState(false);
@@ -566,38 +564,28 @@ export function ScreenerWidget({
   }, []);
 
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
-  const columnSetId = (s.columnSetId as string) ?? columnSets?.[0]?.id ?? null;
-
-  const selectedColumnSet = useMemo(
-    () => columnSets?.find((cs) => cs.id === columnSetId) ?? null,
-    [columnSets, columnSetId],
-  );
+  const columns = (s.columns as ColumnDef[] | undefined) ?? DEFAULT_SCREENER_COLUMNS;
 
   const columnMap = useMemo(() => {
     const map = new Map<string, ColumnDef>();
-    if (selectedColumnSet?.columns) {
-      for (const col of selectedColumnSet.columns) {
-        map.set(col.id, col);
-      }
+    for (const col of columns) {
+      map.set(col.id, col);
     }
     return map;
-  }, [selectedColumnSet]);
+  }, [columns]);
 
   const visibleColumns = useMemo(() => {
-    if (!selectedColumnSet?.columns) return [];
-    return selectedColumnSet.columns
-      .filter((c) => c.visible !== false)
-      .map((c) => c.id);
-  }, [selectedColumnSet]);
+    return columns.filter((c) => c.visible !== false).map((c) => c.id);
+  }, [columns]);
 
   const hasActiveFilters = useMemo(() => {
-    return (selectedColumnSet?.columns ?? []).some((c) => c.filter !== "off");
-  }, [selectedColumnSet]);
+    return columns.some((c) => c.filter !== "off");
+  }, [columns]);
 
   const effectiveColumns = useMemo(() => {
-    if (!selectedColumnSet?.columns || !filtersBypassed) return selectedColumnSet?.columns || null;
-    return selectedColumnSet.columns.map((c) => ({ ...c, filter: "off" as FilterState }));
-  }, [selectedColumnSet, filtersBypassed]);
+    if (!filtersBypassed) return columns;
+    return columns.map((c) => ({ ...c, filter: "off" as FilterState }));
+  }, [columns, filtersBypassed]);
 
   const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } = useScreener(
     instanceId,
@@ -681,21 +669,17 @@ export function ScreenerWidget({
 
   const handleFilterToggle = useCallback(
     (colId: string) => {
-      if (!selectedColumnSet) return;
       const col = columnMap.get(colId);
       if (!col || col.type !== "condition") return;
 
       const nextFilter = FILTER_CYCLE[col.filter ?? "off"];
-      const updatedColumns = selectedColumnSet.columns.map((c) =>
+      const updatedColumns = columns.map((c) =>
         c.id === colId ? { ...c, filter: nextFilter } : c,
       );
 
-      updateColumnSet.mutate({
-        id: selectedColumnSet.id,
-        data: { columns: updatedColumns },
-      });
+      onSettingsChange({ columns: updatedColumns });
     },
-    [selectedColumnSet, columnMap, updateColumnSet],
+    [columns, columnMap, onSettingsChange],
   );
 
   const onResizeStart = useCallback(
@@ -721,16 +705,11 @@ export function ScreenerWidget({
 
           if (colId === "ticker") {
             onSettingsChange({ ticker_width: finalWidth });
-          } else if (selectedColumnSet) {
-            const updatedColumns = selectedColumnSet.columns.map((c) =>
-              c.id === colId
-                ? { ...c, display_column_width: finalWidth }
-                : c,
+          } else {
+            const updatedColumns = columns.map((c) =>
+              c.id === colId ? { ...c, display_column_width: finalWidth } : c,
             );
-            updateColumnSet.mutate({
-              id: selectedColumnSet.id,
-              data: { columns: updatedColumns },
-            });
+            onSettingsChange({ columns: updatedColumns });
           }
 
           // Clear the live width for this column
@@ -742,7 +721,7 @@ export function ScreenerWidget({
       window.addEventListener("mousemove", onMouseMove);
       window.addEventListener("mouseup", onMouseUp);
     },
-    [onSettingsChange, selectedColumnSet],
+    [onSettingsChange, columns],
   );
 
   // Helper to get effective column width (live during drag, stored otherwise)
@@ -1043,13 +1022,12 @@ export function ScreenerWidget({
         isLoading={isLoading}
       />
 
-      {selectedColumnSet && (
-        <ColumnEditor
-          open={editorOpen}
-          onClose={() => setEditorOpen(false)}
-          columnSet={selectedColumnSet}
-        />
-      )}
+      <ColumnEditor
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        columns={columns}
+        onColumnsChange={(cols) => onSettingsChange({ columns: cols })}
+      />
 
       <CreateListDialog
         open={createListOpen}
