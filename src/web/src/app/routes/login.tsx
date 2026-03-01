@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function LoginPage() {
   const [username, setUsername] = useState("");
@@ -9,12 +10,13 @@ export function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     try {
-      await login(username, password);
+      await login(username, password, queryClient);
       navigate("/screener");
     } catch {
       setError("Invalid credentials. Please try again.");

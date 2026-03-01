@@ -1,19 +1,11 @@
 import { create } from "zustand";
-import type {
-  User,
-  List,
-  ColumnSet,
-  ConditionSet,
-  Formula,
-  Symbol,
-} from "@/types/models";
-import {
-  authApi,
-  bootApi,
-  listsApi,
-  type FormulaEditorConfig,
-} from "@/lib/api";
+import type { User, Symbol } from "@/types/models";
+import { authApi, bootApi, type FormulaEditorConfig } from "@/lib/api";
 import { terminalWS } from "@/lib/ws";
+import type { QueryClient } from "@tanstack/react-query";
+import { QUERY_KEYS } from "@/queries/query-keys";
+import { useLayoutStore } from "@/stores/layout-store";
+import type { WorkspaceState } from "@/types/layout";
 
 interface AuthState {
   user: User | null;
@@ -22,21 +14,23 @@ interface AuthState {
   isLoading: boolean;
   isBooted: boolean;
 
-  // Boot data — pre-loaded on login for instant UI
-  lists: List[];
-  columnSets: ColumnSet[];
-  conditionSets: ConditionSet[];
-  formulas: Formula[];
+  // Static boot data (read-only, never mutated after boot)
   symbols: Symbol[];
   editorConfig: FormulaEditorConfig | null;
 
-  login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
-  logout: () => void;
-  loadBoot: () => Promise<void>;
+  login: (
+    username: string,
+    password: string,
+    queryClient: QueryClient,
+  ) => Promise<void>;
+  register: (
+    username: string,
+    password: string,
+    queryClient: QueryClient,
+  ) => Promise<void>;
+  logout: (queryClient: QueryClient) => void;
+  loadBoot: (queryClient: QueryClient) => Promise<void>;
   setToken: (token: string) => void;
-  addSymbolToList: (listId: string, ticker: string) => Promise<void>;
-  removeSymbolFromList: (listId: string, ticker: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -45,15 +39,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: !!localStorage.getItem("terminal_token"),
   isLoading: false,
   isBooted: false,
-
-  lists: [],
-  columnSets: [],
-  conditionSets: [],
-  formulas: [],
   symbols: [],
   editorConfig: null,
 
-  login: async (username: string, password: string) => {
+  login: async (username, password, queryClient) => {
     set({ isLoading: true });
     try {
       const { data } = await authApi.login({ username, password });
@@ -61,15 +50,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.setItem("terminal_token", token);
       terminalWS.connect(token);
 
-      // Boot: fetch all user data in one request
       const { data: boot } = await bootApi.boot();
+
+      // Hydrate TanStack Query caches
+      queryClient.setQueryData(QUERY_KEYS.lists, boot.lists);
+      queryClient.setQueryData(QUERY_KEYS.columnSets, boot.column_sets);
+      queryClient.setQueryData(QUERY_KEYS.conditionSets, boot.condition_sets);
+      queryClient.setQueryData(QUERY_KEYS.formulas, boot.formulas);
+
+      // Initialize layout from server if available
+      if (boot.preferences?.layout) {
+        useLayoutStore
+          .getState()
+          .initializeLayout(boot.preferences.layout as WorkspaceState);
+      }
+
       set({
         token,
         user: boot.user,
-        lists: boot.lists,
-        columnSets: boot.column_sets,
-        conditionSets: boot.condition_sets,
-        formulas: boot.formulas,
         symbols: boot.symbols,
         editorConfig: boot.editor_config,
         isAuthenticated: true,
@@ -82,81 +80,66 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  register: async (username: string, password: string) => {
+  register: async (username, password, queryClient) => {
     set({ isLoading: true });
     try {
       await authApi.register({ username, password });
-      // Auto-login after register
-      await get().login(username, password);
+      await get().login(username, password, queryClient);
     } catch (err) {
       set({ isLoading: false });
       throw err;
     }
   },
 
-  logout: () => {
+  logout: (queryClient) => {
     localStorage.removeItem("terminal_token");
     terminalWS.disconnect();
+    queryClient.clear();
     set({
       user: null,
       token: null,
       isAuthenticated: false,
       isBooted: false,
-      lists: [],
-      columnSets: [],
-      conditionSets: [],
-      formulas: [],
       symbols: [],
       editorConfig: null,
     });
   },
 
-  loadBoot: async () => {
+  loadBoot: async (queryClient) => {
     const token = get().token;
     if (!token) return;
 
     try {
       const { data: boot } = await bootApi.boot();
       terminalWS.connect(token);
+
+      // Hydrate TanStack Query caches
+      queryClient.setQueryData(QUERY_KEYS.lists, boot.lists);
+      queryClient.setQueryData(QUERY_KEYS.columnSets, boot.column_sets);
+      queryClient.setQueryData(QUERY_KEYS.conditionSets, boot.condition_sets);
+      queryClient.setQueryData(QUERY_KEYS.formulas, boot.formulas);
+
+      // Initialize layout from server if available
+      if (boot.preferences?.layout) {
+        useLayoutStore
+          .getState()
+          .initializeLayout(boot.preferences.layout as WorkspaceState);
+      }
+
       set({
         user: boot.user,
-        lists: boot.lists,
-        columnSets: boot.column_sets,
-        conditionSets: boot.condition_sets,
-        formulas: boot.formulas,
         symbols: boot.symbols,
         editorConfig: boot.editor_config,
         isAuthenticated: true,
         isBooted: true,
       });
     } catch {
-      // Token expired or invalid
-      get().logout();
+      get().logout(queryClient);
     }
   },
 
-  setToken: (token: string) => {
+  setToken: (token) => {
     localStorage.setItem("terminal_token", token);
     set({ token, isAuthenticated: true });
-  },
-
-  addSymbolToList: async (listId: string, ticker: string) => {
-    await listsApi.appendSymbols(listId, [ticker]);
-    set((state) => ({
-      lists: state.lists.map((l) =>
-        l.id === listId ? { ...l, symbols: [...l.symbols, ticker] } : l,
-      ),
-    }));
-  },
-
-  removeSymbolFromList: async (listId: string, ticker: string) => {
-    await listsApi.removeSymbols(listId, [ticker]);
-    set((state) => ({
-      lists: state.lists.map((l) =>
-        l.id === listId
-          ? { ...l, symbols: l.symbols.filter((s) => s !== ticker) }
-          : l,
-      ),
-    }));
   },
 }));

@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery } from "@/queries/use-lists";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ open }: AppSidebarProps) {
   const navigate = useNavigate();
-  const lists = useAuthStore((s) => s.lists);
+  const { data: lists = [] } = useListsQuery();
 
   if (!open) return null;
 

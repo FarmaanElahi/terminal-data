@@ -15,6 +15,7 @@ def init_db(engine_input=None):
     # Import all models here to ensure they are registered in Base.metadata
     from terminal.auth.models import User  # noqa: F401
     from terminal.lists.models import List  # noqa: F401
+    from terminal.preferences.models import UserPreferences  # noqa: F401
 
     Base.metadata.create_all(use_engine)
 

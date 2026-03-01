@@ -129,6 +129,11 @@ export const communityApi = {
 
 // ─── Boot API ──────────────────────────────────────────────────────
 
+export interface BootPreferences {
+  layout: unknown | null;
+  settings: unknown | null;
+}
+
 export interface BootResponse {
   user: User;
   lists: List[];
@@ -137,10 +142,18 @@ export interface BootResponse {
   formulas: Formula[];
   symbols: Symbol[];
   editor_config: FormulaEditorConfig;
+  preferences: BootPreferences;
 }
 
 export const bootApi = {
   boot: () => api.get<BootResponse>("/boot"),
+};
+
+// ─── Preferences API ───────────────────────────────────────────────
+export const preferencesApi = {
+  get: () => api.get<BootPreferences>("/preferences"),
+  update: (data: Partial<BootPreferences>) =>
+    api.put<BootPreferences>("/preferences", data),
 };
 // ─── Formulas API ──────────────────────────────────────────────────
 export const formulasApi = {

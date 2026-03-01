@@ -9,10 +9,10 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation, useSetFlagMutation } from "@/queries/use-lists";
+import { useColumnSetsQuery, useUpdateColumnSetMutation } from "@/queries/use-column-sets";
 import { useScreener } from "@/hooks/use-screener";
 import { useWidget } from "@/hooks/use-widget";
-import { columnsApi } from "@/lib/api";
 import type { WidgetProps } from "@/types/layout";
 import type { ColumnDef, FilterState } from "@/types/models";
 import type { ScreenerFilterRow, ScreenerValues } from "@/types/ws";
@@ -42,7 +42,6 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import { toast } from "sonner";
-import { listsApi } from "@/lib/api";
 import { ColumnEditor } from "./column-editor";
 import { CreateListDialog } from "./create-list-dialog";
 import { ScreenerStatus } from "@/components/screener/screener-status";
@@ -255,7 +254,9 @@ interface FlagCellProps {
 }
 
 function FlagCell({ ticker }: FlagCellProps) {
-  const lists = useAuthStore((st) => st.lists);
+  const { data: lists = [] } = useListsQuery();
+  const removeSymbol = useRemoveSymbolMutation();
+  const setFlag = useSetFlagMutation();
   const [popoverOpen, setPopoverOpen] = useState(false);
 
   // Find if this symbol is in any color list
@@ -265,83 +266,37 @@ function FlagCell({ ticker }: FlagCellProps) {
 
   const currentColor = colorList?.color ?? null;
 
-  const handleFlagClick = async (e: React.MouseEvent) => {
+  const handleFlagClick = (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // If already flagged, toggle off
-    if (currentColor) {
-      try {
-        await listsApi.removeSymbols(colorList!.id, [ticker]);
-        // Update local store state optimistically
-        useAuthStore.setState((state) => ({
-          lists: state.lists.map((l) =>
-            l.id === colorList!.id
-              ? { ...l, symbols: l.symbols.filter((s) => s !== ticker) }
-              : l,
-          ),
-        }));
-      } catch (err) {
-        console.error("Failed to remove symbol from list:", err);
-      }
+    if (currentColor && colorList) {
+      removeSymbol.mutate({ listId: colorList.id, ticker });
       return;
     }
 
-    // If not flagged, add to last used color or red
     const lastUsedColor = localStorage.getItem("last_flag_color") || "red";
     const targetList = lists.find(
       (l) => l.type === "color" && l.color === lastUsedColor,
     );
-
     if (targetList) {
-      try {
-        await listsApi.appendSymbols(targetList.id, [ticker]);
-        useAuthStore.setState((state) => ({
-          lists: state.lists.map((l) =>
-            l.id === targetList.id
-              ? { ...l, symbols: [...l.symbols, ticker] }
-              : l,
-          ),
-        }));
-      } catch (err) {
-        console.error("Failed to add symbol to list:", err);
-      }
+      setFlag.mutate({ targetListId: targetList.id, ticker });
     }
   };
 
-  const handleColorSelect = async (color: string) => {
+  const handleColorSelect = (color: string) => {
     setPopoverOpen(false);
 
-    // If same color is clicked, clear it
-    if (currentColor === color) {
-      await handleFlagClick({ stopPropagation: () => {} } as any);
+    if (currentColor === color && colorList) {
+      removeSymbol.mutate({ listId: colorList.id, ticker });
       return;
     }
 
     localStorage.setItem("last_flag_color", color);
-
     const targetList = lists.find(
       (l) => l.type === "color" && l.color === color,
     );
-    if (!targetList) return;
-
-    try {
-      await listsApi.appendSymbols(targetList.id, [ticker]);
-      // Note: Backend handles removal from other color lists, but we need to update local state
-      // To be safe and simple, let's just update all color lists in state
-      useAuthStore.setState((state) => ({
-        lists: state.lists.map((l) => {
-          if (l.type !== "color") return l;
-          if (l.id === targetList.id) {
-            return {
-              ...l,
-              symbols: Array.from(new Set([...l.symbols, ticker])),
-            };
-          }
-          return { ...l, symbols: l.symbols.filter((s) => s !== ticker) };
-        }),
-      }));
-    } catch (err) {
-      console.error("Failed to add symbol to list:", err);
+    if (targetList) {
+      setFlag.mutate({ targetListId: targetList.id, ticker });
     }
   };
 
@@ -413,13 +368,13 @@ const ScreenerRow = memo(
     isDark: boolean;
     getColWidth: (colId: string, fallback: number) => number;
   }) => {
-    const allLists = useAuthStore((s) => s.lists);
+    const { data: allLists = [] } = useListsQuery();
     const lists = useMemo(
       () => allLists.filter((l) => l.type === "simple"),
       [allLists],
     );
-    const addSymbolToList = useAuthStore((s) => s.addSymbolToList);
-    const removeSymbolFromList = useAuthStore((s) => s.removeSymbolFromList);
+    const addSymbol = useAddSymbolMutation();
+    const removeSymbol = useRemoveSymbolMutation();
 
     const handleToggle = async (
       listId: string,
@@ -428,13 +383,13 @@ const ScreenerRow = memo(
     ) => {
       try {
         if (inList) {
-          await removeSymbolFromList(listId, row.ticker);
+          await removeSymbol.mutateAsync({ listId, ticker: row.ticker });
           toast.success(`Removed ${row.ticker} from ${listName}`);
         } else {
-          await addSymbolToList(listId, row.ticker);
+          await addSymbol.mutateAsync({ listId, ticker: row.ticker });
           toast.success(`Added ${row.ticker} to ${listName}`);
         }
-      } catch (err) {
+      } catch {
         toast.error(`Failed to update list`);
       }
     };
@@ -572,8 +527,9 @@ export function ScreenerWidget({
 }: WidgetProps) {
   const s = (settings ?? {}) as Record<string, unknown>;
   const { setChannelSymbol, channelContext } = useWidget(instanceId);
-  const lists = useAuthStore((st) => st.lists);
-  const columnSets = useAuthStore((st) => st.columnSets);
+  const { data: lists = [] } = useListsQuery();
+  const { data: columnSets = [] } = useColumnSetsQuery();
+  const updateColumnSet = useUpdateColumnSetMutation();
   const [editorOpen, setEditorOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDialogOpen, setListDialogOpen] = useState(false);
@@ -704,7 +660,7 @@ export function ScreenerWidget({
   }, [channelSymbol, sortedIndices, deferredTickers]);
 
   const handleFilterToggle = useCallback(
-    async (colId: string) => {
+    (colId: string) => {
       if (!selectedColumnSet) return;
       const col = columnMap.get(colId);
       if (!col || col.type !== "condition") return;
@@ -714,20 +670,12 @@ export function ScreenerWidget({
         c.id === colId ? { ...c, filter: nextFilter } : c,
       );
 
-      try {
-        const { data } = await columnsApi.update(selectedColumnSet.id, {
-          columns: updatedColumns,
-        });
-        useAuthStore.setState((state) => ({
-          columnSets: state.columnSets.map((cs) =>
-            cs.id === selectedColumnSet.id ? data : cs,
-          ),
-        }));
-      } catch (err) {
-        console.error("Failed to update filter:", err);
-      }
+      updateColumnSet.mutate({
+        id: selectedColumnSet.id,
+        data: { columns: updatedColumns },
+      });
     },
-    [selectedColumnSet, columnMap],
+    [selectedColumnSet, columnMap, updateColumnSet],
   );
 
   const onResizeStart = useCallback(
@@ -754,19 +702,15 @@ export function ScreenerWidget({
           if (colId === "ticker") {
             onSettingsChange({ ticker_width: finalWidth });
           } else if (selectedColumnSet) {
-            useAuthStore.setState((state) => ({
-              columnSets: state.columnSets.map((cs) => {
-                if (cs.id !== selectedColumnSet.id) return cs;
-                return {
-                  ...cs,
-                  columns: cs.columns.map((c) =>
-                    c.id === colId
-                      ? { ...c, display_column_width: finalWidth }
-                      : c,
-                  ),
-                };
-              }),
-            }));
+            const updatedColumns = selectedColumnSet.columns.map((c) =>
+              c.id === colId
+                ? { ...c, display_column_width: finalWidth }
+                : c,
+            );
+            updateColumnSet.mutate({
+              id: selectedColumnSet.id,
+              data: { columns: updatedColumns },
+            });
           }
 
           // Clear the live width for this column

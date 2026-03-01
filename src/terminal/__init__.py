@@ -6,5 +6,6 @@ try:
     from terminal.condition.models import ConditionSet  # noqa: F401
     from terminal.lists.models import List  # noqa: F401
     from terminal.formula.models import Formula  # noqa: F401
+    from terminal.preferences.models import UserPreferences  # noqa: F401
 except Exception:
     traceback.print_exc()

@@ -1,6 +1,7 @@
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useLayoutStore } from "@/stores/layout-store";
+import { useShallow } from "zustand/react/shallow";
 import { LayoutNodeRenderer } from "./layout-node";
 import { FloatingPanel } from "./floating-panel";
 import { AppHeader } from "@/components/layout/header";
@@ -20,9 +21,13 @@ function findPaneInTree(node: LayoutNode, id: string): PaneNode | null {
 }
 
 export function LayoutEngine() {
-  const activeLayoutId = useLayoutStore((s) => s.activeLayoutId);
-  const layouts = useLayoutStore((s) => s.layouts);
-  const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
+  const { activeLayoutId, layouts, maximizedPaneId } = useLayoutStore(
+    useShallow((s) => ({
+      activeLayoutId: s.activeLayoutId,
+      layouts: s.layouts,
+      maximizedPaneId: s.maximizedPaneId,
+    })),
+  );
 
   const layout = layouts.find((l) => l.id === activeLayoutId) ?? layouts[0];
   if (!layout) return null;

@@ -9,8 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { listsApi } from "@/lib/api";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery, useCreateListMutation } from "@/queries/use-lists";
 import type { List, ListType } from "@/types/models";
 import { ListPlus, Layers, Combine, Palette, X, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -58,9 +57,9 @@ export function CreateListDialog({
   const [type, setType] = useState<ListType>("simple");
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
   const [sourceSearch, setSourceSearch] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
 
-  const lists = useAuthStore((st) => st.lists);
+  const { data: lists = [] } = useListsQuery();
+  const createList = useCreateListMutation();
 
   // Non-color lists available for combo source selection
   const sourceLists = useMemo(
@@ -74,7 +73,6 @@ export function CreateListDialog({
       setType("simple");
       setSelectedSourceIds([]);
       setSourceSearch("");
-      setIsSaving(false);
     }
   }, [open]);
 
@@ -90,24 +88,16 @@ export function CreateListDialog({
 
   const handleCreate = async () => {
     if (!canSubmit) return;
-    setIsSaving(true);
     try {
-      const { data: newList } = await listsApi.create({
+      const newList = await createList.mutateAsync({
         name: name.trim(),
-        type,
+        type: type as "simple" | "color" | "combo",
         ...(type === "combo" ? { source_list_ids: selectedSourceIds } : {}),
       });
-
-      // Update store
-      useAuthStore.setState((state) => ({
-        lists: [...state.lists, newList],
-      }));
-
       onCreated?.(newList);
       onClose();
     } catch (err) {
       console.error("Failed to create list:", err);
-      setIsSaving(false);
     }
   };
 
@@ -283,10 +273,10 @@ export function CreateListDialog({
           <Button
             size="sm"
             onClick={handleCreate}
-            disabled={!canSubmit || isSaving}
+            disabled={!canSubmit || createList.isPending}
             className="h-8 text-xs px-4"
           >
-            {isSaving ? "Creating..." : "Create List"}
+            {createList.isPending ? "Creating..." : "Create List"}
           </Button>
         </DialogFooter>
       </DialogContent>

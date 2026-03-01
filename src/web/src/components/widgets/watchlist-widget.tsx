@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery } from "@/queries/use-lists";
 import { useWidget } from "@/hooks/use-widget";
 import type { WidgetProps } from "@/types/layout";
 import { cn } from "@/lib/utils";
@@ -23,7 +23,7 @@ export function WatchlistWidget({
   onSettingsChange,
 }: WidgetProps) {
   const s = (settings ?? {}) as Partial<WatchlistSettings>;
-  const lists = useAuthStore((st) => st.lists);
+  const { data: lists = [] } = useListsQuery();
   const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const [createListOpen, setCreateListOpen] = useState(false);
 

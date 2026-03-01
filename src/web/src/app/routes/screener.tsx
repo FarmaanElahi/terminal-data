@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery } from "@/queries/use-lists";
+import { useColumnSetsQuery } from "@/queries/use-column-sets";
 import { useScreener } from "@/hooks/use-screener";
 import { ScreenerTable } from "@/components/screener/screener-table";
 import { ScreenerToolbar } from "@/components/screener/screener-toolbar";
@@ -10,9 +11,8 @@ import { ChevronDown, List as ListIcon } from "lucide-react";
 
 export function ScreenerPage() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
-  // Read from boot data — already loaded on auth
-  const lists = useAuthStore((s) => s.lists);
-  const columnSets = useAuthStore((s) => s.columnSets);
+  const { data: lists = [] } = useListsQuery();
+  const { data: columnSets = [] } = useColumnSetsQuery();
   const [listDialogOpen, setListDialogOpen] = useState(false);
 
   // Auto-select first available

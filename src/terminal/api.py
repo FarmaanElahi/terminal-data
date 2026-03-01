@@ -9,6 +9,7 @@ from terminal.condition.router import conditions as condition_router
 from terminal.column.router import column_sets as column_set_router
 from terminal.boot import router as boot_router
 from terminal.candles.router import router as candles_router
+from terminal.preferences.router import router as preferences_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -22,3 +23,4 @@ api_router.include_router(condition_router)
 api_router.include_router(column_set_router)
 api_router.include_router(boot_router)
 api_router.include_router(candles_router)
+api_router.include_router(preferences_router)

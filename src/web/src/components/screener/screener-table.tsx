@@ -19,7 +19,7 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation } from "@/queries/use-lists";
 import { toast } from "sonner";
 
 type SortDirection = "asc" | "desc" | null;
@@ -214,13 +214,13 @@ interface ScreenerRowProps {
 }
 
 function ScreenerRow({ ticker, rowIndex, columns, values }: ScreenerRowProps) {
-  const allLists = useAuthStore((s) => s.lists);
+  const { data: allLists = [] } = useListsQuery();
   const lists = useMemo(
     () => allLists.filter((l) => l.type === "simple"),
     [allLists],
   );
-  const addSymbolToList = useAuthStore((s) => s.addSymbolToList);
-  const removeSymbolFromList = useAuthStore((s) => s.removeSymbolFromList);
+  const addSymbol = useAddSymbolMutation();
+  const removeSymbol = useRemoveSymbolMutation();
 
   const handleToggle = async (
     listId: string,
@@ -229,13 +229,13 @@ function ScreenerRow({ ticker, rowIndex, columns, values }: ScreenerRowProps) {
   ) => {
     try {
       if (inList) {
-        await removeSymbolFromList(listId, ticker.ticker);
+        await removeSymbol.mutateAsync({ listId, ticker: ticker.ticker });
         toast.success(`Removed ${ticker.ticker} from ${listName}`);
       } else {
-        await addSymbolToList(listId, ticker.ticker);
+        await addSymbol.mutateAsync({ listId, ticker: ticker.ticker });
         toast.success(`Added ${ticker.ticker} to ${listName}`);
       }
-    } catch (err) {
+    } catch {
       toast.error(`Failed to update list`);
     }
   };

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import type { LayoutNode } from "@/types/layout";
 import { PaneContainer } from "./pane-container";
@@ -12,7 +13,7 @@ interface LayoutNodeRendererProps {
  * SplitNode → react-resizable-panels Group with Separator handles.
  * PaneNode → PaneContainer (chrome + widget).
  */
-export function LayoutNodeRenderer({ node }: LayoutNodeRendererProps) {
+export const LayoutNodeRenderer = memo(function LayoutNodeRenderer({ node }: LayoutNodeRendererProps) {
   if (node.type === "pane") {
     return <PaneContainer pane={node} />;
   }
@@ -77,4 +78,4 @@ export function LayoutNodeRenderer({ node }: LayoutNodeRendererProps) {
       {elements}
     </Group>
   );
-}
+});

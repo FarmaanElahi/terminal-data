@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/table";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuthStore } from "@/stores/auth-store";
+import { useListsQuery } from "@/queries/use-lists";
 import { Search, List as ListIcon, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { List } from "@/types/models";
@@ -36,7 +36,7 @@ export function ListSelectionDialog({
 }: ListSelectionDialogProps) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("simple");
-  const lists = useAuthStore((s) => s.lists);
+  const { data: lists = [] } = useListsQuery();
 
   const categories = useMemo(() => {
     return {

@@ -39,8 +39,7 @@ interface PaneContainerProps {
 export const PaneContainer = memo(function PaneContainer({
   pane,
 }: PaneContainerProps) {
-  const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
-  const isMaximized = maximizedPaneId === pane.id;
+  const isMaximized = useLayoutStore((s) => s.maximizedPaneId === pane.id);
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
 
   const activeTab = pane.tabs[pane.activeTabIndex] ?? pane.tabs[0];

@@ -33,6 +33,10 @@ async def boot(
         limit=5000,
     )
 
+    from terminal.preferences import service as preferences_service
+
+    prefs = preferences_service.get(session, current_user.id)
+
     return {
         "user": {
             "id": current_user.id,
@@ -46,4 +50,8 @@ async def boot(
         "formulas": formula_service.all(session, current_user.id),
         "symbols": symbols,
         "editor_config": editor_config(),
+        "preferences": {
+            "layout": prefs.layout if prefs else None,
+            "settings": prefs.settings if prefs else None,
+        },
     }

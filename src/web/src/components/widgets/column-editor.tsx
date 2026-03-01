@@ -1,6 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { columnsApi } from "@/lib/api";
-import { useAuthStore } from "@/stores/auth-store";
+import { useUpdateColumnSetMutation } from "@/queries/use-column-sets";
 import type { ColumnSet, ColumnDef, FilterState } from "@/types/models";
 import {
   Dialog,
@@ -81,9 +80,9 @@ const FILTER_CYCLE: Record<FilterState, FilterState> = {
 
 export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
   const [columns, setColumns] = useState<ColumnDef[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [editingColIdx, setEditingColIdx] = useState<number | null>(null);
+  const updateColumnSet = useUpdateColumnSetMutation();
 
   useEffect(() => {
     if (open) {
@@ -121,24 +120,17 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
   );
 
   const save = useCallback(async () => {
-    setIsSaving(true);
     try {
-      const { data } = await columnsApi.update(columnSet.id, {
-        columns: columns as unknown as ColumnDef[],
+      await updateColumnSet.mutateAsync({
+        id: columnSet.id,
+        data: { columns: columns as unknown as ColumnDef[] },
       });
-      useAuthStore.setState((state) => ({
-        columnSets: state.columnSets.map((cs) =>
-          cs.id === columnSet.id ? data : cs,
-        ),
-      }));
       setHasChanges(false);
       onClose();
     } catch (err) {
       console.error("Failed to save columns:", err);
-    } finally {
-      setIsSaving(false);
     }
-  }, [columns, columnSet.id, onClose]);
+  }, [columns, columnSet.id, onClose, updateColumnSet]);
 
   return (
     <>
@@ -344,10 +336,10 @@ export function ColumnEditor({ open, onClose, columnSet }: ColumnEditorProps) {
                 <Button
                   size="sm"
                   onClick={save}
-                  disabled={isSaving}
+                  disabled={updateColumnSet.isPending}
                   className="h-8 text-xs font-semibold"
                 >
-                  {isSaving ? "Saving..." : "Save Changes"}
+                  {updateColumnSet.isPending ? "Saving..." : "Save Changes"}
                 </Button>
               </div>
             ) : (

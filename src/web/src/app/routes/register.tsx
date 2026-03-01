@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function RegisterPage() {
   const [username, setUsername] = useState("");
@@ -10,6 +11,7 @@ export function RegisterPage() {
   const register = useAuthStore((s) => s.register);
   const isLoading = useAuthStore((s) => s.isLoading);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,7 +27,7 @@ export function RegisterPage() {
     }
 
     try {
-      await register(username, password);
+      await register(username, password, queryClient);
       navigate("/screener");
     } catch {
       setError("Registration failed. Username may already exist.");

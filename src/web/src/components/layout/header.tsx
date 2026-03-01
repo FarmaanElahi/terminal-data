@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useLayoutStore } from "@/stores/layout-store";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -20,6 +21,7 @@ export function AppHeader() {
   const theme = useLayoutStore((s) => s.theme);
   const setTheme = useLayoutStore((s) => s.setTheme);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [addWidgetOpen, setAddWidgetOpen] = useState(false);
 
   return (
@@ -84,7 +86,7 @@ export function AppHeader() {
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {
-                  logout();
+                  logout(queryClient);
                   navigate("/login");
                 }}
               >

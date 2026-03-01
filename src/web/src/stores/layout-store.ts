@@ -127,6 +127,9 @@ function removeNode(root: LayoutNode, targetId: string): LayoutNode | null {
 // ─── Store ─────────────────────────────────────────────────────────
 
 interface LayoutActions {
+  // Server sync
+  initializeLayout: (serverState: WorkspaceState) => void;
+
   // Tree mutations
   splitPane: (
     paneId: string,
@@ -224,6 +227,39 @@ export const useLayoutStore = create<LayoutStore>()(
       },
       globalContext: {},
       theme: "dark",
+
+      // ─── Server sync ─────────────────────────────────────────
+
+      initializeLayout: (serverState) => {
+        if (!serverState?.layouts?.length) return;
+
+        // Ensure activeLayoutId is valid
+        const activeId =
+          serverState.activeLayoutId &&
+          serverState.layouts.find((l) => l.id === serverState.activeLayoutId)
+            ? serverState.activeLayoutId
+            : serverState.layouts[0].id;
+
+        // Apply theme to DOM
+        const theme = serverState.theme || "dark";
+        document.documentElement.classList.remove("dark", "light");
+        document.documentElement.classList.add(theme);
+
+        set({
+          layouts: serverState.layouts,
+          activeLayoutId: activeId,
+          // Don't restore maximizedPaneId — transient UI state
+          maximizedPaneId: null,
+          channelContexts: serverState.channelContexts ?? {
+            blue: {},
+            red: {},
+            green: {},
+            yellow: {},
+          },
+          globalContext: serverState.globalContext ?? {},
+          theme,
+        });
+      },
 
       // ─── Tree mutations ──────────────────────────────────────
 
