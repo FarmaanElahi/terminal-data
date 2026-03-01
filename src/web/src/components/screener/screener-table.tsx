@@ -52,6 +52,8 @@ export function ScreenerTable({
     [columns],
   );
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const handleSort = (key: string) => {
     setSortConfig((prev) => {
       if (prev.key === key) {
@@ -61,6 +63,10 @@ export function ScreenerTable({
       return { key, direction: "asc" };
     });
   };
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [sortConfig]);
 
   const sortedIndices = useMemo(() => {
     const indices = tickers.map((_, i) => i);
@@ -151,7 +157,7 @@ export function ScreenerTable({
   };
 
   return (
-    <div className="h-full overflow-auto scrollbar-thin pb-10">
+    <div ref={scrollRef} className="h-full overflow-auto scrollbar-thin pb-10">
       <Table>
         <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="hover:bg-transparent border-b border-border">
