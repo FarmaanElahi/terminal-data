@@ -7,7 +7,12 @@ import type {
   Formula,
   Symbol,
 } from "@/types/models";
-import { authApi, bootApi, type FormulaEditorConfig } from "@/lib/api";
+import {
+  authApi,
+  bootApi,
+  listsApi,
+  type FormulaEditorConfig,
+} from "@/lib/api";
 import { terminalWS } from "@/lib/ws";
 
 interface AuthState {
@@ -30,6 +35,8 @@ interface AuthState {
   logout: () => void;
   loadBoot: () => Promise<void>;
   setToken: (token: string) => void;
+  addSymbolToList: (listId: string, ticker: string) => Promise<void>;
+  removeSymbolFromList: (listId: string, ticker: string) => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -131,5 +138,25 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   setToken: (token: string) => {
     localStorage.setItem("terminal_token", token);
     set({ token, isAuthenticated: true });
+  },
+
+  addSymbolToList: async (listId: string, ticker: string) => {
+    await listsApi.appendSymbols(listId, [ticker]);
+    set((state) => ({
+      lists: state.lists.map((l) =>
+        l.id === listId ? { ...l, symbols: [...l.symbols, ticker] } : l,
+      ),
+    }));
+  },
+
+  removeSymbolFromList: async (listId: string, ticker: string) => {
+    await listsApi.removeSymbols(listId, [ticker]);
+    set((state) => ({
+      lists: state.lists.map((l) =>
+        l.id === listId
+          ? { ...l, symbols: l.symbols.filter((s) => s !== ticker) }
+          : l,
+      ),
+    }));
   },
 }));

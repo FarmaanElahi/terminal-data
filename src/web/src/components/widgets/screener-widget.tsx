@@ -29,8 +29,19 @@ import {
   ChevronUp,
   ChevronDown,
   Plus,
+  Check,
   List as ListIcon,
 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu";
+import { toast } from "sonner";
 import { listsApi } from "@/lib/api";
 import { ColumnEditor } from "./column-editor";
 import { CreateListDialog } from "./create-list-dialog";
@@ -402,68 +413,135 @@ const ScreenerRow = memo(
     isDark: boolean;
     getColWidth: (colId: string, fallback: number) => number;
   }) => {
+    const allLists = useAuthStore((s) => s.lists);
+    const lists = useMemo(
+      () => allLists.filter((l) => l.type === "simple"),
+      [allLists],
+    );
+    const addSymbolToList = useAuthStore((s) => s.addSymbolToList);
+    const removeSymbolFromList = useAuthStore((s) => s.removeSymbolFromList);
+
+    const handleToggle = async (
+      listId: string,
+      listName: string,
+      inList: boolean,
+    ) => {
+      try {
+        if (inList) {
+          await removeSymbolFromList(listId, row.ticker);
+          toast.success(`Removed ${row.ticker} from ${listName}`);
+        } else {
+          await addSymbolToList(listId, row.ticker);
+          toast.success(`Added ${row.ticker} to ${listName}`);
+        }
+      } catch (err) {
+        toast.error(`Failed to update list`);
+      }
+    };
+
     return (
-      <tr
-        onClick={() => onSelect(visualIndex, true)}
-        data-selected={isSelected}
-        className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
-      >
-        <td
-          style={{
-            width: getColWidth("ticker", 100),
-            minWidth: getColWidth("ticker", 100),
-            maxWidth: getColWidth("ticker", 100),
-          }}
-          className="p-1.5 font-medium text-foreground truncate"
-        >
-          <div className="flex items-center h-full gap-1">
-            <FlagCell ticker={row.ticker} />
-            <div className="flex items-center gap-2 flex-1 min-w-0 pr-1.5">
-              {row.logo ? (
-                <img
-                  src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
-                  alt=""
-                  className="w-4 h-4 rounded-full bg-muted shrink-0"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = "none";
-                  }}
-                />
-              ) : (
-                <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
-                  {row.ticker.substring(0, 1)}
-                </div>
-              )}
-              <div className="flex items-center min-w-0">
-                <span className="truncate">
-                  {row.ticker.includes(":")
-                    ? row.ticker.split(":")[1]
-                    : row.ticker}
-                </span>
-              </div>
-            </div>
-          </div>
-        </td>
-        {visibleColumns.map((colId) => {
-          const col = columnMap.get(colId);
-          return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <tr
+            onClick={() => onSelect(visualIndex, true)}
+            data-selected={isSelected}
+            className="group border-b border-border/50 transition-colors hover:bg-muted/30 cursor-pointer data-[selected=true]:bg-primary/5 data-[selected=true]:ring-1 data-[selected=true]:ring-inset data-[selected=true]:ring-primary data-[selected=true]:relative data-[selected=true]:z-10 outline-none"
+          >
             <td
-              key={colId}
               style={{
-                width: getColWidth(colId, 100),
-                minWidth: getColWidth(colId, 100),
-                maxWidth: getColWidth(colId, 100),
+                width: getColWidth("ticker", 100),
+                minWidth: getColWidth("ticker", 100),
+                maxWidth: getColWidth("ticker", 100),
               }}
-              className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
+              className="p-1.5 font-medium text-foreground truncate"
             >
-              <AnimatedValue
-                value={values[colId]?.[originalIndex]}
-                col={col}
-                isDark={isDark}
-              />
+              <div className="flex items-center h-full gap-1">
+                <FlagCell ticker={row.ticker} />
+                <div className="flex items-center gap-2 flex-1 min-w-0 pr-1.5">
+                  {row.logo ? (
+                    <img
+                      src={`https://s3-symbol-logo.tradingview.com/${row.logo}.svg`}
+                      alt=""
+                      className="w-4 h-4 rounded-full bg-muted shrink-0"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] text-primary shrink-0">
+                      {row.ticker.substring(0, 1)}
+                    </div>
+                  )}
+                  <div className="flex items-center min-w-0">
+                    <span className="truncate">
+                      {row.ticker.includes(":")
+                        ? row.ticker.split(":")[1]
+                        : row.ticker}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </td>
-          );
-        })}
-      </tr>
+            {visibleColumns.map((colId) => {
+              const col = columnMap.get(colId);
+              return (
+                <td
+                  key={colId}
+                  style={{
+                    width: getColWidth(colId, 100),
+                    minWidth: getColWidth(colId, 100),
+                    maxWidth: getColWidth(colId, 100),
+                  }}
+                  className="p-1.5 text-right tabular-nums text-muted-foreground truncate"
+                >
+                  <AnimatedValue
+                    value={values[colId]?.[originalIndex]}
+                    col={col}
+                    isDark={isDark}
+                  />
+                </td>
+              );
+            })}
+          </tr>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-56">
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <Plus className="mr-2 h-4 w-4" />
+              Add to List
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-48">
+              {lists.map((list) => {
+                const inList = list.symbols.includes(row.ticker);
+                return (
+                  <ContextMenuItem
+                    key={list.id}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleToggle(list.id, list.name, inList);
+                    }}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="truncate">{list.name}</span>
+                      {inList && (
+                        <Check className="h-4 w-4 text-primary ml-2" />
+                      )}
+                    </div>
+                  </ContextMenuItem>
+                );
+              })}
+              {lists.length === 0 && (
+                <ContextMenuItem
+                  disabled
+                  className="text-xs text-muted-foreground"
+                >
+                  No simple lists
+                </ContextMenuItem>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        </ContextMenuContent>
+      </ContextMenu>
     );
   },
 );

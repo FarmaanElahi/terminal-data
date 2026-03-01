@@ -3,6 +3,7 @@ import { BrowserRouter } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
+import { Toaster } from "@/components/ui/sonner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +33,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <BrowserRouter>
         <TooltipProvider>
           <AuthLoader>{children}</AuthLoader>
+          <Toaster position="top-right" richColors />
         </TooltipProvider>
       </BrowserRouter>
     </QueryClientProvider>

@@ -9,7 +9,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, Check, Plus } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+} from "@/components/ui/context-menu";
+import { useAuthStore } from "@/stores/auth-store";
+import { toast } from "sonner";
 
 type SortDirection = "asc" | "desc" | null;
 
@@ -203,20 +214,85 @@ interface ScreenerRowProps {
 }
 
 function ScreenerRow({ ticker, rowIndex, columns, values }: ScreenerRowProps) {
+  const allLists = useAuthStore((s) => s.lists);
+  const lists = useMemo(
+    () => allLists.filter((l) => l.type === "simple"),
+    [allLists],
+  );
+  const addSymbolToList = useAuthStore((s) => s.addSymbolToList);
+  const removeSymbolFromList = useAuthStore((s) => s.removeSymbolFromList);
+
+  const handleToggle = async (
+    listId: string,
+    listName: string,
+    inList: boolean,
+  ) => {
+    try {
+      if (inList) {
+        await removeSymbolFromList(listId, ticker.ticker);
+        toast.success(`Removed ${ticker.ticker} from ${listName}`);
+      } else {
+        await addSymbolToList(listId, ticker.ticker);
+        toast.success(`Added ${ticker.ticker} to ${listName}`);
+      }
+    } catch (err) {
+      toast.error(`Failed to update list`);
+    }
+  };
+
   return (
-    <TableRow className="hover:bg-muted/30 border-b border-border/50 transition-colors">
-      <TableCell className="font-mono text-xs font-medium py-1.5 sticky left-0 bg-background z-10">
-        <span className="text-primary">{ticker.ticker}</span>
-      </TableCell>
-      <TableCell className="text-xs text-muted-foreground py-1.5 truncate max-w-[200px]">
-        {ticker.name}
-      </TableCell>
-      {columns.map((col) => {
-        const colValues = values[col.id];
-        const value = colValues?.[rowIndex];
-        return <ScreenerCell key={col.id} value={value} type={col.type} />;
-      })}
-    </TableRow>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <TableRow className="hover:bg-muted/30 border-b border-border/50 transition-colors cursor-context-menu">
+          <TableCell className="font-mono text-xs font-medium py-1.5 sticky left-0 bg-background z-10">
+            <span className="text-primary">{ticker.ticker}</span>
+          </TableCell>
+          <TableCell className="text-xs text-muted-foreground py-1.5 truncate max-w-[200px]">
+            {ticker.name}
+          </TableCell>
+          {columns.map((col) => {
+            const colValues = values[col.id];
+            const value = colValues?.[rowIndex];
+            return <ScreenerCell key={col.id} value={value} type={col.type} />;
+          })}
+        </TableRow>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Plus className="mr-2 h-4 w-4" />
+            Add to List
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-48">
+            {lists.map((list) => {
+              const inList = list.symbols.includes(ticker.ticker);
+              return (
+                <ContextMenuItem
+                  key={list.id}
+                  onClick={(e) => {
+                    e.preventDefault(); // Keep menu open if desired, but default is to close
+                    handleToggle(list.id, list.name, inList);
+                  }}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className="truncate">{list.name}</span>
+                    {inList && <Check className="h-4 w-4 text-primary ml-2" />}
+                  </div>
+                </ContextMenuItem>
+              );
+            })}
+            {lists.length === 0 && (
+              <ContextMenuItem
+                disabled
+                className="text-xs text-muted-foreground"
+              >
+                No simple lists
+              </ContextMenuItem>
+            )}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
 
