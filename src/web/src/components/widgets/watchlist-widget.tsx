@@ -74,28 +74,28 @@ export function WatchlistWidget({
           </div>
         ) : (
           <div className="divide-y divide-border/50">
-            {(selectedList.symbols ?? []).map((ticker: string) => (
-              <button
-                key={ticker}
-                onClick={() => handleSymbolClick(ticker)}
-                className={cn(
-                  "w-full flex items-center justify-between px-3 py-2 hover:bg-muted/30 transition-colors text-left",
-                  channelContext?.symbol === ticker && "bg-primary/10",
-                )}
-              >
-                <span
+            {(selectedList.symbols ?? []).map((ticker: string) => {
+              const isActive = channelContext?.symbol === ticker;
+              return (
+                <button
+                  key={ticker}
+                  onClick={() => handleSymbolClick(ticker)}
                   className={cn(
-                    "text-xs font-medium",
-                    channelContext?.symbol === ticker && "text-primary",
+                    "w-full flex items-center justify-between px-3 h-6 hover:bg-muted/30 transition-colors text-left",
+                    isActive && "bg-primary/10 border-l-2 border-primary",
                   )}
                 >
-                  {ticker}
-                </span>
-                {channelContext?.symbol === ticker && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                )}
-              </button>
-            ))}
+                  <span
+                    className={cn(
+                      "text-xs font-mono font-medium",
+                      isActive ? "text-primary" : "text-foreground",
+                    )}
+                  >
+                    {ticker}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

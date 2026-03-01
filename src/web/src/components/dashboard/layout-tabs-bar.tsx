@@ -2,16 +2,12 @@ import { useState } from "react";
 import { useLayoutStore } from "@/stores/layout-store";
 import { Plus, Copy, Trash2, Pencil } from "lucide-react";
 
-export function LayoutTabsBar() {
+/** Inline tab list — embeddable in the header or used standalone */
+export function LayoutTabsList() {
   const layouts = useLayoutStore((s) => s.layouts);
   const activeLayoutId = useLayoutStore((s) => s.activeLayoutId);
-  const {
-    switchLayout,
-    createLayout,
-    renameLayout,
-    duplicateLayout,
-    deleteLayout,
-  } = useLayoutStore();
+  const { switchLayout, createLayout, renameLayout, duplicateLayout, deleteLayout } =
+    useLayoutStore();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -29,12 +25,12 @@ export function LayoutTabsBar() {
   };
 
   return (
-    <div className="flex items-center h-7 bg-muted/30 border-t border-border px-1 gap-0.5 shrink-0">
+    <div className="flex items-center gap-0.5">
       {layouts.map((layout) => (
         <div key={layout.id} className="group flex items-center">
           {editingId === layout.id ? (
             <input
-              className="h-5 px-2 text-xs bg-card border border-primary rounded-sm outline-none w-24"
+              className="h-5 px-2 text-xs bg-card border border-primary rounded-sm outline-none w-24 font-mono"
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onBlur={commitEdit}
@@ -52,7 +48,7 @@ export function LayoutTabsBar() {
                 h-5 px-3 text-xs rounded-sm transition-colors
                 ${
                   layout.id === activeLayoutId
-                    ? "bg-card text-foreground border border-border"
+                    ? "bg-primary/15 text-primary border border-primary/30"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                 }
               `}
@@ -61,7 +57,6 @@ export function LayoutTabsBar() {
             </button>
           )}
 
-          {/* Context actions on hover */}
           {layout.id === activeLayoutId && (
             <div className="hidden group-hover:flex items-center gap-0.5 ml-0.5">
               <button
@@ -99,6 +94,15 @@ export function LayoutTabsBar() {
       >
         <Plus className="w-3 h-3" />
       </button>
+    </div>
+  );
+}
+
+/** Standalone bottom bar (kept for backward compatibility) */
+export function LayoutTabsBar() {
+  return (
+    <div className="flex items-center h-7 bg-muted/30 border-t border-border px-1 gap-0.5 shrink-0">
+      <LayoutTabsList />
     </div>
   );
 }

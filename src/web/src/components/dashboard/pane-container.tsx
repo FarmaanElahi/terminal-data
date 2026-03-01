@@ -83,7 +83,7 @@ export const PaneContainer = memo(function PaneContainer({
 
   return (
     <DropCompass paneId={pane.id} onDrop={handleDrop}>
-      <div className="flex flex-col h-full border border-border rounded-sm bg-card overflow-hidden">
+      <div className="flex flex-col h-full border border-border/60 rounded-sm bg-card overflow-hidden">
         {/* ─── Header Chrome ─────────────────────────────────────── */}
         <PaneHeader
           pane={pane}
@@ -129,7 +129,6 @@ export const PaneContainer = memo(function PaneContainer({
         </div>
       </div>
 
-      {/* Add Widget Dialog for this pane */}
       <AddWidgetDialog
         open={addWidgetOpen}
         onClose={() => setAddWidgetOpen(false)}
@@ -162,7 +161,6 @@ const PaneHeader = memo(function PaneHeader({
   onFloat,
   onClose,
 }: PaneHeaderProps) {
-  // Drag the whole pane
   const [{ isDragging }, dragRef] = useDrag(
     () => ({
       type: "pane",
@@ -182,7 +180,7 @@ const PaneHeader = memo(function PaneHeader({
     <div
       ref={dragRef as unknown as React.Ref<HTMLDivElement>}
       className={`
-        flex items-center gap-0.5 h-8 bg-muted/50 border-b border-border
+        flex items-center gap-0.5 h-7 bg-card border-b border-border/60
         select-none shrink-0 px-1
         ${isDragging ? "opacity-40" : ""}
       `}
@@ -199,7 +197,6 @@ const PaneHeader = memo(function PaneHeader({
             onClose={() => onTabClose(tab.id)}
           />
         ))}
-        {/* Add tab button */}
         <button
           onClick={onAddTab}
           className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
@@ -274,7 +271,7 @@ const TabButton = memo(function TabButton({
   );
 
   const channelColor = tab.channelColor;
-  const borderColor = channelColor ? CHANNEL_COLORS[channelColor] : null;
+  const channelBg = channelColor ? CHANNEL_COLORS[channelColor] : null;
 
   const handleChannelChange = (color: ChannelColor | null) => {
     useLayoutStore.getState().setTabChannel(tab.id, color);
@@ -286,18 +283,32 @@ const TabButton = memo(function TabButton({
         <div
           ref={dragRef as unknown as React.Ref<HTMLDivElement>}
           className={`
-            flex items-center gap-1 px-2 py-1 text-xs rounded-t-sm cursor-pointer
-            min-w-0 max-w-[150px] group relative
+            relative flex items-center gap-1 px-2 py-1 text-xs cursor-pointer
+            min-w-0 max-w-[150px] group overflow-hidden
             ${isDragging ? "opacity-40" : ""}
             ${
               isActive
-                ? "bg-card text-foreground border-t border-x border-border"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                ? "bg-background text-foreground font-medium"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
             }
           `}
           onClick={onClick}
         >
-          <span className="truncate">{tab.title}</span>
+          {/* 2px primary top-accent for active tab */}
+          {isActive && (
+            <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary" />
+          )}
+
+          {/* 3px left border for channel color */}
+          {channelBg && (
+            <div
+              className={`absolute top-0 bottom-0 left-0 w-[3px] ${channelBg}`}
+            />
+          )}
+
+          <span className={`truncate ${channelBg ? "pl-1" : ""}`}>
+            {tab.title}
+          </span>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -307,12 +318,6 @@ const TabButton = memo(function TabButton({
           >
             <X className="w-2.5 h-2.5" />
           </button>
-          {/* Colored bottom border for channel link */}
-          {borderColor && (
-            <div
-              className={`absolute bottom-0 left-1 right-1 h-0.5 rounded-full ${borderColor}`}
-            />
-          )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-[140px]">

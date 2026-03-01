@@ -1,11 +1,9 @@
-import { useState } from "react";
 import { DndProvider } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useLayoutStore } from "@/stores/layout-store";
 import { LayoutNodeRenderer } from "./layout-node";
 import { FloatingPanel } from "./floating-panel";
-import { LayoutTabsBar } from "./layout-tabs-bar";
-import { AddWidgetDialog } from "./add-widget-dialog";
+import { AppHeader } from "@/components/layout/header";
 import { PaneContainer } from "./pane-container";
 import type { PaneNode, LayoutNode } from "@/types/layout";
 
@@ -22,17 +20,13 @@ function findPaneInTree(node: LayoutNode, id: string): PaneNode | null {
 }
 
 export function LayoutEngine() {
-  // Use fine-grained selectors to avoid creating new refs on every store change
   const activeLayoutId = useLayoutStore((s) => s.activeLayoutId);
   const layouts = useLayoutStore((s) => s.layouts);
   const maximizedPaneId = useLayoutStore((s) => s.maximizedPaneId);
-  const [addWidgetOpen, setAddWidgetOpen] = useState(false);
 
-  // Derive layout from stable references
   const layout = layouts.find((l) => l.id === activeLayoutId) ?? layouts[0];
   if (!layout) return null;
 
-  // Find maximized pane if active
   const maximizedPane = maximizedPaneId
     ? findPaneInTree(layout.root, maximizedPaneId)
     : null;
@@ -40,6 +34,9 @@ export function LayoutEngine() {
   return (
     <DndProvider backend={HTML5Backend}>
       <div className="flex flex-col h-full w-full overflow-hidden">
+        {/* Unified top bar — branding + layout tabs + controls */}
+        <AppHeader />
+
         {/* Main grid area */}
         <div className="flex-1 relative overflow-hidden">
           {/* Normal layout tree */}
@@ -59,15 +56,6 @@ export function LayoutEngine() {
             <FloatingPanel key={fw.id} fw={fw} />
           ))}
         </div>
-
-        {/* Bottom layout tabs bar */}
-        <LayoutTabsBar />
-
-        {/* Add widget dialog */}
-        <AddWidgetDialog
-          open={addWidgetOpen}
-          onClose={() => setAddWidgetOpen(false)}
-        />
       </div>
     </DndProvider>
   );

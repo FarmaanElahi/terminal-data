@@ -1,6 +1,26 @@
+import { useState } from "react";
 import { getAllWidgets } from "@/lib/widget-registry";
 import { useLayoutStore } from "@/stores/layout-store";
-import { X, Plus } from "lucide-react";
+import {
+  X,
+  TableProperties,
+  LineChart,
+  List,
+  Users,
+  LayoutGrid,
+  Search,
+} from "lucide-react";
+
+const WIDGET_ICONS: Record<string, React.ElementType> = {
+  screener: TableProperties,
+  chart: LineChart,
+  watchlist: List,
+  community: Users,
+};
+
+function getWidgetIcon(type: string): React.ElementType {
+  return WIDGET_ICONS[type] ?? LayoutGrid;
+}
 
 interface AddWidgetDialogProps {
   open: boolean;
@@ -15,17 +35,24 @@ export function AddWidgetDialog({
   targetPaneId,
 }: AddWidgetDialogProps) {
   const { addTab, splitPane } = useLayoutStore();
+  const [query, setQuery] = useState("");
 
   if (!open) return null;
 
-  const widgets = getAllWidgets();
+  const allWidgets = getAllWidgets();
+  const widgets = query.trim()
+    ? allWidgets.filter(
+        (w) =>
+          w.title.toLowerCase().includes(query.toLowerCase()) ||
+          w.type.toLowerCase().includes(query.toLowerCase()),
+      )
+    : allWidgets;
 
   const handleSelect = (widgetType: string) => {
     if (targetPaneId) {
       addTab(targetPaneId, widgetType);
     } else {
       const layout = useLayoutStore.getState().getActiveLayout();
-      // Find first pane in the tree to split
       const findFirstPane = (node: {
         type: string;
         id: string;
@@ -43,50 +70,77 @@ export function AddWidgetDialog({
       const paneId = findFirstPane(layout.root);
       if (paneId) splitPane(paneId, "vertical", widgetType);
     }
+    setQuery("");
+    onClose();
+  };
+
+  const handleClose = () => {
+    setQuery("");
     onClose();
   };
 
   return (
     <div
-      className="fixed inset-0 z-100 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60"
+      onClick={handleClose}
     >
       <div
-        className="bg-card border border-border rounded-lg shadow-2xl w-80 max-h-96 overflow-hidden"
+        className="bg-card border border-border shadow-2xl w-96 max-h-[400px] overflow-hidden flex flex-col rounded-sm"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-3 border-b border-border">
-          <h3 className="text-sm font-medium">Add Widget</h3>
+        {/* Header */}
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+          <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search widgets..."
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground font-mono"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") handleClose();
+              if (e.key === "Enter" && widgets.length === 1) {
+                handleSelect(widgets[0].type);
+              }
+            }}
+          />
           <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
+            onClick={handleClose}
+            className="text-muted-foreground hover:text-foreground shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="p-2 space-y-1 overflow-y-auto max-h-72">
+
+        {/* Widget list */}
+        <div className="overflow-y-auto flex-1 p-1">
           {widgets.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-2">
-              No widgets registered
+            <p className="text-sm text-muted-foreground p-3 font-mono text-center">
+              No widgets match "{query}"
             </p>
           ) : (
-            widgets.map((def) => (
-              <button
-                key={def.type}
-                onClick={() => handleSelect(def.type)}
-                className="w-full flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors text-left"
-              >
-                <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center text-muted-foreground">
-                  <Plus className="w-4 h-4" />
-                </div>
-                <div>
-                  <div className="text-sm font-medium">{def.title}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {def.type}
+            widgets.map((def) => {
+              const Icon = getWidgetIcon(def.type);
+              return (
+                <button
+                  key={def.type}
+                  onClick={() => handleSelect(def.type)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-sm hover:bg-primary/10 hover:text-primary transition-colors text-left group"
+                >
+                  <div className="w-7 h-7 rounded-sm bg-muted group-hover:bg-primary/20 flex items-center justify-center text-muted-foreground group-hover:text-primary transition-colors shrink-0">
+                    <Icon className="w-3.5 h-3.5" />
                   </div>
-                </div>
-              </button>
-            ))
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium leading-none mb-0.5">
+                      {def.title}
+                    </div>
+                    <div className="text-xs text-muted-foreground font-mono group-hover:text-primary/70">
+                      {def.type}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </div>

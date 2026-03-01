@@ -1,16 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth-store";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 
 export function RegisterPage() {
   const [username, setUsername] = useState("");
@@ -43,127 +33,105 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center space-y-2">
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-              <svg
-                className="w-6 h-6 text-primary-foreground"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.148 2.148A12.061 12.061 0 0116.5 7.605"
-                />
-              </svg>
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight">Terminal</h1>
+    <div
+      className="min-h-screen flex items-center justify-center bg-background p-8"
+      style={{
+        backgroundImage:
+          "radial-gradient(oklch(0.3 0.01 250 / 0.35) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      <div className="w-full max-w-sm space-y-8">
+        {/* Logo area */}
+        <div className="space-y-1">
+          <div className="font-mono text-primary text-4xl font-bold tracking-tight leading-none">
+            TERMINAL
+            <span className="animate-pulse ml-0.5 text-primary/80">_</span>
           </div>
-          <p className="text-muted-foreground text-sm">
-            Create your trading workspace
-          </p>
+          <div className="text-xs font-mono text-muted-foreground tracking-[0.2em] uppercase pt-1">
+            Market Intelligence System
+          </div>
         </div>
 
-        <Card className="border-border/50 bg-card/80 backdrop-blur-sm shadow-2xl">
-          <CardHeader className="space-y-1 pb-4">
-            <CardTitle className="text-xl">Create account</CardTitle>
-            <CardDescription>
-              Get started with Terminal in seconds
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              {error && (
-                <div className="p-3 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-sm">
-                  {error}
-                </div>
-              )}
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {error && (
+            <p className="text-destructive font-mono text-xs">{error}</p>
+          )}
 
-              <div className="space-y-2">
-                <Label htmlFor="username">Username</Label>
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="Choose a username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  required
-                  autoComplete="username"
-                  className="bg-background/50"
-                />
-              </div>
+          <div className="space-y-1">
+            <label
+              htmlFor="username"
+              className="block text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]"
+            >
+              Username
+            </label>
+            <input
+              id="username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
+              autoComplete="username"
+              autoFocus
+              className="w-full bg-transparent border-0 border-b border-border font-mono text-sm text-foreground px-0 py-1.5 outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
+              placeholder="choose a username"
+            />
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="Create a password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                  className="bg-background/50"
-                />
-              </div>
+          <div className="space-y-1">
+            <label
+              htmlFor="password"
+              className="block text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]"
+            >
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              className="w-full bg-transparent border-0 border-b border-border font-mono text-sm text-foreground px-0 py-1.5 outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
+              placeholder="create a password"
+            />
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="Confirm your password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  autoComplete="new-password"
-                  className="bg-background/50"
-                />
-              </div>
+          <div className="space-y-1">
+            <label
+              htmlFor="confirmPassword"
+              className="block text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]"
+            >
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              className="w-full bg-transparent border-0 border-b border-border font-mono text-sm text-foreground px-0 py-1.5 outline-none focus:border-primary transition-colors placeholder:text-muted-foreground/40"
+              placeholder="confirm password"
+            />
+          </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                      />
-                    </svg>
-                    Creating account...
-                  </span>
-                ) : (
-                  "Create account"
-                )}
-              </Button>
-            </form>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="w-full bg-primary text-primary-foreground font-mono text-xs tracking-[0.15em] uppercase py-2.5 rounded-none disabled:opacity-50 hover:bg-primary/90 transition-colors mt-2"
+          >
+            {isLoading ? "Creating account..." : "Create account →"}
+          </button>
+        </form>
 
-            <div className="mt-6 text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link
-                to="/login"
-                className="text-primary hover:underline font-medium"
-              >
-                Sign in
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+        <p className="font-mono text-xs text-muted-foreground">
+          Already have an account?{" "}
+          <Link to="/login" className="text-primary hover:underline">
+            Sign in
+          </Link>
+        </p>
       </div>
     </div>
   );
