@@ -174,4 +174,47 @@ export interface FormulaEditorConfig {
   }>;
 }
 
+// ─── Charts API ────────────────────────────────────────────────────
+
+export interface ChartMeta {
+  id: string;
+  name: string;
+  symbol: string | null;
+  resolution: string | null;
+}
+
+export interface ChartPublic extends ChartMeta {
+  content: object;
+}
+
+export interface ChartSaveData {
+  id?: string;
+  name: string;
+  symbol?: string | null;
+  resolution?: string | null;
+  content: object;
+}
+
+export interface StudyTemplateMeta {
+  name: string;
+}
+
+export const chartsApi = {
+  list: () => api.get<ChartMeta[]>("/charts"),
+  save: (data: ChartSaveData) =>
+    data.id
+      ? api.put<ChartMeta>(`/charts/${data.id}`, data)
+      : api.post<ChartMeta>("/charts", data),
+  getContent: (id: string) => api.get<ChartPublic>(`/charts/${id}/content`),
+  remove: (id: string) => api.delete(`/charts/${id}`),
+  listStudyTemplates: () =>
+    api.get<StudyTemplateMeta[]>("/charts/study-templates"),
+  saveStudyTemplate: (name: string, content: object) =>
+    api.post<StudyTemplateMeta>("/charts/study-templates", { name, content }),
+  getStudyTemplateContent: (name: string) =>
+    api.get(`/charts/study-templates/${encodeURIComponent(name)}/content`),
+  removeStudyTemplate: (name: string) =>
+    api.delete(`/charts/study-templates/${encodeURIComponent(name)}`),
+};
+
 export default api;

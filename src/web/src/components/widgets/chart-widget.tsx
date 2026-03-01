@@ -3,12 +3,14 @@ import { useWidget } from "@/hooks/use-widget";
 import { useLayoutStore } from "@/stores/layout-store";
 import type { WidgetProps } from "@/types/layout";
 import { TerminalDatafeed } from "@/lib/terminal-datafeed";
+import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
 
 const CONTAINER_PREFIX = "tv_chart_";
 
 interface ChartSettings {
   symbol?: string;
   interval?: string;
+  chartState?: object | null;
 }
 
 export function ChartWidget({
@@ -48,9 +50,14 @@ export function ChartWidget({
 
     const isDark = theme === "dark";
     const datafeed = new TerminalDatafeed();
+    const storageAdapter = new ChartStorageAdapter();
+
+    // Fire-and-forget hydration from server — doesn't block chart load
+    storageAdapter.hydrate();
+
     const tvWidget = new TradingView.widget({
       symbol: initialSymbol,
-      interval: "D",
+      interval: (s.interval ?? "D") as any,
       container: containerId,
       datafeed,
       library_path: "/tv/charting_library/",
@@ -58,6 +65,9 @@ export function ChartWidget({
       autosize: true,
       theme: isDark ? "dark" : "light",
       timezone: "exchange" as any, // Follow symbol metadata (Asia/Kolkata)
+      load_last_chart: true,
+      saved_data: s.chartState ?? undefined,
+      save_load_adapter: storageAdapter,
       enabled_features: [
         "show_symbol_logos",
         "show_exchange_logos",
@@ -79,6 +89,13 @@ export function ChartWidget({
     tvWidget.onChartReady(() => {
       readyRef.current = true;
 
+      // Auto-save chart state (drawings + studies) whenever TV requests it
+      tvWidget.subscribe("onAutoSaveNeeded", () => {
+        tvWidget.save((state: object) => {
+          onSettingsChangeRef.current({ chartState: state });
+        });
+      });
+
       // Listen for symbol changes made inside the TradingView search UI
       tvWidget
         .activeChart()
@@ -89,6 +106,14 @@ export function ChartWidget({
           currentSymbolRef.current = newSymbol;
           onSettingsChangeRef.current({ symbol: newSymbol });
           setChannelSymbolRef.current(newSymbol);
+        });
+
+      // Persist interval changes
+      tvWidget
+        .activeChart()
+        .onIntervalChanged()
+        .subscribe(null, (interval: string) => {
+          onSettingsChangeRef.current({ interval });
         });
     });
 

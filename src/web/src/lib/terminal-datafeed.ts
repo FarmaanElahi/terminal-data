@@ -269,7 +269,7 @@ export class TerminalDatafeed {
       const matchesText =
         s.ticker.toLowerCase().includes(query) ||
         s.name.toLowerCase().includes(query);
-      const matchesMarket = !market || s.market.toLowerCase() === market;
+      const matchesMarket = !market || s.exchange.toLowerCase() === market;
       return matchesText && matchesMarket;
     });
 
@@ -464,14 +464,25 @@ export class TerminalDatafeed {
   private _mapResolution(resolution: string): string {
     const map: Record<string, string> = {
       "1": "1m",
+      "2": "2m",
+      "3": "3m",
       "5": "5m",
+      "10": "10m",
       "15": "15m",
+      "20": "20m",
       "30": "30m",
+      "45": "45m",
       "60": "1h",
+      "120": "2h",
+      "180": "3h",
+      "240": "4h",
       "1D": "1d",
       D: "1d",
       "1W": "1w",
       "1M": "1M",
+      "3M": "3mo",
+      "6M": "6mo",
+      "12M": "1y",
     };
     return map[resolution] || "1d";
   }
