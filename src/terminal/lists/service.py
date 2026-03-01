@@ -226,6 +226,10 @@ async def get_symbols_async(
             results = await symbols_service.search(
                 fs, settings, index=filter_value, limit=None
             )
+        elif filter_type == "exc":
+            results = await symbols_service.search(
+                fs, settings, market=None, exchange=filter_value, limit=None
+            )
         else:
             return []
 
@@ -248,6 +252,17 @@ async def get_all_system_lists(
                 id=f"{SYSTEM_LIST_PREFIX}mkt:{market}",
                 user_id="system",
                 name=f"{market.capitalize()} Stock",
+                type=ListType.system,
+            )
+        )
+
+    # Specific Exchange lists (NSE)
+    if "NSE" in metadata.get("exchanges", []):
+        system_lists.append(
+            ListPublic(
+                id=f"{SYSTEM_LIST_PREFIX}exc:NSE",
+                user_id="system",
+                name="NSE Stock",
                 type=ListType.system,
             )
         )
@@ -282,6 +297,8 @@ def get_system_list_by_id(list_id: str) -> ListPublic | None:
     if filter_type == "mkt":
         name = f"{filter_value.capitalize()} Stock"
     elif filter_type == "idx":
+        name = f"{filter_value} Stock"
+    elif filter_type == "exc":
         name = f"{filter_value} Stock"
     else:
         return None

@@ -46,7 +46,9 @@ export function ListSelectionDialog({
         (l) => l.type === "system" && l.id.startsWith("sys:idx:"),
       ),
       market: lists.filter(
-        (l) => l.type === "system" && l.id.startsWith("sys:mkt:"),
+        (l) =>
+          l.type === "system" &&
+          (l.id.startsWith("sys:mkt:") || l.id.startsWith("sys:exc:")),
       ),
       color: lists.filter((l) => l.type === "color"),
     };

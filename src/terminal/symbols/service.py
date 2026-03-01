@@ -21,6 +21,7 @@ async def search(
     item_type: str | None = None,
     index: str | None = None,
     limit: int = 100,
+    **kwargs: Any,
 ) -> list[dict[str, Any]]:
     """
     Search symbols using Pandas DataFrame.
@@ -40,6 +41,11 @@ async def search(
 
     if item_type:
         filtered_df = filtered_df[filtered_df["type"] == item_type]
+
+    if kwargs.get("exchange"):
+        filtered_df = filtered_df[
+            filtered_df["exchange"].str.lower() == kwargs["exchange"].lower()
+        ]
 
     if index:
         # Check if the list of dicts in 'indexes' contains a dict with name == index
@@ -169,6 +175,7 @@ async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str
 
     markets = [m for m in df["market"].dropna().unique().tolist() if m]
     types = [t for t in df["type"].dropna().unique().tolist() if t]
+    exchanges = [e for e in df["exchange"].dropna().unique().tolist() if e]
 
     unique_indexes = set()
     for idxs in df["indexes"].dropna():
@@ -183,6 +190,7 @@ async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str
         "markets": sorted(list(markets)),
         "types": sorted(list(types)),
         "indexes": sorted(list(unique_indexes)),
+        "exchanges": sorted(list(exchanges)),
     }
 
 
