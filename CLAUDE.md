@@ -9,6 +9,31 @@ This is a stock market terminal with two main parts:
 - **Backend** (`src/terminal/`): FastAPI server (Python 3.13, managed with `uv`) serving REST and WebSocket APIs. It connects to PostgreSQL, OCI object storage (for cached market data), TradingView (market data source), and Upstox (Indian market candles via WebSocket).
 - **Frontend** (`src/web/`): React 19 + TypeScript SPA with Vite, Tailwind CSS v4, shadcn/ui, Zustand for state, and TanStack Query/Table/Virtual for data fetching and virtualized tables.
 
+**Design system**: See [`docs/design-system.md`](docs/design-system.md) for the full design philosophy, color tokens, typography, spacing, animation, and component conventions. Always follow this document when building UI.
+
+### Frontend Module Map (`src/web/src/`)
+
+| Path | Responsibility |
+| ---- | -------------- |
+| `main.tsx` | Entry point — renders `<App />` |
+| `styles/globals.css` | All CSS custom properties (OKLCH color tokens, fonts, animations, scrollbar utilities) |
+| `app/providers.tsx` | Wraps app with React Query, Router, Auth, and Theme providers |
+| `app/routes.tsx` | Route definitions — maps paths to page components |
+| `app/routes/` | Page-level components |
+| `components/ui/` | 17 shadcn/ui primitive components (Button, Input, Dialog, Select, etc.) — use these, never reinvent |
+| `components/layout/` | App shell: `header.tsx` (top bar), `command-palette.tsx` |
+| `components/dashboard/` | Drag-and-drop layout engine (`layout-engine.tsx`), pane containers, floating panels, drop targets, add-widget dialog |
+| `components/widgets/` | Domain widgets: `screener-widget.tsx`, `chart-widget.tsx`, `watchlist-widget.tsx`, `community-feed-widget.tsx` |
+| `components/screener/` | Screener sub-components: column editor, formula editor (Monaco), list dialogs, column properties |
+| `hooks/` | Custom hooks for widget coordination, WebSocket subscriptions, screener logic |
+| `queries/` | TanStack Query hooks for server state — lists, column sets, conditions, symbols |
+| `stores/` | Zustand stores: `layout-store.ts` (layouts + theme), `auth-store.ts`, `screener-store.ts`, `ui-store.ts`, `widget-state-store.ts` |
+| `lib/api.ts` | Axios instance + typed API helpers |
+| `lib/ws.ts` | WebSocket client management |
+| `lib/terminal-datafeed.ts` | TradingView charting library datafeed adapter |
+| `lib/register-widgets.ts` | Widget registry — maps widget type strings to components |
+| `types/` | Shared TypeScript types: `layout.ts`, `models.ts`, `api.ts`, `ws.ts` |
+
 ### Backend Module Map
 
 | Module                  | Responsibility                                                                                                                                                               |
@@ -92,6 +117,27 @@ from terminal.your_module.models import YourModel  # noqa: F401
 **Real-time flow**: TradingView Scanner API is polled every 5s → `OHLCStore` updated → `BroadcastChannel` notifies all WebSocket sessions. Upstox WebSocket provides live Indian market candles.
 
 **OCI storage**: Market data (parquet) is stored in OCI object storage and accessed via `ocifs`. Credentials (`OCI_CONFIG`, `OCI_KEY`) are base64-encoded in `.env`. The `abs_file_path` helper prefixes paths with `bucket/v2/`.
+
+## Frontend Key Patterns
+
+**Widget system**: Each widget is a React component registered in `lib/register-widgets.ts`. Widgets receive `instanceId`, `settings`, and `onSettingsChange` props. Settings are serialized JSON stored inside the layout. Widgets subscribe to a `channel` (string key) for cross-widget symbol sync — e.g., clicking a symbol in the screener updates the chart on the same channel.
+
+**State split**: Use TanStack Query (`queries/`) for all server data (lists, column sets, symbols). Use Zustand (`stores/`) for client-only UI state (active layout, theme, maximized pane). Do not store server data in Zustand.
+
+**TanStack Query config**: Stale time is `Infinity` — data is not automatically refetched on focus/reconnect. Manual `invalidateQueries` after mutations. Retry count: 1.
+
+**Virtualized tables**: The screener uses TanStack Virtual with a fixed row height of `28px` and overscan of 15. All row-level components (`ScreenerRow`) are wrapped in `React.memo`. Sort state is applied before virtualizing.
+
+**Real-time updates**: WebSocket messages from `/ws` drive screener and quote updates. The `useScreener` hook manages subscription + data merging. Cell changes trigger `.cell-flash-up` / `.cell-flash-down` CSS animations via class toggling.
+
+**Layout persistence**: The active layout (pane tree + widget settings) is saved to the server via TanStack Query mutations whenever it changes. `layout-store.ts` is the source of truth for local layout state.
+
+**Adding a new widget**:
+1. Create `components/widgets/your-widget.tsx`
+2. Register it in `lib/register-widgets.ts`
+3. Define its settings type in `types/layout.ts`
+
+**Styling rules**: Always use Tailwind utility classes with CSS token variables (`bg-background`, `text-foreground`, `border-border`). Never use hardcoded colors. See `docs/design-system.md` for full conventions.
 
 ## Test
 
