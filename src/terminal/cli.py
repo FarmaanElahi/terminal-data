@@ -177,6 +177,58 @@ def refresh_candle_day():
     asyncio.run(_run())
 
 
+@data_app.command("download-bars")
+def download_bars(
+    timeframe: str = typer.Option(
+        "1D", "--timeframe", "-t", help="TradingView timeframe (e.g. 1D, 1W, 240)"
+    ),
+    limit: int = typer.Option(
+        20000, "--limit", "-l", help="Max number of symbols to download"
+    ),
+):
+    """
+    Download full historical bar series from TradingView via WebSocket streamer
+    and save to OCI cache. Uses streamer2.py for efficient bulk streaming.
+    """
+    import asyncio
+    from terminal.config import settings
+    from terminal.dependencies import (
+        _get_tradingview_provider_instance,
+        get_fs,
+    )
+    from terminal.symbols import service as symbol_service
+
+    async def _run():
+        typer.echo("Initializing providers...")
+        tv_provider = _get_tradingview_provider_instance()
+
+        typer.echo("Fetching symbol list from OCIFS...")
+        fs = get_fs()
+        await symbol_service.init(fs, settings)
+        symbols_info = await symbol_service.search(
+            fs=fs, settings=settings, limit=limit
+        )
+        tickers = [s["ticker"] for s in symbols_info]
+
+        if not tickers:
+            typer.echo("No symbols found.")
+            return
+
+        total = len(tickers)
+        typer.echo(f"Downloading bars for {total} symbols (timeframe={timeframe})...")
+
+        def on_progress(completed: int, total: int):
+            if completed % 100 == 0 or completed == total:
+                typer.echo(f"  Progress: {completed}/{total} symbols")
+
+        saved = await tv_provider.download_bars(
+            tickers, timeframe=timeframe, on_progress=on_progress
+        )
+        typer.echo(f"Done. Saved bar data for {saved} symbols to OCIFS.")
+
+    asyncio.run(_run())
+
+
 health_app = typer.Typer()
 app.add_typer(health_app, name="health")
 
@@ -261,11 +313,16 @@ def backup_database(
         subprocess.run(
             [
                 "pg_dump",
-                "-h", host,
-                "-p", str(port),
-                "-U", user,
-                "-d", dbname,
-                "-f", output,
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-f",
+                output,
             ],
             env=env,
             check=True,
@@ -306,11 +363,16 @@ def restore_database(
         subprocess.run(
             [
                 "psql",
-                "-h", host,
-                "-p", str(port),
-                "-U", user,
-                "-d", dbname,
-                "-f", input_file,
+                "-h",
+                host,
+                "-p",
+                str(port),
+                "-U",
+                user,
+                "-d",
+                dbname,
+                "-f",
+                input_file,
             ],
             env=env,
             check=True,
@@ -363,7 +425,9 @@ def validate_market_data():
             if nulls > 0:
                 null_count += 1
 
-        typer.echo(f"  Sample check (first 100): {empty_count} empty, {null_count} with nulls")
+        typer.echo(
+            f"  Sample check (first 100): {empty_count} empty, {null_count} with nulls"
+        )
 
         if empty_count > 50:
             typer.echo("  WARNING: >50% of sampled symbols have no data!")
