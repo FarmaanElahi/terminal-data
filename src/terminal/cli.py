@@ -160,6 +160,7 @@ def refresh_candle_day():
 
         typer.echo("Fetching symbol list from OCIFS...")
         fs = get_fs()
+        await symbol_service.init(fs, settings)
         symbols_info = await symbol_service.search(
             fs=fs, settings=settings, limit=20000
         )  # Get all primary symbols
