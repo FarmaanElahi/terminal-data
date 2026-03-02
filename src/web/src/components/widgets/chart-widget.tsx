@@ -4,6 +4,7 @@ import { useLayoutStore } from "@/stores/layout-store";
 import type { WidgetProps } from "@/types/layout";
 import { TerminalDatafeed } from "@/lib/terminal-datafeed";
 import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
+import { getCustomIndicators } from "@/lib/custom-indicators";
 
 const CONTAINER_PREFIX = "tv_chart_";
 
@@ -68,6 +69,7 @@ export function ChartWidget({
       load_last_chart: true,
       saved_data: s.chartState ?? undefined,
       save_load_adapter: storageAdapter,
+      custom_indicators_getter: getCustomIndicators,
       enabled_features: [
         "show_symbol_logos",
         "show_exchange_logos",
