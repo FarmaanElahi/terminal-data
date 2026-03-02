@@ -1248,10 +1248,12 @@ export function ScreenerWidget({
                       if (!item) return null;
 
                       const originalIndex = item.tickerIndex;
+                      const tickerEntry = deferredTickers[originalIndex];
+                      if (!tickerEntry) return null;
                       return (
                         <ScreenerRow
-                          key={deferredTickers[originalIndex].ticker}
-                          row={deferredTickers[originalIndex]}
+                          key={tickerEntry.ticker}
+                          row={tickerEntry}
                           originalIndex={originalIndex}
                           visualIndex={virtualRow.index}
                           isSelected={virtualRow.index === selectedIndex}
