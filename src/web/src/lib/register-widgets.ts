@@ -7,6 +7,7 @@ import { ScreenerWidget } from "@/components/widgets/screener-widget";
 import { ChartWidget } from "@/components/widgets/chart-widget";
 import { CommunityFeedWidget } from "@/components/widgets/community-feed-widget";
 import { CommunityFeedGlobalWidget } from "@/components/widgets/community-feed-global-widget";
+import { BubbleChartWidget } from "@/components/widgets/bubble-chart-widget";
 import type { ColumnDef } from "@/types/models";
 
 export const DEFAULT_SCREENER_COLUMNS: ColumnDef[] = [
@@ -84,4 +85,47 @@ registerWidget({
   icon: "globe",
   component: CommunityFeedGlobalWidget,
   defaultSettings: { feed: "trending" },
+});
+
+registerWidget({
+  type: "bubble_chart",
+  title: "Bubble Chart",
+  icon: "circle-dot",
+  component: BubbleChartWidget,
+  defaultSettings: {
+    listId: null,
+    xColumn: {
+      id: "bubble_x",
+      name: "Change%",
+      visible: true,
+      type: "value",
+      filter: "off",
+      value_type: "formula",
+      value_formula: "(C/C.1-1)*100",
+      value_formula_tf: "D",
+      value_formula_x_bar_ago: 0,
+    },
+    yColumn: {
+      id: "bubble_y",
+      name: "Volume",
+      visible: true,
+      type: "value",
+      filter: "off",
+      value_type: "formula",
+      value_formula: "V",
+      value_formula_tf: "D",
+      value_formula_x_bar_ago: 0,
+    },
+    sizeColumn: {
+      id: "bubble_size",
+      name: "Closing Range%",
+      visible: true,
+      type: "value",
+      filter: "off",
+      value_type: "formula",
+      value_formula: "(C-L)/(H-L)*100",
+      value_formula_tf: "D",
+      value_formula_x_bar_ago: 0,
+    },
+  },
 });
