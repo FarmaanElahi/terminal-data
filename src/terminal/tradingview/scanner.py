@@ -1,6 +1,25 @@
 import httpx
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Request timeout for scanner API (shorter than default for 5s poll cycle)
+_REQUEST_TIMEOUT = 10.0
+
+
+def _is_retryable_http_error(exc: Exception) -> bool:
+    """Determine if an HTTP error is worth retrying."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        # 4xx except 429 → fail fast
+        if 400 <= code < 500 and code != 429:
+            return False
+        # 429 (rate limit) and 5xx → retry
+        return True
+    # Network errors are retryable
+    return isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout))
 
 
 class TradingViewScanner:
@@ -325,14 +344,25 @@ class TradingViewScanner:
                     "markets": [market],
                 }
 
-                response = await client.post(
-                    self.SCANNER_URL,
-                    headers=self.DEFAULT_HEADERS,
-                    content=json.dumps(payload),
-                    timeout=30.0,
+                from terminal.infra.circuit_breaker import retry_with_backoff
+
+                async def _do_fetch():
+                    resp = await client.post(
+                        self.SCANNER_URL,
+                        headers=self.DEFAULT_HEADERS,
+                        content=json.dumps(payload),
+                        timeout=_REQUEST_TIMEOUT,
+                    )
+                    resp.raise_for_status()
+                    return resp.json()
+
+                data = await retry_with_backoff(
+                    _do_fetch,
+                    max_retries=3,
+                    base_delay=1.0,
+                    max_delay=4.0,
+                    retryable=_is_retryable_http_error,
                 )
-                response.raise_for_status()
-                data = response.json()
 
                 for item in data.get("data", []):
                     ticker = item["s"]

@@ -80,12 +80,33 @@ class DataProvider(ABC):
             self._cache_loaded = True
 
     def _sync_from_oci(self):
-        try:
-            if self.fs.exists(self.cache_file_oci):
-                self.fs.get(self.cache_file_oci, str(self.cache_file_local))
-                logger.info(f"Synced cache from OCI: {self.cache_file_oci}")
-        except Exception as e:
-            logger.error(f"Failed to sync from OCI: {e}")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if self.fs.exists(self.cache_file_oci):
+                    self.fs.get(self.cache_file_oci, str(self.cache_file_local))
+                    logger.info(f"Synced cache from OCI: {self.cache_file_oci}")
+                    return
+                else:
+                    logger.info("OCI cache file does not exist: %s", self.cache_file_oci)
+                    return
+            except Exception as e:
+                logger.warning(
+                    "OCI sync attempt %d/%d failed: %s",
+                    attempt + 1,
+                    max_retries,
+                    e,
+                )
+                if attempt == max_retries - 1:
+                    if self.cache_file_local.exists():
+                        logger.warning(
+                            "OCI unreachable after %d retries — using local cache",
+                            max_retries,
+                        )
+                    else:
+                        logger.error(
+                            "OCI unreachable and no local cache available"
+                        )
 
     def get_history(self, symbol: str) -> pd.DataFrame | None:
         """

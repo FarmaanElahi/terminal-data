@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from sqlalchemy.orm import Mapped, mapped_column
 from terminal.database.core import Base
 from terminal.models import PrimaryKeyModel, TimeStampMixin, TerminalBase
@@ -30,6 +31,17 @@ class User(Base, PrimaryKeyModel, TimeStampMixin):
 class UserCreate(TerminalBase):
     username: str
     password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        from terminal.config import settings
+
+        if len(v) < settings.min_password_length:
+            raise ValueError(
+                f"Password must be at least {settings.min_password_length} characters"
+            )
+        return v
 
 
 class UserPublic(TerminalBase):

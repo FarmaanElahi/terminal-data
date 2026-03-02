@@ -5,11 +5,15 @@ import logging
 import asyncio
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
 
 from .api import api_router as api_router
 from .logging import configure_logging
 from .realtime.handler import router as realtime_router
+from .config import settings
+from .health.router import router as health_router
+from .middleware import RequestLoggingMiddleware
 from .dependencies import get_market_manager, get_fs, get_settings, get_candle_manager
 from .symbols import service as symbols_service
 
@@ -52,10 +56,46 @@ async def lifespan(application: FastAPI):
 
     yield
 
-    # Shutdown: Stop the streams
-    logger.info("Shutting down managers...")
+    # Graceful shutdown sequence
+    logger.info("Shutting down...")
+
+    # 1. Stop accepting new WebSocket connections
+    application._shutting_down = True  # type: ignore[attr-defined]
+
+    # 2. Close all active WebSocket sessions
+    from .realtime.handler import connection_manager
+
+    await connection_manager.close_all(timeout=10.0)
+
+    # 3. Stop MarketDataManager polling
     await manager.stop_realtime_streaming()
+
+    # 4. Flush pending cache if dirty
+    if manager.store.is_dirty:
+        logger.info("Flushing dirty cache before shutdown...")
+        try:
+            import pandas as pd
+
+            all_data = manager.store.get_all_data()
+            dfs = []
+            for ticker, df in all_data.items():
+                if df is None or len(df) == 0:
+                    continue
+                df_copy = df.copy()
+                df_copy["symbol"] = ticker
+                df_copy.reset_index(inplace=True)
+                dfs.append(df_copy)
+            if dfs:
+                full_df = pd.concat(dfs, ignore_index=True)
+                manager.provider.update_cache(full_df)
+                logger.info("Cache flushed successfully.")
+        except Exception:
+            logger.exception("Failed to flush cache during shutdown")
+
+    # 5. Close CandleManager feeds
     await candle_manager.close()
+
+    logger.info("Shutdown complete.")
 
 
 api = FastAPI(
@@ -71,5 +111,19 @@ api.include_router(api_router)
 
 app = FastAPI(title="Terminal App", lifespan=lifespan)
 
+# CORS
+_cors_origins = ["*"] if settings.environment == "development" else []
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Request logging
+app.add_middleware(RequestLoggingMiddleware)
+
+app.include_router(health_router)
 app.mount("/api/v1", api)
 app.include_router(realtime_router)

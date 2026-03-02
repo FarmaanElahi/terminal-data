@@ -2,7 +2,7 @@
 
 Routes candle requests to the correct provider based on the exchange
 prefix of the ticker (e.g. NSE → India/Upstox, NASDAQ → America).
-Also manages real-time WebSocket feed subscriptions.
+Also manages real-time WebSocket feed subscriptions and candle aggregation.
 """
 
 import asyncio
@@ -10,6 +10,7 @@ import logging
 from datetime import date
 from typing import Any, AsyncGenerator
 
+from .aggregator import CandleAggregator, AggSubscription
 from .models import Candle
 from .provider import CandleProvider
 
@@ -55,6 +56,8 @@ class CandleManager:
         self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._stop_event = asyncio.Event()
         self._listener_tasks: dict[str, asyncio.Task] = {}
+        self._aggregator = CandleAggregator()
+        self._aggregator_dispatch_task: asyncio.Task | None = None
         # Start listeners for existing providers if loop is running
         try:
             asyncio.get_running_loop()
@@ -120,7 +123,7 @@ class CandleManager:
     # ------------------------------------------------------------------
 
     async def start_feed(self) -> None:
-        """Start all registered provider feeds and listeners."""
+        """Start all registered provider feeds, listeners, and aggregator dispatch."""
         self._stop_event.clear()
         for market, provider in self._providers.items():
             if (
@@ -129,6 +132,12 @@ class CandleManager:
             ):
                 self._start_listener(market, provider)
             await provider.start_feed()
+
+        # Start aggregator dispatch task
+        if not self._aggregator_dispatch_task or self._aggregator_dispatch_task.done():
+            self._aggregator_dispatch_task = asyncio.create_task(
+                self._aggregator_dispatch_loop()
+            )
 
     async def stop_feed(self) -> None:
         """Stop all registered provider feeds."""
@@ -161,9 +170,50 @@ class CandleManager:
             except asyncio.TimeoutError:
                 continue
 
+    # ------------------------------------------------------------------
+    # Candle Aggregation
+    # ------------------------------------------------------------------
+
+    def subscribe_aggregated(
+        self, ticker: str, interval: str
+    ) -> AggSubscription:
+        """Subscribe to aggregated candles for a (ticker, interval) pair.
+
+        Returns an AggSubscription with a queue that yields aggregated updates.
+        The aggregator is lazy: it only aggregates for intervals with active subscribers.
+        """
+        return self._aggregator.register(ticker, interval)
+
+    def unsubscribe_aggregated(self, ticker: str, interval: str) -> None:
+        """Unsubscribe from aggregated candles."""
+        self._aggregator.unregister(ticker, interval)
+
+    async def _aggregator_dispatch_loop(self) -> None:
+        """Feed raw candle updates from providers into the aggregator."""
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    update = await asyncio.wait_for(
+                        self._update_queue.get(), timeout=1.0
+                    )
+                    # Feed into aggregator for any subscribed higher-timeframe targets
+                    self._aggregator.ingest(
+                        update.get("ticker", ""),
+                        update.get("interval", ""),
+                        update,
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Error in aggregator dispatch loop")
+
     async def close(self) -> None:
         """Clean up all resources and listeners."""
         await self.stop_feed()
+        if self._aggregator_dispatch_task:
+            self._aggregator_dispatch_task.cancel()
         for task in self._listener_tasks.values():
             task.cancel()
         for provider in self._providers.values():

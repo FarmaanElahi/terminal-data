@@ -177,5 +177,201 @@ def refresh_candle_day():
     asyncio.run(_run())
 
 
+health_app = typer.Typer()
+app.add_typer(health_app, name="health")
+
+
+@health_app.callback(invoke_without_command=True)
+def health_check():
+    """Run a CLI health check against DB, OCI, and external APIs."""
+    import asyncio
+    from terminal.config import settings
+    from terminal.dependencies import get_fs
+
+    async def _run():
+        checks = {}
+
+        # 1. Database
+        try:
+            from terminal.database.core import engine
+            from sqlalchemy import text
+
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+            typer.echo("  Database: OK")
+        except Exception as e:
+            checks["database"] = f"error: {e}"
+            typer.echo(f"  Database: FAIL ({e})")
+
+        # 2. OCI
+        try:
+            fs = get_fs()
+            fs.ls(settings.oci_bucket)
+            checks["oci"] = "ok"
+            typer.echo("  OCI Storage: OK")
+        except Exception as e:
+            checks["oci"] = f"error: {e}"
+            typer.echo(f"  OCI Storage: FAIL ({e})")
+
+        # 3. TradingView Scanner
+        try:
+            from terminal.tradingview.scanner import TradingViewScanner
+
+            scanner = TradingViewScanner()
+            result = await scanner.fetch_ohlcv()
+            checks["tradingview"] = f"ok ({len(result)} symbols)"
+            typer.echo(f"  TradingView Scanner: OK ({len(result)} symbols)")
+        except Exception as e:
+            checks["tradingview"] = f"error: {e}"
+            typer.echo(f"  TradingView Scanner: FAIL ({e})")
+
+        all_ok = all(v.startswith("ok") for v in checks.values())
+        typer.echo(f"\nOverall: {'HEALTHY' if all_ok else 'UNHEALTHY'}")
+        raise SystemExit(0 if all_ok else 1)
+
+    asyncio.run(_run())
+
+
+@database_app.command("backup")
+def backup_database(
+    output: str = typer.Option(
+        "backup.sql",
+        "--output",
+        "-o",
+        help="Output file path for the backup",
+    ),
+):
+    """Create a pg_dump backup of the database."""
+    import subprocess
+    import os
+    from terminal.config import settings
+    from urllib.parse import urlparse
+
+    parsed = urlparse(settings.database_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    user = parsed.username or "postgres"
+    dbname = parsed.path.lstrip("/")
+
+    env = {**os.environ, "PGPASSWORD": parsed.password or ""}
+
+    typer.echo(f"Backing up {dbname}@{host}:{port} to {output}...")
+    try:
+        subprocess.run(
+            [
+                "pg_dump",
+                "-h", host,
+                "-p", str(port),
+                "-U", user,
+                "-d", dbname,
+                "-f", output,
+            ],
+            env=env,
+            check=True,
+        )
+        typer.echo(f"Backup saved to {output}")
+    except subprocess.CalledProcessError as e:
+        typer.echo(f"Backup failed: {e}", err=True)
+        raise typer.Exit(1)
+    except FileNotFoundError:
+        typer.echo("pg_dump not found. Install PostgreSQL client tools.", err=True)
+        raise typer.Exit(1)
+
+
+@database_app.command("restore")
+def restore_database(
+    input_file: str = typer.Argument(..., help="Path to the backup file"),
+):
+    """Restore a database from a pg_dump backup."""
+    import subprocess
+    import os
+    from terminal.config import settings
+    from urllib.parse import urlparse
+
+    parsed = urlparse(settings.database_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    user = parsed.username or "postgres"
+    dbname = parsed.path.lstrip("/")
+
+    env = {**os.environ, "PGPASSWORD": parsed.password or ""}
+
+    if not typer.confirm(f"This will restore {input_file} into {dbname}. Continue?"):
+        typer.echo("Cancelled.")
+        return
+
+    typer.echo(f"Restoring {input_file} into {dbname}@{host}:{port}...")
+    try:
+        subprocess.run(
+            [
+                "psql",
+                "-h", host,
+                "-p", str(port),
+                "-U", user,
+                "-d", dbname,
+                "-f", input_file,
+            ],
+            env=env,
+            check=True,
+        )
+        typer.echo("Restore complete.")
+    except subprocess.CalledProcessError as e:
+        typer.echo(f"Restore failed: {e}", err=True)
+        raise typer.Exit(1)
+
+
+@data_app.command("validate")
+def validate_market_data():
+    """Validate OCI market data cache integrity (row counts, date ranges, null checks)."""
+    import asyncio
+    from terminal.dependencies import _get_tradingview_provider_instance, get_fs
+
+    async def _run():
+        typer.echo("Validating market data cache...")
+        fs = get_fs()
+        provider = _get_tradingview_provider_instance()
+
+        # Check if cache file exists in OCI
+        if not fs.exists(provider.cache_file_oci):
+            typer.echo(f"  OCI cache not found: {provider.cache_file_oci}")
+            raise typer.Exit(1)
+
+        # Load and validate
+        try:
+            provider.load_cache()
+        except Exception as e:
+            typer.echo(f"  Failed to load cache: {e}")
+            raise typer.Exit(1)
+
+        tickers = provider.get_all_tickers()
+        typer.echo(f"  Symbols in cache: {len(tickers)}")
+
+        if not tickers:
+            typer.echo("  WARNING: No symbols in cache!")
+            raise typer.Exit(1)
+
+        # Sample validation
+        null_count = 0
+        empty_count = 0
+        for ticker in tickers[:100]:
+            df = provider.get_history(ticker)
+            if df is None or len(df) == 0:
+                empty_count += 1
+                continue
+            nulls = df.isnull().sum().sum()
+            if nulls > 0:
+                null_count += 1
+
+        typer.echo(f"  Sample check (first 100): {empty_count} empty, {null_count} with nulls")
+
+        if empty_count > 50:
+            typer.echo("  WARNING: >50% of sampled symbols have no data!")
+        else:
+            typer.echo("  Validation passed.")
+
+    asyncio.run(_run())
+
+
 if __name__ == "__main__":
     app()

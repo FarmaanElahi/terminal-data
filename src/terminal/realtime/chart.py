@@ -231,32 +231,71 @@ class ChartSession:
     async def _stream_loop(
         self, ticker: str, interval: str, series_id: str | None = None
     ) -> None:
-        """Subscribe to manager and push updates over WebSocket."""
+        """Subscribe to manager and push updates over WebSocket.
+
+        For 1min and 1D intervals, uses raw feed directly.
+        For other intervals, uses the CandleAggregator for real-time aggregation.
+        """
+        # Determine if this interval needs aggregation
+        _passthrough_intervals = {"1m", "1", "1d", "1D", "D"}
+        needs_aggregation = interval not in _passthrough_intervals
+
+        upstox = tv_resolution_to_upstox(interval)
+        unit = upstox[0] if upstox else "minutes"
+
         try:
             await self.candle_manager.subscribe(ticker)
 
-            upstox = tv_resolution_to_upstox(interval)
-            unit = upstox[0] if upstox else "minutes"
+            if needs_aggregation:
+                # Use aggregator for higher timeframes
+                sub = self.candle_manager.subscribe_aggregated(ticker, interval)
+                try:
+                    while True:
+                        try:
+                            update = await asyncio.wait_for(sub.queue.get(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            continue
 
-            async for update in self.candle_manager.on_candle_update():
-                # Filter for our symbol AND interval
-                if update["ticker"] != ticker or update["interval"] != interval:
-                    continue
+                        ts_ms = self._parse_timestamp(update["timestamp"], unit)
 
-                ts_ms = self._parse_timestamp(update["timestamp"], unit)
+                        candle = ChartCandleData(
+                            time=ts_ms,
+                            open=update["open"],
+                            high=update["high"],
+                            low=update["low"],
+                            close=update["close"],
+                            volume=update["volume"],
+                        )
 
-                candle = ChartCandleData(
-                    time=ts_ms,
-                    open=update["open"],
-                    high=update["high"],
-                    low=update["low"],
-                    close=update["close"],
-                    volume=update["volume"],
-                )
+                        await self.realtime.send(
+                            ChartUpdateResponse(
+                                p=(self.session_id, ticker, candle, series_id)
+                            )
+                        )
+                finally:
+                    self.candle_manager.unsubscribe_aggregated(ticker, interval)
+            else:
+                # Direct passthrough for 1min and 1D
+                async for update in self.candle_manager.on_candle_update():
+                    if update["ticker"] != ticker or update["interval"] != interval:
+                        continue
 
-                await self.realtime.send(
-                    ChartUpdateResponse(p=(self.session_id, ticker, candle, series_id))
-                )
+                    ts_ms = self._parse_timestamp(update["timestamp"], unit)
+
+                    candle = ChartCandleData(
+                        time=ts_ms,
+                        open=update["open"],
+                        high=update["high"],
+                        low=update["low"],
+                        close=update["close"],
+                        volume=update["volume"],
+                    )
+
+                    await self.realtime.send(
+                        ChartUpdateResponse(
+                            p=(self.session_id, ticker, candle, series_id)
+                        )
+                    )
 
         except asyncio.CancelledError:
             await self.candle_manager.unsubscribe(ticker)

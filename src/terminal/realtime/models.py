@@ -317,6 +317,20 @@ class ScreenerValuesResponse(ServerMessage):
     p: tuple[str, dict[str, list[Any]]]  # (session_id, {col_id: [values]})
 
 
+class ScreenerErrorInfo(BaseModel):
+    """Describes a formula evaluation error for a column."""
+
+    column_id: str
+    message: str
+
+
+class ScreenerErrorsResponse(ServerMessage):
+    """Emitted when formula evaluation errors occur."""
+
+    m: Literal["screener_errors"] = "screener_errors"
+    p: tuple[str, list[ScreenerErrorInfo]]  # (session_id, errors)
+
+
 # ------------------------------------------------------------------
 # Chart responses
 # ------------------------------------------------------------------

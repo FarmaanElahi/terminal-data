@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import time
 from typing import AsyncGenerator
 
 import pandas as pd
 
 from .store import OHLCStore
 from .provider import DataProvider
+from terminal.infra.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,7 @@ class MarketDataManager:
     """
     Coordinates data loading and realtime updates between OHLCStore and DataProvider.
     Uses TradingView Scanner API polling (every 5s) for live OHLCV updates.
+    Includes circuit breaker for external API resilience and staleness tracking.
     """
 
     def __init__(
@@ -57,6 +60,31 @@ class MarketDataManager:
         self._cache_updater_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._broadcast = BroadcastChannel()
+
+        # Circuit breaker for scanner API
+        self._circuit = CircuitBreaker(
+            "scanner",
+            failure_threshold=5,
+            recovery_timeout=30.0,
+            half_open_max_calls=1,
+        )
+
+        # Staleness tracking
+        self._last_successful_poll: float | None = None
+        self._consecutive_failures: int = 0
+
+    @property
+    def staleness_seconds(self) -> float | None:
+        """Seconds since last successful poll, or None if never polled."""
+        if self._last_successful_poll is None:
+            return None
+        return time.time() - self._last_successful_poll
+
+    @property
+    def is_data_stale(self) -> bool:
+        """True if no successful poll in the last 60 seconds."""
+        staleness = self.staleness_seconds
+        return staleness is not None and staleness > 60
 
     async def start(self):
         """
@@ -126,13 +154,15 @@ class MarketDataManager:
     async def _stream_loop(self, tickers: list[str]):
         """
         Polling loop that fetches daily OHLCV from TradingView Scanner API every 5s.
-        Updates the store and broadcasts changes.
+        Updates the store and broadcasts changes. Uses circuit breaker for resilience.
         """
         ticker_set = set(tickers)
         try:
             while not self._stop_event.is_set():
                 try:
-                    ohlcv_data = await self.provider.fetch_live_ohlcv()
+                    ohlcv_data = await self._circuit.call(
+                        self.provider.fetch_live_ohlcv
+                    )
 
                     for ticker, candle in ohlcv_data.items():
                         if ticker not in ticker_set:
@@ -141,8 +171,31 @@ class MarketDataManager:
                         self.store.add_realtime(ticker, candle)
                         await self._broadcast.publish(ticker, candle)
 
+                    # Track success
+                    self._last_successful_poll = time.time()
+                    self._consecutive_failures = 0
+
+                except CircuitOpenError:
+                    staleness = self.staleness_seconds
+                    logger.warning(
+                        "Circuit breaker OPEN — serving cached data (stale %.0fs)",
+                        staleness or 0,
+                    )
+
                 except Exception as e:
-                    logger.error(f"Error fetching scanner OHLCV: {e}", exc_info=True)
+                    self._consecutive_failures += 1
+                    logger.error(
+                        "Error fetching scanner OHLCV (failures=%d): %s",
+                        self._consecutive_failures,
+                        e,
+                        exc_info=True,
+                    )
+
+                    if self._consecutive_failures >= 12:  # ~60s at 5s intervals
+                        logger.warning(
+                            "Data stale: %d consecutive poll failures",
+                            self._consecutive_failures,
+                        )
 
                 # Poll every 5 seconds
                 try:

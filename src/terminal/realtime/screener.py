@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from .models import (
     CreateScreenerRequest,
     ModifyScreenerRequest,
+    ScreenerErrorInfo,
+    ScreenerErrorsResponse,
     ScreenerFilterResponse,
     ScreenerFilterRow,
     ScreenerParams,
@@ -34,6 +36,49 @@ logger = logging.getLogger(__name__)
 
 # Minimum filter re-evaluation interval in seconds
 _MIN_FILTER_INTERVAL = 5
+
+# Maximum symbols evaluated per cycle to prevent CPU starvation
+_MAX_SYMBOLS_PER_CYCLE = 5000
+
+# Maximum conditions per screener to prevent abuse
+_MAX_CONDITIONS = 50
+
+# Metadata refresh interval (seconds)
+_METADATA_REFRESH_INTERVAL = 300  # 5 minutes
+
+
+class ScreenerCache:
+    """Shared cache for screener sessions with identical parameters.
+
+    Multiple sessions viewing the same list+columns reference shared computed
+    values instead of each holding a full copy. Ref-counted: evicted when
+    the last session unsubscribes.
+    """
+
+    _instances: dict[str, "ScreenerCache"] = {}
+
+    @classmethod
+    def get_or_create(cls, cache_key: str) -> "ScreenerCache":
+        if cache_key not in cls._instances:
+            cls._instances[cache_key] = cls(cache_key)
+        instance = cls._instances[cache_key]
+        instance.ref_count += 1
+        return instance
+
+    @classmethod
+    def release(cls, cache_key: str) -> None:
+        instance = cls._instances.get(cache_key)
+        if not instance:
+            return
+        instance.ref_count -= 1
+        if instance.ref_count <= 0:
+            del cls._instances[cache_key]
+            logger.info("Evicted screener cache: %s", cache_key)
+
+    def __init__(self, cache_key: str) -> None:
+        self.cache_key = cache_key
+        self.ref_count = 0
+        self.values: dict[str, list[Any]] = {}  # col_id -> values
 
 
 class ScreenerSession:
@@ -70,9 +115,17 @@ class ScreenerSession:
         # Change detection — last emitted values
         self._last_values: dict[str, list[Any]] = {}  # col_id → values (full snapshot)
 
+        # Formula error tracking
+        self._formula_errors: list[ScreenerErrorInfo] = []
+
         # Background tasks
         self._filter_task: asyncio.Task | None = None
         self._values_task: asyncio.Task | None = None
+        self._metadata_refresh_task: asyncio.Task | None = None
+
+        # Shared cache
+        self._cache_key: str | None = None
+        self._shared_cache: ScreenerCache | None = None
 
     # ------------------------------------------------------------------
     # Message dispatch
@@ -125,6 +178,11 @@ class ScreenerSession:
             logger.warning("Screener %s: no symbols loaded, skipping", self.session_id)
             return
 
+        # Compute shared cache key
+        col_ids = sorted(c.id for c in self._columns)
+        self._cache_key = f"{self.params.source}:{'|'.join(col_ids)}"
+        self._shared_cache = ScreenerCache.get_or_create(self._cache_key)
+
         # Pre-parse formula ASTs and cache condition sets
         self._cache_formulas()
 
@@ -138,21 +196,35 @@ class ScreenerSession:
             )
             return
 
+        # Report formula errors to client
+        if self._formula_errors:
+            await self.realtime.send(
+                ScreenerErrorsResponse(p=(self.session_id, self._formula_errors))
+            )
+
         # Start background loops
         if self.params.filter_active:
             interval = max(_MIN_FILTER_INTERVAL, self.params.filter_interval)
             self._filter_task = asyncio.create_task(self._filter_loop(interval))
 
         self._values_task = asyncio.create_task(self._values_loop())
+        self._metadata_refresh_task = asyncio.create_task(self._metadata_refresh_loop())
 
     def stop(self) -> None:
-        """Cancel background tasks."""
+        """Cancel background tasks and release shared cache."""
         if self._filter_task:
             self._filter_task.cancel()
             self._filter_task = None
         if self._values_task:
             self._values_task.cancel()
             self._values_task = None
+        if self._metadata_refresh_task:
+            self._metadata_refresh_task.cancel()
+            self._metadata_refresh_task = None
+        if self._cache_key:
+            ScreenerCache.release(self._cache_key)
+            self._cache_key = None
+            self._shared_cache = None
 
     # ------------------------------------------------------------------
     # Data loading (DB) + Formula caching
@@ -226,6 +298,8 @@ class ScreenerSession:
 
     def _cache_formulas(self) -> None:
         """Pre-parse all formula ASTs and inline condition formulas at start time."""
+        self._formula_errors = []
+
         # Parse value column formulas
         self._parsed_columns = []
         for col in self._columns:
@@ -236,6 +310,9 @@ class ScreenerSession:
                 except FormulaError as e:
                     logger.warning("Column formula parse error: %s", e.message)
                     self._parsed_columns.append((col, None))
+                    self._formula_errors.append(
+                        ScreenerErrorInfo(column_id=col.id, message=e.message)
+                    )
             else:
                 self._parsed_columns.append((col, None))
 
@@ -307,7 +384,11 @@ class ScreenerSession:
         return False
 
     def _evaluate_filter(self) -> list[str]:
-        """Apply column condition filters using inline conditions."""
+        """Apply column condition filters using inline conditions.
+
+        Caps evaluation at _MAX_SYMBOLS_PER_CYCLE to prevent CPU starvation.
+        Validates that conditions don't exceed _MAX_CONDITIONS.
+        """
         manager = self.realtime.manager
 
         active_filter_columns = [
@@ -319,8 +400,30 @@ class ScreenerSession:
         if not active_filter_columns:
             return list(self._symbols)
 
+        # Cap conditions to prevent abuse
+        total_conditions = sum(
+            len(col.conditions or []) for col in active_filter_columns
+        )
+        if total_conditions > _MAX_CONDITIONS:
+            logger.warning(
+                "Screener %s has %d conditions (max %d), truncating",
+                self.session_id,
+                total_conditions,
+                _MAX_CONDITIONS,
+            )
+            # Only evaluate first N columns
+            active_filter_columns = active_filter_columns[:_MAX_CONDITIONS]
+
         passing_tickers = []
-        for symbol in self._symbols:
+        symbols_to_eval = self._symbols[:_MAX_SYMBOLS_PER_CYCLE]
+        if len(self._symbols) > _MAX_SYMBOLS_PER_CYCLE:
+            logger.info(
+                "Screener %s: throttling evaluation to %d/%d symbols",
+                self.session_id,
+                _MAX_SYMBOLS_PER_CYCLE,
+                len(self._symbols),
+            )
+        for symbol in symbols_to_eval:
             passes = True
             for col in active_filter_columns:
                 if not col.conditions:
@@ -451,6 +554,16 @@ class ScreenerSession:
                             "Column %s eval failed for %s: %s", col.id, symbol, e
                         )
                         col_values.append(None)
+                        # Track runtime error (deduplicated by column_id)
+                        if not any(
+                            err.column_id == col.id for err in self._formula_errors
+                        ):
+                            self._formula_errors.append(
+                                ScreenerErrorInfo(
+                                    column_id=col.id,
+                                    message=f"Eval error: {e}",
+                                )
+                            )
 
                 elif col.type == "condition":
                     tf = col.conditions_tf or "D"
@@ -632,6 +745,37 @@ class ScreenerSession:
             result[col.id] = col_result
 
         return result
+
+    # ------------------------------------------------------------------
+    # Metadata refresh
+    # ------------------------------------------------------------------
+
+    async def _metadata_refresh_loop(self) -> None:
+        """Periodically refresh symbol metadata and detect list membership changes."""
+        try:
+            while True:
+                await asyncio.sleep(_METADATA_REFRESH_INTERVAL)
+                try:
+                    # Re-fetch metadata
+                    new_metadata = await symbols_service.get_metadata_by_tickers(
+                        self.realtime.manager.provider.fs, settings, self._symbols
+                    )
+                    self._metadata = new_metadata
+
+                    # Re-evaluate filter in case list membership changed
+                    if self.params.filter_active:
+                        changed = await self._run_filter()
+                        if changed:
+                            await self._run_values()
+
+                except Exception as e:
+                    logger.warning(
+                        "Metadata refresh failed for screener %s: %s",
+                        self.session_id,
+                        e,
+                    )
+        except asyncio.CancelledError:
+            pass
 
     def __repr__(self) -> str:
         return f"ScreenerSession(id={self.session_id!r})"

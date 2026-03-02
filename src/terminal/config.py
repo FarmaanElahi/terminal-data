@@ -41,6 +41,10 @@ class Settings(BaseSettings):
 
     # logging
     log_level: LogLevels = LogLevels.info
+    log_format: str = "text"  # "text" for human-readable, "json" for structured JSON
+
+    # Environment
+    environment: str = "development"  # development | staging | production
 
     # Upstox
     upstox_access_token: str = ""  # Required only for WebSocket feed
@@ -49,6 +53,15 @@ class Settings(BaseSettings):
     secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 1 day
+    min_password_length: int = 8
+
+    @field_validator("secret_key", mode="after")
+    @classmethod
+    def check_secret_key(cls, v: str, info) -> str:
+        env = info.data.get("environment", "development")
+        if env == "production" and v == "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION":
+            raise ValueError("Must set SECRET_KEY in production environment")
+        return v
 
     @property
     def is_oci_configured(self) -> bool:
