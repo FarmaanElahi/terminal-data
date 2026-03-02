@@ -101,6 +101,26 @@ async def update_list(
     return lists_service.update(session, lst, data)
 
 
+@router.put("/{id}/symbols", response_model=ListPublic)
+async def set_symbols(
+    id: str,
+    data: SymbolsUpdate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Replace all symbols in a simple list (preserves order, allows ### section entries)."""
+    lst = lists_service.get(session, id, user_id=current_user.id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    if lst.type not in (ListType.simple, ListType.color):
+        raise HTTPException(
+            status_code=400, detail="Can only set symbols on a simple or color list"
+        )
+
+    return lists_service.set_symbols(session, lst, data)
+
+
 @router.post("/{id}/append_symbols", response_model=ListPublic)
 async def append_symbols(
     id: str,

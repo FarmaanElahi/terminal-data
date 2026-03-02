@@ -4,7 +4,6 @@
  */
 import { registerWidget } from "@/lib/widget-registry";
 import { ScreenerWidget } from "@/components/widgets/screener-widget";
-import { WatchlistWidget } from "@/components/widgets/watchlist-widget";
 import { ChartWidget } from "@/components/widgets/chart-widget";
 import { CommunityFeedWidget } from "@/components/widgets/community-feed-widget";
 import { CommunityFeedGlobalWidget } from "@/components/widgets/community-feed-global-widget";
@@ -61,14 +60,6 @@ registerWidget({
   icon: "table-2",
   component: ScreenerWidget,
   defaultSettings: { listId: null, columns: DEFAULT_SCREENER_COLUMNS },
-});
-
-registerWidget({
-  type: "watchlist",
-  title: "Watchlist",
-  icon: "list",
-  component: WatchlistWidget,
-  defaultSettings: { listId: null },
 });
 
 registerWidget({

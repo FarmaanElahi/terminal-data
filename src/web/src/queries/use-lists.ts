@@ -15,6 +15,30 @@ export function useListsQuery() {
   });
 }
 
+export function useSetSymbolsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ listId, symbols }: { listId: string; symbols: string[] }) =>
+      listsApi.setSymbols(listId, symbols),
+    onMutate: async ({ listId, symbols }) => {
+      await queryClient.cancelQueries({ queryKey: QUERY_KEYS.lists });
+      const prev = queryClient.getQueryData<List[]>(QUERY_KEYS.lists);
+      queryClient.setQueryData<List[]>(QUERY_KEYS.lists, (old) =>
+        old?.map((l) => (l.id === listId ? { ...l, symbols } : l)) ?? [],
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) {
+        queryClient.setQueryData(QUERY_KEYS.lists, ctx.prev);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.lists });
+    },
+  });
+}
+
 export function useAddSymbolMutation() {
   const queryClient = useQueryClient();
   return useMutation({

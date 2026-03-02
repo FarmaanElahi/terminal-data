@@ -122,12 +122,19 @@ def append_symbols(
             other_lst.symbols = [s for s in other_lst.symbols if s not in data.symbols]
             session.add(other_lst)
 
-    # Add symbols to the current list, avoiding duplicates
-    existing_symbols = set(lst.symbols)
-    for s in data.symbols:
-        existing_symbols.add(s)
+    # Add symbols to the current list, avoiding duplicates, preserving order
+    existing_set = set(lst.symbols)
+    new_symbols = [s for s in data.symbols if s not in existing_set]
+    lst.symbols = lst.symbols + new_symbols
+    session.add(lst)
+    session.commit()
+    session.refresh(lst)
+    return lst
 
-    lst.symbols = list(existing_symbols)
+
+def set_symbols(session: Session, lst: List, data: SymbolsUpdate) -> List:
+    """Replace the entire symbols array (order preserved exactly, ### entries allowed)."""
+    lst.symbols = list(data.symbols)
     session.add(lst)
     session.commit()
     session.refresh(lst)
@@ -196,10 +203,10 @@ def get_symbols(
             .all()
         )
         for sl in source_lists:
-            all_symbols.update(sl.symbols)
+            all_symbols.update(s for s in sl.symbols if not s.startswith("###"))
         return list(all_symbols)
 
-    return lst.symbols
+    return [s for s in lst.symbols if not s.startswith("###")]
 
 
 async def get_symbols_async(

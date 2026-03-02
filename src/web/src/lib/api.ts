@@ -75,6 +75,8 @@ export const listsApi = {
   create: (data: ListCreate) => api.post<List>("/lists", data),
   update: (id: string, data: ListUpdate) => api.put<List>(`/lists/${id}`, data),
   delete: (id: string) => api.delete(`/lists/${id}`),
+  setSymbols: (id: string, symbols: string[]) =>
+    api.put<List>(`/lists/${id}/symbols`, { symbols }),
   appendSymbols: (id: string, symbols: string[]) =>
     api.post(`/lists/${id}/append_symbols`, { symbols }),
   removeSymbols: (id: string, symbols: string[]) =>

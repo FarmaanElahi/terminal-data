@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
-import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation, useSetFlagMutation } from "@/queries/use-lists";
+import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation, useSetFlagMutation, useSetSymbolsMutation } from "@/queries/use-lists";
 import { DEFAULT_SCREENER_COLUMNS } from "@/lib/register-widgets";
 import { useScreener } from "@/hooks/use-screener";
 import { useWidget } from "@/hooks/use-widget";
@@ -31,7 +31,9 @@ import {
   ChevronDown,
   Plus,
   Check,
+  X,
   List as ListIcon,
+  RefreshCw,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -549,6 +551,8 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [addingSectionName, setAddingSectionName] = useState<string | null>(null);
+  const setSymbolsMutation = useSetSymbolsMutation();
 
   const [isDark, setIsDark] = useState(true);
 
@@ -564,6 +568,32 @@ export function ScreenerWidget({
   }, []);
 
   const listId = (s.listId as string) ?? lists?.[0]?.id ?? null;
+  const selectedList = useMemo(
+    () => lists.find((l) => l.id === listId) ?? null,
+    [lists, listId],
+  );
+
+  const isEditable =
+    selectedList?.type === "simple" || selectedList?.type === "color";
+
+  const handleAddSection = () => setAddingSectionName("");
+
+  const handleSectionNameCommit = () => {
+    if (!selectedList || addingSectionName === null) return;
+    const trimmed = addingSectionName.trim();
+    if (trimmed) {
+      const newSymbols = [...selectedList.symbols, `###${trimmed}`];
+      setSymbolsMutation.mutate({ listId: selectedList.id, symbols: newSymbols });
+    }
+    setAddingSectionName(null);
+  };
+
+  const handleDeleteSection = (name: string) => {
+    if (!selectedList) return;
+    const newSymbols = selectedList.symbols.filter((s) => s !== `###${name}`);
+    setSymbolsMutation.mutate({ listId: selectedList.id, symbols: newSymbols });
+  };
+
   const columns = (s.columns as ColumnDef[] | undefined) ?? DEFAULT_SCREENER_COLUMNS;
 
   const columnMap = useMemo(() => {
@@ -586,6 +616,27 @@ export function ScreenerWidget({
     if (!filtersBypassed) return columns;
     return columns.map((c) => ({ ...c, filter: "off" as FilterState }));
   }, [columns, filtersBypassed]);
+
+  // Build section map from list symbols (only for simple lists)
+  const { sectionMap, sectionOrder } = useMemo(() => {
+    if (!selectedList || selectedList.type !== "simple") {
+      return { sectionMap: null as Map<string, string> | null, sectionOrder: [] as string[] };
+    }
+    const map = new Map<string, string>();
+    const order: string[] = [];
+    const seen = new Set<string>();
+    let cur = "";
+    for (const sym of selectedList.symbols) {
+      if (sym.startsWith("###")) {
+        cur = sym.slice(3);
+        if (!seen.has(cur)) { seen.add(cur); order.push(cur); }
+      } else {
+        map.set(sym, cur);
+        if (!seen.has(cur)) { seen.add(cur); order.push(cur); }
+      }
+    }
+    return { sectionMap: map, sectionOrder: order };
+  }, [selectedList]);
 
   const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } = useScreener(
     instanceId,
@@ -611,38 +662,112 @@ export function ScreenerWidget({
     if (deferredTickers.length === 0) return [];
     const indices = Array.from({ length: deferredTickers.length }, (_, i) => i);
     const { key, direction } = sortConfig;
-    if (!key || !direction) return indices;
 
-    return indices.sort((a, b) => {
+    const sortFn = (a: number, b: number): number => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let valA: any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let valB: any;
-
       if (key === "ticker") {
         valA = deferredTickers[a].ticker;
         valB = deferredTickers[b].ticker;
       } else {
-        valA = deferredValues[key]?.[a];
-        valB = deferredValues[key]?.[b];
+        valA = deferredValues[key ?? ""]?.[a];
+        valB = deferredValues[key ?? ""]?.[b];
       }
-
       const multiplier = direction === "asc" ? 1 : -1;
       if (valA === valB) return (a - b) * multiplier;
       if (valA == null) return 1;
       if (valB == null) return -1;
-
       if (typeof valA === "string" && typeof valB === "string") {
         return valA.localeCompare(valB) * multiplier;
       }
       return (valA < valB ? -1 : 1) * multiplier;
-    });
-  }, [deferredTickers, deferredValues, sortConfig]);
+    };
+
+    if (!sectionMap || sectionOrder.length === 0) {
+      if (!key || !direction) return indices;
+      return indices.sort(sortFn);
+    }
+
+    // Section-aware sort: group by section, sort within each group
+    const groups = new Map<string, number[]>();
+    for (const section of sectionOrder) {
+      groups.set(section, []);
+    }
+    for (const idx of indices) {
+      const ticker = deferredTickers[idx].ticker;
+      const section = sectionMap.get(ticker) ?? "";
+      if (!groups.has(section)) groups.set(section, []);
+      groups.get(section)!.push(idx);
+    }
+
+    const result: number[] = [];
+    for (const section of sectionOrder) {
+      const group = groups.get(section) ?? [];
+      if (key && direction) group.sort(sortFn);
+      result.push(...group);
+    }
+    // Append any tickers not mapped to a known section
+    const inResult = new Set(result);
+    for (const idx of indices) {
+      if (!inResult.has(idx)) result.push(idx);
+    }
+    return result;
+  }, [deferredTickers, deferredValues, sortConfig, sectionMap, sectionOrder]);
+
+  // Committed display order — only updated on Resort click or when ticker count changes
+  const [committedIndices, setCommittedIndices] = useState<number[]>([]);
+  const sortedIndicesRef = useRef<number[]>(sortedIndices);
+  sortedIndicesRef.current = sortedIndices;
+
+  const prevTickerCountRef = useRef(0);
+  useEffect(() => {
+    const count = deferredTickers.length;
+    if (count !== prevTickerCountRef.current) {
+      prevTickerCountRef.current = count;
+      setCommittedIndices([...sortedIndicesRef.current]);
+    }
+  }, [deferredTickers.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleResort = useCallback(() => {
+    setCommittedIndices([...sortedIndicesRef.current]);
+    if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
+  }, []);
+
+  // Build display items: symbol rows interleaved with section headers
+  type DisplayItem =
+    | { type: "symbol"; tickerIndex: number }
+    | { type: "section"; name: string };
+
+  const displayItems = useMemo<DisplayItem[]>(() => {
+    if (!sectionMap || sectionOrder.length === 0) {
+      return committedIndices.map((idx) => ({ type: "symbol" as const, tickerIndex: idx }));
+    }
+    const items: DisplayItem[] = [];
+    let lastSection: string | null = null;
+    for (const idx of committedIndices) {
+      const ticker = deferredTickers[idx]?.ticker;
+      if (!ticker) continue;
+      const section = sectionMap.get(ticker) ?? "";
+      if (section !== lastSection) {
+        if (section !== "") {
+          items.push({ type: "section", name: section });
+        }
+        lastSection = section;
+      }
+      items.push({ type: "symbol", tickerIndex: idx });
+    }
+    return items;
+  }, [committedIndices, sectionMap, sectionOrder, deferredTickers]);
 
   // Select a row and update the linked channel symbol
   const handleSelect = useCallback(
-    (visualIndex: number, focus = false) => {
-      setSelectedIndex(visualIndex);
-      const originalIndex = sortedIndices[visualIndex];
-      const ticker = deferredTickers[originalIndex]?.ticker;
+    (displayIndex: number, focus = false) => {
+      const item = displayItems[displayIndex];
+      if (!item || item.type === "section") return;
+      setSelectedIndex(displayIndex);
+      const ticker = deferredTickers[item.tickerIndex]?.ticker;
       if (ticker) {
         setChannelSymbol(ticker);
       }
@@ -650,22 +775,24 @@ export function ScreenerWidget({
         scrollContainerRef.current.focus();
       }
     },
-    [setChannelSymbol, deferredTickers, sortedIndices],
+    [setChannelSymbol, deferredTickers, displayItems],
   );
 
   // Sync selected row when channel symbol changes from another widget
   const channelSymbol = channelContext?.symbol;
   useEffect(() => {
-    if (!channelSymbol || sortedIndices.length === 0) return;
-    const idx = sortedIndices.findIndex(
-      (origIdx) => deferredTickers[origIdx]?.ticker === channelSymbol,
+    if (!channelSymbol || displayItems.length === 0) return;
+    const idx = displayItems.findIndex(
+      (item) =>
+        item.type === "symbol" &&
+        deferredTickers[item.tickerIndex]?.ticker === channelSymbol,
     );
     if (idx !== -1 && idx !== selectedIndex) {
       setSelectedIndex(idx);
     }
     // Only react to channelSymbol changes, not internal selection changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelSymbol, sortedIndices, deferredTickers]);
+  }, [channelSymbol, displayItems, deferredTickers]);
 
   const handleFilterToggle = useCallback(
     (colId: string) => {
@@ -737,26 +864,35 @@ export function ScreenerWidget({
   const ROW_HEIGHT = 28; // px — matches p-1.5 + text-xs
 
   const rowVirtualizer = useVirtualizer({
-    count: sortedIndices.length,
+    count: displayItems.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 15,
   });
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (sortedIndices.length === 0) return;
+    if (displayItems.length === 0) return;
+
+    const findNextSymbol = (start: number, dir: 1 | -1): number => {
+      let i = start;
+      while (i >= 0 && i < displayItems.length) {
+        if (displayItems[i].type === "symbol") return i;
+        i += dir;
+      }
+      return -1;
+    };
 
     if (e.key === "ArrowDown" || e.key === " ") {
       e.preventDefault();
-      const next =
-        selectedIndex === null
-          ? 0
-          : Math.min(selectedIndex + 1, sortedIndices.length - 1);
-      handleSelect(next);
+      const start = selectedIndex === null ? 0 : selectedIndex + 1;
+      const next = findNextSymbol(start, 1);
+      if (next !== -1) handleSelect(next);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      const next = selectedIndex === null ? 0 : Math.max(selectedIndex - 1, 0);
-      handleSelect(next);
+      const start =
+        selectedIndex === null ? displayItems.length - 1 : selectedIndex - 1;
+      const next = findNextSymbol(start, -1);
+      if (next !== -1) handleSelect(next);
     }
   };
 
@@ -833,6 +969,17 @@ export function ScreenerWidget({
           <Plus className="w-3.5 h-3.5" />
         </button>
 
+        {isEditable && (
+          <button
+            onClick={handleAddSection}
+            className="px-2 h-7 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs flex items-center gap-1"
+            title="Add section"
+          >
+            <Plus className="w-3 h-3" />
+            Section
+          </button>
+        )}
+
         <div className="flex-1" />
 
         {hasActiveFilters && (
@@ -865,7 +1012,7 @@ export function ScreenerWidget({
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
-        {tickers.length === 0 && !isLoading ? (
+        {displayItems.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
             No data
           </div>
@@ -976,7 +1123,40 @@ export function ScreenerWidget({
                       </tr>
                     )}
                     {virtualItems.map((virtualRow) => {
-                      const originalIndex = sortedIndices[virtualRow.index];
+                      const item = displayItems[virtualRow.index];
+                      if (!item) return null;
+
+                      if (item.type === "section") {
+                        return (
+                          <tr
+                            key={`section-${virtualRow.index}`}
+                            style={{ height: ROW_HEIGHT }}
+                            className="group/section"
+                          >
+                            <td
+                              colSpan={visibleColumns.length + 1}
+                              className="p-0 border-0"
+                            >
+                              <div className="bg-muted/40 px-3 h-7 flex items-center justify-between">
+                                <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                                  {item.name}
+                                </span>
+                                {isEditable && (
+                                  <button
+                                    onClick={() => handleDeleteSection(item.name)}
+                                    className="opacity-0 group-hover/section:opacity-100 transition-opacity p-0.5 rounded-sm text-muted-foreground hover:text-destructive"
+                                    title="Delete section"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+
+                      const originalIndex = item.tickerIndex;
                       return (
                         <ScreenerRow
                           key={deferredTickers[originalIndex].ticker}
@@ -1015,12 +1195,43 @@ export function ScreenerWidget({
         )}
       </div>
 
-      <ScreenerStatus
-        filteredSymbols={tickers.length}
-        totalSymbols={totalSymbols}
-        lastUpdate={lastUpdate}
-        isLoading={isLoading}
-      />
+      {addingSectionName !== null && (
+        <div className="border-t border-border bg-muted/40 px-3 h-8 flex items-center gap-2 shrink-0">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Section name:</span>
+          <input
+            autoFocus
+            type="text"
+            value={addingSectionName}
+            onChange={(e) => setAddingSectionName(e.target.value)}
+            onBlur={handleSectionNameCommit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSectionNameCommit();
+              if (e.key === "Escape") setAddingSectionName(null);
+            }}
+            className="flex-1 bg-transparent outline-none text-xs text-foreground placeholder:text-muted-foreground/50"
+            placeholder="e.g. Tech, Energy…"
+          />
+          <span className="text-[10px] text-muted-foreground">Enter to save · Esc to cancel</span>
+        </div>
+      )}
+
+      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none z-20">
+        <ScreenerStatus
+          filteredSymbols={tickers.length}
+          totalSymbols={totalSymbols}
+          lastUpdate={lastUpdate}
+          isLoading={isLoading}
+        />
+        {sortConfig.key && (
+          <button
+            onClick={handleResort}
+            className="pointer-events-auto flex items-center gap-1 bg-background/80 backdrop-blur-sm border border-border/50 rounded-sm px-2 py-0.5 text-xs font-mono text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Resort
+          </button>
+        )}
+      </div>
 
       <ColumnEditor
         open={editorOpen}
