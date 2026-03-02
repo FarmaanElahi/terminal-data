@@ -104,12 +104,19 @@ function formatValue(
     return color;
   };
 
+  const posColor = adjustColor(
+    col?.display_numeric_positive_color ?? "#10b981",
+  );
+  const negColor = adjustColor(
+    col?.display_numeric_negative_color ?? "#ef4444",
+  );
   let finalColor = adjustColor(col?.display_color ?? "#ffffff");
 
   // Boolean handling
   if (typeof val === "boolean") {
+    const boolColor = val ? posColor : negColor;
     return (
-      <span style={{ color: finalColor }} className="font-bold">
+      <span style={{ color: boolColor }} className="font-bold">
         {val ? "✓" : "✗"}
       </span>
     );
@@ -142,14 +149,11 @@ function formatValue(
       formatted = "+" + formatted;
     }
 
-    // Apply specific numeric colors if defined AND column is of type 'value'
-    // Condition columns with numeric outputs (e.g. Rank) should NOT have positive/negative coloring
-    if (col?.type === "value") {
-      if (val > 0 && col?.display_numeric_positive_color) {
-        finalColor = adjustColor(col.display_numeric_positive_color);
-      } else if (val < 0 && col?.display_numeric_negative_color) {
-        finalColor = adjustColor(col.display_numeric_negative_color);
-      }
+    // Apply specific numeric colors if defined
+    if (val > 0) {
+      finalColor = posColor;
+    } else if (val < 0) {
+      finalColor = negColor;
     }
 
     // Apply prefix/suffix
