@@ -55,7 +55,7 @@ export function ChartWidget({
   const addSymbol = useAddSymbolMutation();
   const { data: lists = [] } = useListsQuery();
 
-  // Keep stable refs so shortcut closures always have the latest data
+  // Stable refs so shortcut closures always see latest data
   const listsRef = useRef(lists);
   listsRef.current = lists;
   const addSymbolRef = useRef(addSymbol);
@@ -65,7 +65,6 @@ export function ChartWidget({
   const [listPickerOpen, setListPickerOpen] = useState(false);
   const [pendingSymbol, setPendingSymbol] = useState<string | null>(null);
 
-  // A ref so the TV shortcut closure (no access to React state) can open the picker
   const showPickerRef = useRef<(symbol: string) => void>(() => {});
   showPickerRef.current = (symbol: string) => {
     setPendingSymbol(symbol);
@@ -148,9 +147,8 @@ export function ChartWidget({
     tvWidget.onChartReady(() => {
       readyRef.current = true;
 
-      // ── Ctrl+W: save current symbol to last-used screener list ──
+      // ── Option+W: save current symbol to last-used screener list ──
       // keyCode 87 = "W"
-      // If no last list is stored, open the floating list picker instead.
       tvWidget.onShortcut(["alt", 87], () => {
         const symbol = currentSymbolRef.current;
         if (!symbol) return;
@@ -161,7 +159,6 @@ export function ChartWidget({
           : null;
 
         if (!list) {
-          // No stored list — show the picker overlay
           showPickerRef.current(symbol);
           return;
         }
@@ -180,12 +177,14 @@ export function ChartWidget({
         );
       });
 
+      // Auto-save chart state
       tvWidget.subscribe("onAutoSaveNeeded", () => {
         tvWidget.save((state: object) => {
           onSettingsChangeRef.current({ chartState: state });
         });
       });
 
+      // Sync symbol changes
       tvWidget
         .activeChart()
         .onSymbolChanged()
@@ -234,7 +233,7 @@ export function ChartWidget({
     onSettingsChangeRef.current({ symbol: channelSymbol });
   }, [channelSymbol]);
 
-  // ─── Sync TradingView theme with app theme ─────────────────────
+  // ─── Sync TradingView theme ────────────────────────────────────
   useEffect(() => {
     if (!widgetRef.current || !readyRef.current) return;
     try {
@@ -264,7 +263,7 @@ export function ChartWidget({
     <div ref={containerRef} className="h-full w-full relative">
       <div id={containerId} className="h-full w-full" />
 
-      {/* Floating list picker — shown when Ctrl+W is pressed with no stored list */}
+      {/* Floating list picker — shown when Option+W is pressed with no stored list */}
       {listPickerOpen && pendingSymbol && (
         <div
           className="absolute inset-0 z-50 flex items-start justify-center pt-12"
@@ -274,7 +273,6 @@ export function ChartWidget({
             className="bg-card border border-border rounded-lg shadow-2xl w-64 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between px-3 py-2 border-b border-border">
               <div className="flex items-center gap-2">
                 <ListIcon className="w-3.5 h-3.5 text-primary" />
@@ -296,7 +294,6 @@ export function ChartWidget({
               </button>
             </div>
 
-            {/* List options */}
             <div className="py-1 max-h-64 overflow-y-auto">
               {pickerLists.length === 0 ? (
                 <div className="px-3 py-4 text-center text-xs text-muted-foreground">
@@ -325,10 +322,9 @@ export function ChartWidget({
               )}
             </div>
 
-            {/* Footer hint */}
             <div className="px-3 py-1.5 border-t border-border">
               <p className="text-[10px] text-muted-foreground">
-                This list will be remembered for future Ctrl+W saves
+                This list will be remembered for future Option+W saves
               </p>
             </div>
           </div>

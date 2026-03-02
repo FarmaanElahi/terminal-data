@@ -382,6 +382,9 @@ const ScreenerRow = memo(
     values,
     isDark,
     getColWidth,
+    simpleLists,
+    addSymbol,
+    removeSymbol,
   }: {
     row: ScreenerFilterRow;
     originalIndex: number;
@@ -393,15 +396,10 @@ const ScreenerRow = memo(
     values: ScreenerValues;
     isDark: boolean;
     getColWidth: (colId: string, fallback: number) => number;
+    simpleLists: import("@/types/models").List[];
+    addSymbol: ReturnType<typeof useAddSymbolMutation>;
+    removeSymbol: ReturnType<typeof useRemoveSymbolMutation>;
   }) => {
-    const { data: allLists = [] } = useListsQuery();
-    const lists = useMemo(
-      () => allLists.filter((l) => l.type === "simple"),
-      [allLists],
-    );
-    const addSymbol = useAddSymbolMutation();
-    const removeSymbol = useRemoveSymbolMutation();
-
     const handleToggle = async (
       listId: string,
       listName: string,
@@ -494,7 +492,7 @@ const ScreenerRow = memo(
               Add to List
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-48">
-              {lists.map((list) => {
+              {simpleLists.map((list) => {
                 const inList = list.symbols.includes(row.ticker);
                 return (
                   <ContextMenuItem
@@ -513,7 +511,7 @@ const ScreenerRow = memo(
                   </ContextMenuItem>
                 );
               })}
-              {lists.length === 0 && (
+              {simpleLists.length === 0 && (
                 <ContextMenuItem
                   disabled
                   className="text-xs text-muted-foreground"
@@ -569,6 +567,8 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const addSymbolMutation = useAddSymbolMutation();
+  const removeSymbolMutation = useRemoveSymbolMutation();
   const setSymbolsMutation = useSetSymbolsMutation();
   const createListMutation = useCreateListMutation();
   const updateListMutation = useUpdateListMutation();
@@ -593,6 +593,13 @@ export function ScreenerWidget({
   const selectedList = useMemo(
     () => lists.find((l) => l.id === listId) ?? null,
     [lists, listId],
+  );
+
+  // Derived once at the widget level — passed as a stable prop to every ScreenerRow
+  // so rows don't each subscribe to the full lists query.
+  const simpleLists = useMemo(
+    () => lists.filter((l) => l.type === "simple"),
+    [lists],
   );
 
   const isEditable =
@@ -1280,6 +1287,9 @@ export function ScreenerWidget({
                           values={deferredValues}
                           isDark={isDark}
                           getColWidth={getColWidth}
+                          simpleLists={simpleLists}
+                          addSymbol={addSymbolMutation}
+                          removeSymbol={removeSymbolMutation}
                         />
                       );
                     })}
