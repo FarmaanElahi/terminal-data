@@ -1,4 +1,4 @@
-import {
+import React, {
   useMemo,
   useState,
   useCallback,
@@ -9,7 +9,15 @@ import {
 } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/utils";
-import { useListsQuery, useAddSymbolMutation, useRemoveSymbolMutation, useSetFlagMutation, useSetSymbolsMutation } from "@/queries/use-lists";
+import {
+  useListsQuery,
+  useAddSymbolMutation,
+  useRemoveSymbolMutation,
+  useSetFlagMutation,
+  useSetSymbolsMutation,
+  useCreateListMutation,
+  useUpdateListMutation,
+} from "@/queries/use-lists";
 import { DEFAULT_SCREENER_COLUMNS } from "@/lib/register-widgets";
 import { useScreener } from "@/hooks/use-screener";
 import { useWidget } from "@/hooks/use-widget";
@@ -31,9 +39,14 @@ import {
   ChevronDown,
   Plus,
   Check,
-  X,
   List as ListIcon,
   RefreshCw,
+  MoreVertical,
+  Download,
+  Upload,
+  Copy,
+  Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   ContextMenu,
@@ -44,6 +57,10 @@ import {
   ContextMenuSubContent,
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { ColumnEditor } from "./column-editor";
 import { CreateListDialog } from "./create-list-dialog";
@@ -397,9 +414,9 @@ const ScreenerRow = memo(
         } else {
           await addSymbol.mutateAsync({ listId, ticker: row.ticker });
           toast.success(`Added ${row.ticker} to ${listName}`);
-        }
-        if (listId === screenerListId) {
-          onListModified();
+          if (screenerListId) {
+            onListModified();
+          }
         }
       } catch {
         toast.error(`Failed to update list`);
@@ -543,7 +560,9 @@ export function ScreenerWidget({
   const [editorOpen, setEditorOpen] = useState(false);
   const [createListOpen, setCreateListOpen] = useState(false);
   const [listDialogOpen, setListDialogOpen] = useState(false);
-  const [filtersBypassed, setFiltersBypassed] = useState(false);
+  const [filtersBypassed, setFiltersBypassed] = useState(
+    () => (s.filtersBypassed as boolean) ?? false,
+  );
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -551,8 +570,12 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [addingSectionName, setAddingSectionName] = useState<string | null>(null);
   const setSymbolsMutation = useSetSymbolsMutation();
+  const createListMutation = useCreateListMutation();
+  const updateListMutation = useUpdateListMutation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
 
   const [isDark, setIsDark] = useState(true);
 
@@ -576,25 +599,8 @@ export function ScreenerWidget({
   const isEditable =
     selectedList?.type === "simple" || selectedList?.type === "color";
 
-  const handleAddSection = () => setAddingSectionName("");
-
-  const handleSectionNameCommit = () => {
-    if (!selectedList || addingSectionName === null) return;
-    const trimmed = addingSectionName.trim();
-    if (trimmed) {
-      const newSymbols = [...selectedList.symbols, `###${trimmed}`];
-      setSymbolsMutation.mutate({ listId: selectedList.id, symbols: newSymbols });
-    }
-    setAddingSectionName(null);
-  };
-
-  const handleDeleteSection = (name: string) => {
-    if (!selectedList) return;
-    const newSymbols = selectedList.symbols.filter((s) => s !== `###${name}`);
-    setSymbolsMutation.mutate({ listId: selectedList.id, symbols: newSymbols });
-  };
-
-  const columns = (s.columns as ColumnDef[] | undefined) ?? DEFAULT_SCREENER_COLUMNS;
+  const columns =
+    (s.columns as ColumnDef[] | undefined) ?? DEFAULT_SCREENER_COLUMNS;
 
   const columnMap = useMemo(() => {
     const map = new Map<string, ColumnDef>();
@@ -617,32 +623,10 @@ export function ScreenerWidget({
     return columns.map((c) => ({ ...c, filter: "off" as FilterState }));
   }, [columns, filtersBypassed]);
 
-  // Build section map from list symbols (only for simple lists)
-  const { sectionMap, sectionOrder } = useMemo(() => {
-    if (!selectedList || selectedList.type !== "simple") {
-      return { sectionMap: null as Map<string, string> | null, sectionOrder: [] as string[] };
-    }
-    const map = new Map<string, string>();
-    const order: string[] = [];
-    const seen = new Set<string>();
-    let cur = "";
-    for (const sym of selectedList.symbols) {
-      if (sym.startsWith("###")) {
-        cur = sym.slice(3);
-        if (!seen.has(cur)) { seen.add(cur); order.push(cur); }
-      } else {
-        map.set(sym, cur);
-        if (!seen.has(cur)) { seen.add(cur); order.push(cur); }
-      }
-    }
-    return { sectionMap: map, sectionOrder: order };
-  }, [selectedList]);
+  const filterActive = !filtersBypassed;
 
-  const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } = useScreener(
-    instanceId,
-    listId,
-    effectiveColumns,
-  );
+  const { tickers, values, isLoading, lastUpdate, totalSymbols, refresh } =
+    useScreener(instanceId, listId, effectiveColumns, filterActive);
 
   // Defer high-frequency updates to keep the UI responsive during massive re-renders
   const deferredTickers = useDeferredValue(tickers);
@@ -660,7 +644,11 @@ export function ScreenerWidget({
 
   const sortedIndices = useMemo(() => {
     if (deferredTickers.length === 0) return [];
-    const indices = Array.from({ length: deferredTickers.length }, (_, i) => i);
+    // Filter out ### section markers — sections are rendered by displayItems from sectionMap
+    const indices = Array.from(
+      { length: deferredTickers.length },
+      (_, i) => i,
+    ).filter((i) => !deferredTickers[i].ticker.startsWith("###"));
     const { key, direction } = sortConfig;
 
     const sortFn = (a: number, b: number): number => {
@@ -685,36 +673,9 @@ export function ScreenerWidget({
       return (valA < valB ? -1 : 1) * multiplier;
     };
 
-    if (!sectionMap || sectionOrder.length === 0) {
-      if (!key || !direction) return indices;
-      return indices.sort(sortFn);
-    }
-
-    // Section-aware sort: group by section, sort within each group
-    const groups = new Map<string, number[]>();
-    for (const section of sectionOrder) {
-      groups.set(section, []);
-    }
-    for (const idx of indices) {
-      const ticker = deferredTickers[idx].ticker;
-      const section = sectionMap.get(ticker) ?? "";
-      if (!groups.has(section)) groups.set(section, []);
-      groups.get(section)!.push(idx);
-    }
-
-    const result: number[] = [];
-    for (const section of sectionOrder) {
-      const group = groups.get(section) ?? [];
-      if (key && direction) group.sort(sortFn);
-      result.push(...group);
-    }
-    // Append any tickers not mapped to a known section
-    const inResult = new Set(result);
-    for (const idx of indices) {
-      if (!inResult.has(idx)) result.push(idx);
-    }
-    return result;
-  }, [deferredTickers, deferredValues, sortConfig, sectionMap, sectionOrder]);
+    if (!key || !direction) return indices;
+    return indices.sort(sortFn);
+  }, [deferredTickers, deferredValues, sortConfig]);
 
   // Committed display order — only updated on Resort click or when ticker count changes
   const [committedIndices, setCommittedIndices] = useState<number[]>([]);
@@ -735,37 +696,20 @@ export function ScreenerWidget({
     if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
   }, []);
 
-  // Build display items: symbol rows interleaved with section headers
-  type DisplayItem =
-    | { type: "symbol"; tickerIndex: number }
-    | { type: "section"; name: string };
+  type DisplayItem = { type: "symbol"; tickerIndex: number };
 
   const displayItems = useMemo<DisplayItem[]>(() => {
-    if (!sectionMap || sectionOrder.length === 0) {
-      return committedIndices.map((idx) => ({ type: "symbol" as const, tickerIndex: idx }));
-    }
-    const items: DisplayItem[] = [];
-    let lastSection: string | null = null;
-    for (const idx of committedIndices) {
-      const ticker = deferredTickers[idx]?.ticker;
-      if (!ticker) continue;
-      const section = sectionMap.get(ticker) ?? "";
-      if (section !== lastSection) {
-        if (section !== "") {
-          items.push({ type: "section", name: section });
-        }
-        lastSection = section;
-      }
-      items.push({ type: "symbol", tickerIndex: idx });
-    }
-    return items;
-  }, [committedIndices, sectionMap, sectionOrder, deferredTickers]);
+    return committedIndices.map((idx) => ({
+      type: "symbol" as const,
+      tickerIndex: idx,
+    }));
+  }, [committedIndices]);
 
   // Select a row and update the linked channel symbol
   const handleSelect = useCallback(
     (displayIndex: number, focus = false) => {
       const item = displayItems[displayIndex];
-      if (!item || item.type === "section") return;
+      if (!item) return;
       setSelectedIndex(displayIndex);
       const ticker = deferredTickers[item.tickerIndex]?.ticker;
       if (ticker) {
@@ -969,33 +913,169 @@ export function ScreenerWidget({
           <Plus className="w-3.5 h-3.5" />
         </button>
 
-        {isEditable && (
-          <button
-            onClick={handleAddSection}
-            className="px-2 h-7 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors text-xs flex items-center gap-1"
-            title="Add section"
-          >
-            <Plus className="w-3 h-3" />
-            Section
-          </button>
-        )}
-
         <div className="flex-1" />
 
         {hasActiveFilters && (
           <button
-            onClick={() => setFiltersBypassed((v) => !v)}
+            onClick={() => {
+              const next = !filtersBypassed;
+              setFiltersBypassed(next);
+              onSettingsChange({ filtersBypassed: next });
+            }}
             className={cn(
               "p-1 rounded-sm transition-colors",
               filtersBypassed
                 ? "text-yellow-500 bg-yellow-500/10"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted",
             )}
-            title={filtersBypassed ? "Show filtered results" : "Show all (bypass filters)"}
+            title={
+              filtersBypassed
+                ? "Show filtered results"
+                : "Show all (bypass filters)"
+            }
           >
             <FilterX className="w-3.5 h-3.5" />
           </button>
         )}
+
+        {/* Options Menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="p-1 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="List options"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => setListDialogOpen(true)}>
+              <ListIcon className="w-3.5 h-3.5 mr-2" />
+              Add symbol list
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+            {selectedList && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setRenameValue(selectedList.name);
+                  setIsRenaming(true);
+                }}
+              >
+                <Pencil className="w-3.5 h-3.5 mr-2" />
+                Rename list
+              </DropdownMenuItem>
+            )}
+            {isEditable && selectedList && (
+              <DropdownMenuItem
+                onClick={() => {
+                  setSymbolsMutation.mutate(
+                    { listId: selectedList.id, symbols: [] },
+                    {
+                      onSuccess: () => {
+                        toast.success("List cleared");
+                        refresh();
+                      },
+                    },
+                  );
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-2" />
+                Clear list
+              </DropdownMenuItem>
+            )}
+            {selectedList && (
+              <DropdownMenuItem
+                onClick={() => {
+                  createListMutation.mutate(
+                    {
+                      name: `${selectedList.name} (copy)`,
+                      type: selectedList.type as "simple" | "color" | "combo",
+                      color: selectedList.color ?? undefined,
+                    },
+                    {
+                      onSuccess: (newList) => {
+                        // Copy symbols to the new list
+                        setSymbolsMutation.mutate(
+                          { listId: newList.id, symbols: selectedList.symbols },
+                          {
+                            onSuccess: () => {
+                              toast.success(`Copied as "${newList.name}"`);
+                              onSettingsChange({ listId: newList.id });
+                            },
+                          },
+                        );
+                      },
+                    },
+                  );
+                }}
+              >
+                <Copy className="w-3.5 h-3.5 mr-2" />
+                Make a copy
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => {
+                if (!selectedList) return;
+                const symbols = selectedList.symbols
+                  .filter((s) => !s.startsWith("###"))
+                  .join(",");
+                const blob = new Blob([symbols], { type: "text/csv" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${selectedList.name}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                toast.success("Downloaded CSV");
+              }}
+            >
+              <Download className="w-3.5 h-3.5 mr-2" />
+              Download CSV
+            </DropdownMenuItem>
+            {isEditable && (
+              <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-3.5 h-3.5 mr-2" />
+                Upload CSV
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".csv,.txt"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file || !selectedList) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const text = ev.target?.result as string;
+              const symbols = text
+                .split(/[,\n\r]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
+              if (symbols.length > 0) {
+                const merged = [
+                  ...new Set([...selectedList.symbols, ...symbols]),
+                ];
+                setSymbolsMutation.mutate(
+                  { listId: selectedList.id, symbols: merged },
+                  {
+                    onSuccess: () => {
+                      toast.success(`Added ${symbols.length} symbols`);
+                      refresh();
+                    },
+                  },
+                );
+              }
+            };
+            reader.readAsText(file);
+            e.target.value = "";
+          }}
+        />
 
         <button
           onClick={() => setEditorOpen(true)}
@@ -1006,9 +1086,46 @@ export function ScreenerWidget({
         </button>
       </div>
 
+      {/* Rename inline bar */}
+      {isRenaming && selectedList && (
+        <div className="border-b border-border bg-muted/40 px-3 h-8 flex items-center gap-2 shrink-0">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+            Rename:
+          </span>
+          <input
+            autoFocus
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onBlur={() => {
+              if (
+                renameValue.trim() &&
+                renameValue.trim() !== selectedList.name
+              ) {
+                updateListMutation.mutate(
+                  { id: selectedList.id, data: { name: renameValue.trim() } },
+                  {
+                    onSuccess: () => toast.success("List renamed"),
+                  },
+                );
+              }
+              setIsRenaming(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") setIsRenaming(false);
+            }}
+            className="flex-1 bg-transparent outline-none text-xs text-foreground"
+          />
+          <span className="text-[10px] text-muted-foreground">
+            Enter to save · Esc to cancel
+          </span>
+        </div>
+      )}
+
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto pb-10 outline-none focus-within:ring-1 focus-within:ring-primary/20"
+        className="flex-1 overflow-auto pb-10 outline-none focus-within:ring-1 focus-within:ring-primary/20 relative"
         tabIndex={0}
         onKeyDown={handleKeyDown}
       >
@@ -1126,36 +1243,6 @@ export function ScreenerWidget({
                       const item = displayItems[virtualRow.index];
                       if (!item) return null;
 
-                      if (item.type === "section") {
-                        return (
-                          <tr
-                            key={`section-${virtualRow.index}`}
-                            style={{ height: ROW_HEIGHT }}
-                            className="group/section"
-                          >
-                            <td
-                              colSpan={visibleColumns.length + 1}
-                              className="p-0 border-0"
-                            >
-                              <div className="bg-muted/40 px-3 h-7 flex items-center justify-between">
-                                <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                                  {item.name}
-                                </span>
-                                {isEditable && (
-                                  <button
-                                    onClick={() => handleDeleteSection(item.name)}
-                                    className="opacity-0 group-hover/section:opacity-100 transition-opacity p-0.5 rounded-sm text-muted-foreground hover:text-destructive"
-                                    title="Delete section"
-                                  >
-                                    <X className="w-3 h-3" />
-                                  </button>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      }
-
                       const originalIndex = item.tickerIndex;
                       return (
                         <ScreenerRow
@@ -1194,26 +1281,6 @@ export function ScreenerWidget({
           </table>
         )}
       </div>
-
-      {addingSectionName !== null && (
-        <div className="border-t border-border bg-muted/40 px-3 h-8 flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Section name:</span>
-          <input
-            autoFocus
-            type="text"
-            value={addingSectionName}
-            onChange={(e) => setAddingSectionName(e.target.value)}
-            onBlur={handleSectionNameCommit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleSectionNameCommit();
-              if (e.key === "Escape") setAddingSectionName(null);
-            }}
-            className="flex-1 bg-transparent outline-none text-xs text-foreground placeholder:text-muted-foreground/50"
-            placeholder="e.g. Tech, Energy…"
-          />
-          <span className="text-[10px] text-muted-foreground">Enter to save · Esc to cancel</span>
-        </div>
-      )}
 
       <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between pointer-events-none z-20">
         <ScreenerStatus

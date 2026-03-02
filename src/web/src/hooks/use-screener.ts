@@ -17,6 +17,7 @@ export function useScreener(
   instanceId: string,
   listId: string | null,
   columns: ColumnDef[] | null,
+  filterActive: boolean = true,
 ) {
   const ws = useWebSocket();
   const mergeState = useWidgetStateMerge(instanceId);
@@ -73,8 +74,12 @@ export function useScreener(
         ...f
       }) => f,
     );
-    return JSON.stringify({ listId, columns: functionalCols });
-  }, [listId, columns]);
+    return JSON.stringify({
+      listId,
+      columns: functionalCols,
+      filter_active: filterActive,
+    });
+  }, [listId, columns, filterActive]);
 
   const isCreatedRef = useRef(false);
   const lastFunctionalHashRef = useRef<string | null>(null);
@@ -88,7 +93,10 @@ export function useScreener(
         // First initialization
         ws.send({
           m: "create_screener",
-          p: [sessionId, { source: listId, columns }],
+          p: [
+            sessionId,
+            { source: listId, columns, filter_active: filterActive },
+          ],
         });
         isCreatedRef.current = true;
         lastFunctionalHashRef.current = functionalHash;
@@ -97,7 +105,10 @@ export function useScreener(
         // Parameters updated (formulas, timeframe, etc.) — reuse session
         ws.send({
           m: "modify_screener",
-          p: [sessionId, { source: listId, columns }],
+          p: [
+            sessionId,
+            { source: listId, columns, filter_active: filterActive },
+          ],
         });
         lastFunctionalHashRef.current = functionalHash;
         setIsLoading(true);
@@ -105,7 +116,15 @@ export function useScreener(
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [listId, functionalHash, ws, sessionId, columns, setIsLoading]);
+  }, [
+    listId,
+    functionalHash,
+    ws,
+    sessionId,
+    columns,
+    filterActive,
+    setIsLoading,
+  ]);
 
   // ─── Message Subscriptions ────────────────────────────────────────
   useEffect(() => {
@@ -192,9 +211,12 @@ export function useScreener(
 
   const refresh = useCallback(() => {
     if (!isCreatedRef.current || !listId || !columns) return;
-    ws.send({ m: "modify_screener", p: [sessionId, { source: listId, columns }] });
+    ws.send({
+      m: "modify_screener",
+      p: [sessionId, { source: listId, columns, filter_active: filterActive }],
+    });
     setIsLoading(true);
-  }, [ws, sessionId, listId, columns, setIsLoading]);
+  }, [ws, sessionId, listId, columns, filterActive, setIsLoading]);
 
   return { tickers, values, isLoading, lastUpdate, totalSymbols, refresh };
 }

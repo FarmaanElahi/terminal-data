@@ -146,5 +146,5 @@ from terminal.your_module.models import YourModel  # noqa: F401
 
 ## PLAN
 
-- Ath the nd of each plan, give. amlist of unresolved question to answer if any. Makr the question extremely concise. Sacrifice grammar for conciseness.
+- Ath the nd of each plan, give. amlist of unresolved question to answer if any.
 - Whenever you are done with the plan and the work is approved, you should saved the plan in the `docs/<PLAN NAME>.md` file.

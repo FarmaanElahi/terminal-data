@@ -51,9 +51,11 @@ class RealtimeSession:
         self._screeners: dict[str, ScreenerSession] = {}
         self._quotes: dict[str, QuoteSession] = {}
         self._charts: dict[str, ChartSession] = {}
+        self._closed = False
 
     def cleanup(self) -> None:
         """Stop all active sub-sessions. Call on WebSocket disconnect."""
+        self._closed = True
         for screener in self._screeners.values():
             screener.stop()
         self._screeners.clear()
@@ -224,7 +226,13 @@ class RealtimeSession:
 
     async def send(self, msg: ServerMessage) -> None:
         """Send a ``ServerMessage`` as JSON text over the WebSocket."""
-        await self.websocket.send_text(msg.serialize().decode("utf-8"))
+        if self._closed:
+            return
+        try:
+            await self.websocket.send_text(msg.serialize().decode("utf-8"))
+        except RuntimeError:
+            # WebSocket already closed — mark and ignore
+            self._closed = True
 
     async def send_error(self, message: str) -> None:
         """Send an error message to the client."""

@@ -162,6 +162,7 @@ class ScreenerSession:
         """Load list symbols and column definitions from the database."""
         self._symbols = []
         self._columns = []
+        self._section_positions = []
 
         if not self.params.source:
             logger.warning("Screener %s: no source list ID", self.session_id)
@@ -190,15 +191,19 @@ class ScreenerSession:
                 return
 
             # Resolve symbols asynchronously (handles COMBO and SYSTEM lists)
-            self._symbols = await lists_service.get_symbols_async(
+            raw_symbols = await lists_service.get_symbols_async(
                 session,
                 lst,
                 user_id=user_id,
                 fs=self.realtime.manager.provider.fs,
                 settings=settings,
             )
+
+            self._symbols = raw_symbols
             logger.info(
-                "Screener %s: loaded %d symbols", self.session_id, len(self._symbols)
+                "Screener %s: loaded %d symbols",
+                self.session_id,
+                len(self._symbols),
             )
 
             # Load columns directly from params
@@ -209,7 +214,7 @@ class ScreenerSession:
                 len(self._columns),
             )
 
-            # Fetch metadata for all symbols
+            # Fetch metadata for all symbols (only real symbols)
             self._metadata = await symbols_service.get_metadata_by_tickers(
                 self.realtime.manager.provider.fs, settings, self._symbols
             )
@@ -278,7 +283,7 @@ class ScreenerSession:
             initial_values = self._evaluate_columns()
             self._last_values.update(initial_values)
 
-            rows = []
+            rows: list[ScreenerFilterRow] = []
             for t in self._visible_tickers:
                 meta = self._metadata.get(t, {})
                 # Extract values for this specific row
@@ -533,9 +538,14 @@ class ScreenerSession:
                     self._last_values[col_id] = current
 
             if changed:
-                await self.realtime.send(
-                    ScreenerValuesResponse(p=(self.session_id, changed))
-                )
+                try:
+                    await self.realtime.send(
+                        ScreenerValuesResponse(p=(self.session_id, changed))
+                    )
+                except (RuntimeError, Exception):
+                    # WebSocket may have been closed between debounce start
+                    # and flush execution — silently ignore.
+                    pass
 
         try:
             async for update in self.realtime.manager.subscribe():
