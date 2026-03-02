@@ -66,20 +66,6 @@ import { ColumnEditor } from "./column-editor";
 import { CreateListDialog } from "./create-list-dialog";
 import { ScreenerStatus } from "@/components/screener/screener-status";
 
-// ─── Global Ctrl+W registry ──────────────────────────────────────────
-// Tracks the last-focused screener's save handler so Ctrl+W works anywhere
-// on the page without requiring the screener to be actively focused.
-let _lastScreenerSaveHandler: (() => void) | null = null;
-let _ctrlWListenerCount = 0;
-
-function _onGlobalCtrlW(e: KeyboardEvent) {
-  if (!e.ctrlKey || e.key !== "w") return;
-  if (!_lastScreenerSaveHandler) return;
-  e.preventDefault();
-  e.stopPropagation();
-  _lastScreenerSaveHandler();
-}
-
 // ─── Value Formatter ─────────────────────────────────────────────────
 
 function isWhite(color: string): boolean {
@@ -428,6 +414,8 @@ const ScreenerRow = memo(
         } else {
           await addSymbol.mutateAsync({ listId, ticker: row.ticker });
           toast.success(`Added ${row.ticker} to ${listName}`);
+          // Remember this list as the last-used target for chart Ctrl+W
+          localStorage.setItem("last_screener_list_id", listId);
         }
       } catch {
         toast.error(`Failed to update list`);
@@ -581,7 +569,6 @@ export function ScreenerWidget({
     direction: "asc",
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const addSymbolMutation = useAddSymbolMutation();
   const setSymbolsMutation = useSetSymbolsMutation();
   const createListMutation = useCreateListMutation();
   const updateListMutation = useUpdateListMutation();
@@ -847,64 +834,6 @@ export function ScreenerWidget({
     estimateSize: () => ROW_HEIGHT,
     overscan: 15,
   });
-
-  // Keep the global save handler up-to-date whenever relevant state changes.
-  // The handler is registered on the scroll container's onFocus so this
-  // screener becomes the "last focused" target for the global Ctrl+W shortcut.
-  const saveHandlerRef = useRef<() => void>(() => {});
-  useEffect(() => {
-    saveHandlerRef.current = () => {
-      const symbol = channelContext?.symbol;
-      if (symbol && listId && isEditable && selectedList) {
-        const alreadyIn = selectedList.symbols.includes(symbol);
-        if (!alreadyIn) {
-          addSymbolMutation.mutate(
-            { listId, ticker: symbol },
-            {
-              onSuccess: () => {
-                toast.success(`Added ${symbol} to ${selectedList.name}`);
-                setTimeout(() => refresh(), 150);
-              },
-              onError: () => toast.error("Failed to add symbol"),
-            },
-          );
-        } else {
-          toast.info(`${symbol} is already in ${selectedList.name}`);
-        }
-      } else {
-        toast.error("Select an editable list first");
-      }
-    };
-  }, [
-    channelContext,
-    listId,
-    isEditable,
-    selectedList,
-    addSymbolMutation,
-    refresh,
-  ]);
-
-  // Register / unregister the single global Ctrl+W listener.
-  useEffect(() => {
-    if (_ctrlWListenerCount === 0) {
-      window.addEventListener("keydown", _onGlobalCtrlW, { capture: true });
-    }
-    _ctrlWListenerCount++;
-
-    // Make this instance the last-focused screener by default on mount.
-    _lastScreenerSaveHandler = () => saveHandlerRef.current();
-
-    return () => {
-      _ctrlWListenerCount--;
-      if (_ctrlWListenerCount === 0) {
-        window.removeEventListener("keydown", _onGlobalCtrlW, {
-          capture: true,
-        });
-        _lastScreenerSaveHandler = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (displayItems.length === 0) return;
@@ -1220,10 +1149,6 @@ export function ScreenerWidget({
         className="flex-1 overflow-auto pb-10 outline-none focus-within:ring-1 focus-within:ring-primary/20 relative"
         tabIndex={0}
         onKeyDown={handleKeyDown}
-        onFocus={() => {
-          // Register this screener as the target for the global Ctrl+W shortcut
-          _lastScreenerSaveHandler = () => saveHandlerRef.current();
-        }}
       >
         {displayItems.length === 0 && !isLoading ? (
           <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
