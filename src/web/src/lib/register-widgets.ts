@@ -9,6 +9,7 @@ import { CommunityFeedWidget } from "@/components/widgets/community-feed-widget"
 import { CommunityFeedGlobalWidget } from "@/components/widgets/community-feed-global-widget";
 import { BubbleChartWidget } from "@/components/widgets/bubble-chart-widget";
 import { BrokerWidget } from "@/components/widgets/broker-widget";
+import { AlertsWidget } from "@/components/widgets/alerts-widget";
 import type { ColumnDef } from "@/types/models";
 
 export const DEFAULT_SCREENER_COLUMNS: ColumnDef[] = [
@@ -136,5 +137,13 @@ registerWidget({
   title: "Broker Accounts",
   icon: "link",
   component: BrokerWidget,
+  defaultSettings: {},
+});
+
+registerWidget({
+  type: "alerts",
+  title: "Alerts",
+  icon: "bell",
+  component: AlertsWidget,
   defaultSettings: {},
 });

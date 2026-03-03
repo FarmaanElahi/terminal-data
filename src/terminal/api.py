@@ -12,6 +12,7 @@ from terminal.candles.router import router as candles_router
 from terminal.preferences.router import router as preferences_router
 from terminal.charts.router import router as charts_router
 from terminal.broker.router import router as broker_router
+from terminal.alerts.router import router as alerts_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
@@ -28,3 +29,4 @@ api_router.include_router(candles_router)
 api_router.include_router(preferences_router)
 api_router.include_router(charts_router)
 api_router.include_router(broker_router)
+api_router.include_router(alerts_router)

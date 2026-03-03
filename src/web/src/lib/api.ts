@@ -26,6 +26,12 @@ import type {
   Symbol,
 } from "@/types/models";
 import type { BrokerDefault, BrokerInfo, BrokerStatus } from "@/types/broker";
+import type {
+  Alert,
+  AlertCreateParams,
+  AlertModifyParams,
+  AlertDeleteParams,
+} from "@/types/alert";
 
 // ─── Axios Instance ────────────────────────────────────────────────
 const api = axios.create({
@@ -237,6 +243,17 @@ export const brokerApi = {
     api.delete<{ status: string }>(
       `/broker/${providerId}/accounts/${credentialId}`,
     ),
+};
+
+// ─── Alerts API ────────────────────────────────────────────────────
+
+export const alertsApi = {
+  list: () => api.get<Alert[]>("/alerts"),
+  create: (data: AlertCreateParams) => api.post<Alert>("/alerts", data),
+  modify: (id: string, data: AlertModifyParams) =>
+    api.put<Alert>(`/alerts/${id}`, data),
+  remove: (data: AlertDeleteParams) =>
+    api.delete<{ status: string }>("/alerts", { data }),
 };
 
 export default api;

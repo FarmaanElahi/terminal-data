@@ -69,6 +69,24 @@ class BrokerAdapter(ABC):
         """Fetch account profile details for a token, if supported."""
         return None
 
+    # ── Alert CRUD (optional, for providers with Capability.ALERTS) ──
+
+    async def list_alerts(self, token: str, status: str | None = None) -> list[dict]:
+        """List alerts. Override in adapters that support alerts."""
+        raise NotImplementedError(f"{self.provider_id} does not support alerts")
+
+    async def create_alert(self, token: str, params: dict) -> dict:
+        """Create an alert. Override in adapters that support alerts."""
+        raise NotImplementedError(f"{self.provider_id} does not support alerts")
+
+    async def modify_alert(self, token: str, alert_id: str, params: dict) -> dict:
+        """Modify an alert. Override in adapters that support alerts."""
+        raise NotImplementedError(f"{self.provider_id} does not support alerts")
+
+    async def delete_alerts(self, token: str, alert_ids: list[str]) -> dict:
+        """Delete one or more alerts. Override in adapters that support alerts."""
+        raise NotImplementedError(f"{self.provider_id} does not support alerts")
+
     def supports(
         self,
         capability: Capability,

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useWidget } from "@/hooks/use-widget";
 import { useLayoutStore } from "@/stores/layout-store";
 import type { WidgetProps } from "@/types/layout";
@@ -6,6 +6,12 @@ import { TerminalDatafeed } from "@/lib/terminal-datafeed";
 import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
 import { getCustomIndicators } from "@/lib/custom-indicators";
 import { useAddSymbolMutation, useListsQuery } from "@/queries/use-lists";
+import {
+  useAlertsQuery,
+  useCreateAlertMutation,
+  useModifyAlertMutation,
+  useDeleteAlertMutation,
+} from "@/queries/use-alerts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { List as ListIcon, X } from "lucide-react";
@@ -39,6 +45,7 @@ export function ChartWidget({
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<IChartingLibraryWidget | null>(null);
   const readyRef = useRef(false);
+  const [chartReady, setChartReady] = useState(false);
   const containerId = `${CONTAINER_PREFIX}${instanceId}`;
 
   const currentSymbolRef = useRef<string | null>(null);
@@ -54,12 +61,66 @@ export function ChartWidget({
 
   const addSymbol = useAddSymbolMutation();
   const { data: lists = [] } = useListsQuery();
+  const { data: alerts = [] } = useAlertsQuery();
+  const createAlert = useCreateAlertMutation();
+  const modifyAlert = useModifyAlertMutation();
+  const deleteAlert = useDeleteAlertMutation();
 
-  // Stable refs so shortcut closures always see latest data
+  // Stable refs so closures always see latest data
   const listsRef = useRef(lists);
   listsRef.current = lists;
   const addSymbolRef = useRef(addSymbol);
   addSymbolRef.current = addSymbol;
+  const alertsRef = useRef(alerts);
+  alertsRef.current = alerts;
+  const createAlertRef = useRef(createAlert);
+  createAlertRef.current = createAlert;
+  const modifyAlertRef = useRef(modifyAlert);
+  modifyAlertRef.current = modifyAlert;
+  const deleteAlertRef = useRef(deleteAlert);
+  deleteAlertRef.current = deleteAlert;
+
+  // Track order line objects for cleanup
+  const alertOrderLinesRef = useRef<Map<string, any>>(new Map());
+
+  // ─── Alert creation from chart context menu ────────────────────
+  const handleCreateAlertAtPrice = useCallback(
+    (price: number, operator: string) => {
+      const symbol = currentSymbolRef.current;
+      if (!symbol) return;
+
+      const [exchange, tradingsymbol] = symbol.includes(":")
+        ? symbol.split(":")
+        : ["NSE", symbol];
+
+      const opLabel = operator === ">=" ? "≥" : "≤";
+
+      createAlertRef.current.mutate(
+        {
+          provider_id: "kite",
+          name: `${tradingsymbol} ${opLabel} ${price.toFixed(2)}`,
+          lhs_exchange: exchange,
+          lhs_tradingsymbol: tradingsymbol,
+          lhs_attribute: "LastTradedPrice",
+          operator,
+          rhs_type: "constant",
+          rhs_constant: price,
+          type: "simple",
+        },
+        {
+          onSuccess: () =>
+            toast.success(
+              `Alert created: ${tradingsymbol} ${opLabel} ${price.toFixed(2)}`,
+            ),
+          onError: () => toast.error("Failed to create alert"),
+        },
+      );
+    },
+    [],
+  );
+
+  const handleCreateAlertAtPriceRef = useRef(handleCreateAlertAtPrice);
+  handleCreateAlertAtPriceRef.current = handleCreateAlertAtPrice;
 
   // ─── Floating list picker state ────────────────────────────────
   const [listPickerOpen, setListPickerOpen] = useState(false);
@@ -146,9 +207,25 @@ export function ChartWidget({
 
     tvWidget.onChartReady(() => {
       readyRef.current = true;
+      setChartReady(true);
+
+      // ── Context menu: "Alert above / below {price}" ──
+      tvWidget.onContextMenu((_unixTime: number, price: number) => {
+        return [
+          {
+            position: "top",
+            text: `Alert above ${price.toFixed(2)}`,
+            click: () => handleCreateAlertAtPriceRef.current(price, ">="),
+          },
+          {
+            position: "top",
+            text: `Alert below ${price.toFixed(2)}`,
+            click: () => handleCreateAlertAtPriceRef.current(price, "<="),
+          },
+        ];
+      });
 
       // ── Option+W: save current symbol to last-used screener list ──
-      // keyCode 87 = "W"
       tvWidget.onShortcut(["alt", 87], () => {
         const symbol = currentSymbolRef.current;
         if (!symbol) return;
@@ -206,6 +283,16 @@ export function ChartWidget({
 
     return () => {
       readyRef.current = false;
+      setChartReady(false);
+      // Clean up order lines
+      alertOrderLinesRef.current.forEach((line) => {
+        try {
+          line.remove();
+        } catch {
+          /* already removed */
+        }
+      });
+      alertOrderLinesRef.current.clear();
       try {
         tvWidget.remove();
       } catch {
@@ -242,6 +329,78 @@ export function ChartWidget({
       /* widget may not support changeTheme */
     }
   }, [theme]);
+
+  // ─── Draw alert lines on chart ─────────────────────────────────
+  useEffect(() => {
+    const tvWidget = widgetRef.current;
+    if (!tvWidget || !chartReady) return;
+
+    const chart = tvWidget.activeChart();
+    const currentSymbol = currentSymbolRef.current ?? "";
+
+    // Remove previously drawn alert shapes
+    alertOrderLinesRef.current.forEach((entityId) => {
+      try {
+        chart.removeEntity(entityId as any);
+      } catch {
+        /* shape may already be removed */
+      }
+    });
+    alertOrderLinesRef.current.clear();
+
+    // Filter alerts matching the current chart symbol
+    const matchingAlerts = alerts.filter((alert) => {
+      if (alert.status !== "enabled") return false;
+      if (alert.rhs_type !== "constant" || alert.rhs_constant == null)
+        return false;
+      const alertSymbol =
+        `${alert.lhs_exchange}:${alert.lhs_tradingsymbol}`.toUpperCase();
+      return alertSymbol === currentSymbol.toUpperCase();
+    });
+
+    // Draw horizontal lines for matching alerts
+    for (const alert of matchingAlerts) {
+      const opLabel =
+        alert.operator === ">="
+          ? "≥"
+          : alert.operator === "<="
+            ? "≤"
+            : alert.operator;
+      const label = alert.name || `Alert ${opLabel} ${alert.rhs_constant}`;
+      // Green for above, red for below
+      const lineColor =
+        alert.operator === "<=" || alert.operator === "<"
+          ? "#EF4444"
+          : "#22C55E";
+
+      chart
+        .createShape({ price: alert.rhs_constant! }, {
+          shape: "horizontal_line",
+          lock: true,
+          disableSelection: true,
+          disableSave: true,
+          disableUndo: true,
+          text: label,
+          overrides: {
+            linecolor: lineColor,
+            linestyle: 2,
+            linewidth: 1,
+            showLabel: true,
+            textcolor: lineColor,
+            horzLabelsAlign: "right",
+            showPrice: true,
+          },
+        } as any)
+        .then((entityId: any) => {
+          if (entityId) {
+            alertOrderLinesRef.current.set(alert.uuid, entityId);
+          }
+        })
+        .catch(() => {
+          /* shape creation may fail */
+        });
+    }
+  }, [alerts, channelSymbol, chartReady]);
 
   // ─── Resize handling ───────────────────────────────────────────
   useEffect(() => {

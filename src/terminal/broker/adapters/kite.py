@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 KITE_AUTH_URL = "https://kite.zerodha.com/connect/login"
 KITE_TOKEN_URL = "https://api.kite.trade/session/token"
 KITE_PROFILE_URL = "https://api.kite.trade/user/profile"
+KITE_ALERTS_URL = "https://api.kite.trade/alerts"
 
 
 class KiteAdapter(BrokerAdapter):
@@ -36,6 +37,13 @@ class KiteAdapter(BrokerAdapter):
     def __init__(self) -> None:
         self._token_validation_cache: dict[str, tuple[float, bool]] = {}
 
+    def _auth_headers(self, token: str) -> dict[str, str]:
+        return {
+            "X-Kite-Version": "3",
+            "Authorization": f"token {settings.kite_api_key}:{token}",
+            "Accept": "application/json",
+        }
+
     def is_configured(self) -> bool:
         return settings.is_kite_oauth_configured
 
@@ -51,7 +59,9 @@ class KiteAdapter(BrokerAdapter):
     async def exchange_code(self, code: str) -> str:
         """Kite uses request_token in callback; code parameter maps to it."""
         request_token = code
-        checksum_src = f"{settings.kite_api_key}{request_token}{settings.kite_api_secret}"
+        checksum_src = (
+            f"{settings.kite_api_key}{request_token}{settings.kite_api_secret}"
+        )
         checksum = hashlib.sha256(checksum_src.encode("utf-8")).hexdigest()
 
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -110,16 +120,103 @@ class KiteAdapter(BrokerAdapter):
             raw_profile=profile_payload if isinstance(profile_payload, dict) else None,
         )
 
+    # ── Alert CRUD ───────────────────────────────────────────────────
+
+    async def list_alerts(self, token: str, status: str | None = None) -> list[dict]:
+        params: dict[str, str] = {}
+        if status:
+            params["status"] = status
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.get(
+                    KITE_ALERTS_URL,
+                    headers=self._auth_headers(token),
+                    params=params,
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            logger.error("Kite list_alerts failed: %s", exc)
+            raise
+
+        data = payload.get("data") if isinstance(payload, dict) else []
+        return data if isinstance(data, list) else []
+
+    async def create_alert(self, token: str, params: dict) -> dict:
+        # Kite expects form-urlencoded — all values must be strings
+        form_data = {k: str(v) for k, v in params.items() if v is not None}
+        logger.debug("Kite create_alert form_data: %s", form_data)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    KITE_ALERTS_URL,
+                    headers=self._auth_headers(token),
+                    data=form_data,
+                )
+                if response.status_code >= 400:
+                    logger.error(
+                        "Kite create_alert returned %s: %s",
+                        response.status_code,
+                        response.text,
+                    )
+                    response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            logger.error("Kite create_alert failed: %s", exc)
+            raise
+
+        data = payload.get("data") if isinstance(payload, dict) else payload
+        return data if isinstance(data, dict) else {}
+
+    async def modify_alert(self, token: str, alert_id: str, params: dict) -> dict:
+        form_data = {k: str(v) for k, v in params.items() if v is not None}
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.put(
+                    f"{KITE_ALERTS_URL}/{alert_id}",
+                    headers=self._auth_headers(token),
+                    data=form_data,
+                )
+                if response.status_code >= 400:
+                    logger.error(
+                        "Kite modify_alert returned %s: %s",
+                        response.status_code,
+                        response.text,
+                    )
+                    response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            logger.error("Kite modify_alert failed: %s", exc)
+            raise
+
+        data = payload.get("data") if isinstance(payload, dict) else payload
+        return data if isinstance(data, dict) else {}
+
+    async def delete_alerts(self, token: str, alert_ids: list[str]) -> dict:
+        try:
+            params = [("uuid", uid) for uid in alert_ids]
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.delete(
+                    KITE_ALERTS_URL,
+                    headers=self._auth_headers(token),
+                    params=params,
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as exc:
+            logger.error("Kite delete_alerts failed: %s", exc)
+            raise
+
+        return payload if isinstance(payload, dict) else {}
+
+    # ── Internal helpers ─────────────────────────────────────────────
+
     async def _request_profile(self, token: str) -> dict | None:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
                     KITE_PROFILE_URL,
-                    headers={
-                        "X-Kite-Version": "3",
-                        "Authorization": f"token {settings.kite_api_key}:{token}",
-                        "Accept": "application/json",
-                    },
+                    headers=self._auth_headers(token),
                 )
         except Exception as exc:
             logger.warning("Kite profile request failed: %s", exc)
