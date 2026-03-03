@@ -14,10 +14,10 @@ The terminal now supports a generic multi-broker framework with:
 
 ## Provider Matrix
 
-| Provider | Markets | Capabilities | Notes |
-|---|---|---|---|
-| `upstox` | `india` | `realtime_candles` | Used for realtime candle feed/client integration |
-| `kite` | `india` | `alerts`, `order_management`, `positions`, `holdings` | Account connection implemented; alert execution flow not implemented yet |
+| Provider | Markets | Capabilities                                          | Notes                                                                                           |
+| -------- | ------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `upstox` | `india` | `realtime_candles`                                    | Used for realtime candle feed/client integration                                                |
+| `kite`   | `india` | `alerts`, `order_management`, `positions`, `holdings` | Alerts fully implemented (see [alerts.md](alerts.md)); order execution flow not implemented yet |
 
 ## Architecture
 
