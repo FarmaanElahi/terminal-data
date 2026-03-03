@@ -4,7 +4,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { LoginPage } from "@/app/routes/login";
 import { RegisterPage } from "@/app/routes/register";
 import { DashboardPage } from "@/app/routes/dashboard";
-import { UpstoxCallbackPage } from "@/app/routes/broker-callback";
+import { BrokerCallbackPage } from "@/app/routes/broker-callback";
 
 function ProtectedRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -37,7 +37,7 @@ export function AppRoutes() {
       </Route>
 
       {/* Broker OAuth2 callback — accessible without auth (runs in popup) */}
-      <Route path="/broker/upstox/callback" element={<UpstoxCallbackPage />} />
+      <Route path="/broker/:providerId/callback" element={<BrokerCallbackPage />} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

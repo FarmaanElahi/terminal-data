@@ -1,29 +1,39 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { brokerApi } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 
-export function UpstoxCallbackPage() {
+export function BrokerCallbackPage() {
+  const { providerId = "" } = useParams<{ providerId: string }>();
+  const callbackToken = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("code") ?? params.get("request_token");
+  }, []);
+  const initialError = useMemo(() => {
+    if (!providerId) return "Missing broker provider in callback URL.";
+    if (!callbackToken) return "Missing authorization token in callback URL.";
+    return null;
+  }, [providerId, callbackToken]);
+
   const [status, setStatus] = useState<"loading" | "success" | "error">(
-    "loading",
+    initialError ? "error" : "loading",
   );
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-
-    if (!code) {
-      setError("Missing authorization code in callback URL.");
-      setStatus("error");
+    if (!providerId || !callbackToken) {
       return;
     }
 
     brokerApi
-      .exchangeUpstoxCode(code)
+      .exchangeCode(providerId, callbackToken)
       .then(() => {
         setStatus("success");
-        // Notify the opener window and close the popup
         if (window.opener) {
-          window.opener.postMessage({ type: "upstox-login-success" }, "*");
+          window.opener.postMessage(
+            { type: "broker-login-success", provider_id: providerId },
+            "*",
+          );
         }
         setTimeout(() => window.close(), 1500);
       })
@@ -33,38 +43,36 @@ export function UpstoxCallbackPage() {
         setError(msg);
         setStatus("error");
       });
-  }, []);
+  }, [providerId, callbackToken]);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        gap: "12px",
-        fontFamily: "sans-serif",
-      }}
-    >
-      {status === "loading" && <p>Connecting to Upstox…</p>}
-      {status === "success" && (
-        <>
-          <p style={{ color: "green", fontWeight: 600 }}>
-            Connected successfully!
-          </p>
-          <p style={{ fontSize: "0.875rem", color: "#666" }}>
-            This window will close automatically.
-          </p>
-        </>
-      )}
-      {status === "error" && (
-        <>
-          <p style={{ color: "red", fontWeight: 600 }}>Connection failed</p>
-          <p style={{ fontSize: "0.875rem", color: "#666" }}>{error}</p>
-          <button onClick={() => window.close()}>Close</button>
-        </>
-      )}
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
+      <div className="w-full max-w-md border border-border bg-card rounded-lg p-6 space-y-3 text-center">
+        {status === "loading" && (
+          <p className="text-sm text-muted-foreground">Connecting broker…</p>
+        )}
+
+        {status === "success" && (
+          <>
+            <p className="text-sm font-medium text-foreground">Connected successfully</p>
+            <p className="text-xs text-muted-foreground">
+              This window will close automatically.
+            </p>
+          </>
+        )}
+
+        {status === "error" && (
+          <>
+            <p className="text-sm font-medium text-destructive">
+              Connection failed
+            </p>
+            <p className="text-xs text-muted-foreground break-words">{error}</p>
+            <Button variant="outline" onClick={() => window.close()}>
+              Close
+            </Button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

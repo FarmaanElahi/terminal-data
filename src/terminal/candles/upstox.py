@@ -135,7 +135,7 @@ class UpstoxClient(CandleProvider):
             await self._feed.start()
 
     async def stop_feed(self) -> None:
-        if self._feed:
+        if self._feed and self._owns_feed:
             await self._feed.stop()
 
     @property

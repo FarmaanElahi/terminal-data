@@ -30,7 +30,8 @@ export type ServerMessageType =
   | "chart_series"
   | "symbol_resolved"
   | "chart_update"
-  | "upstox_status"
+  | "broker_status"
+  | "broker_login_required"
   | "error";
 
 // ─── Screener Types ────────────────────────────────────────────────

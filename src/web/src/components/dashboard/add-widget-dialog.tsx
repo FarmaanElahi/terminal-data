@@ -7,6 +7,7 @@ import {
   LineChart,
   List,
   Users,
+  Link,
   LayoutGrid,
   Search,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const WIDGET_ICONS: Record<string, React.ElementType> = {
   chart: LineChart,
   watchlist: List,
   community: Users,
+  broker: Link,
 };
 
 function getWidgetIcon(type: string): React.ElementType {

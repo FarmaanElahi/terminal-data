@@ -52,9 +52,8 @@ class RealtimeSession:
         self._quotes: dict[str, QuoteSession] = {}
         self._charts: dict[str, ChartSession] = {}
         self._closed = False
-        # Set to True when this session holds a ref in the feed_registry.
-        # Used by handler.py teardown to know whether to call feed_registry.release().
-        self._has_upstox_ref: bool = False
+        # Provider IDs this session currently holds refs for in feed_registry.
+        self._feed_refs: set[str] = set()
 
     def cleanup(self) -> None:
         """Stop all active sub-sessions. Call on WebSocket disconnect."""
@@ -241,24 +240,47 @@ class RealtimeSession:
         """Send an error message to the client."""
         await self.send(ErrorMessage(p=(message,)))
 
-    async def restart_upstox_feed(self, new_token: str) -> None:
-        """Attach or re-attach this session to the user's shared Upstox feed.
+    async def restart_broker_feed(self, provider_id: str, new_token: str) -> None:
+        """Attach or re-attach this session to a provider's shared broker feed."""
+        from terminal.broker.feed_registry import feed_registry
+        from terminal.broker.registry import broker_registry
 
-        Called by broker/router.py after a successful OAuth token exchange.
-        If this session didn't previously hold a registry ref (e.g. the user
-        had no token when they connected), we acquire one and hot-plug the
-        shared feed into this session's UpstoxClient.
-        """
-        from terminal.candles.feed_registry import feed_registry
+        shared_feed = None
+        if provider_id not in self._feed_refs:
+            shared_feed = await feed_registry.acquire(self.user_id, provider_id, new_token)
+            if shared_feed is not None:
+                self._feed_refs.add(provider_id)
 
-        if not self._has_upstox_ref:
-            # First time this session gets a feed — acquire a ref and plug it in
-            shared_feed = await feed_registry.acquire(self.user_id, new_token)
-            self._has_upstox_ref = True
-            if self.candle_manager:
-                await self.candle_manager.attach_provider_feed("india", shared_feed)
+        if shared_feed is not None and self.candle_manager:
+            adapter = broker_registry.get(provider_id)
+            if adapter is not None:
+                for market in adapter.markets:
+                    await self.candle_manager.attach_provider_feed(market.value, shared_feed)
 
-        await self.send(ServerMessage(
-            m="upstox_status",
-            p=({"connected": True, "login_required": False},),
-        ))
+        await self.send(
+            ServerMessage(
+                m="broker_status",
+                p=(
+                    {
+                        "provider_id": provider_id,
+                        "connected": True,
+                        "login_required": False,
+                    },
+                ),
+            )
+        )
+
+    async def broker_disconnected(self, provider_id: str) -> None:
+        self._feed_refs.discard(provider_id)
+        await self.send(
+            ServerMessage(
+                m="broker_status",
+                p=(
+                    {
+                        "provider_id": provider_id,
+                        "connected": False,
+                        "login_required": True,
+                    },
+                ),
+            )
+        )

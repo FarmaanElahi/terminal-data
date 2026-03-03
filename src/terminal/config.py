@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     upstox_api_secret: str = ""
     upstox_redirect_uri: str = ""  # e.g. "http://localhost:5173/broker/upstox/callback"
 
+    # Zerodha Kite Connect OAuth credentials
+    kite_api_key: str = ""
+    kite_api_secret: str = ""
+    kite_redirect_uri: str = ""  # e.g. "http://localhost:5173/broker/kite/callback"
+
     @field_validator("encryption_key", mode="after")
     @classmethod
     def check_encryption_key(cls, v: str, info) -> str:
@@ -68,6 +73,10 @@ class Settings(BaseSettings):
     @property
     def is_upstox_oauth_configured(self) -> bool:
         return all([self.upstox_api_key, self.upstox_api_secret, self.upstox_redirect_uri])
+
+    @property
+    def is_kite_oauth_configured(self) -> bool:
+        return all([self.kite_api_key, self.kite_api_secret, self.kite_redirect_uri])
 
     # Auth
     secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"

@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
 import { Toaster } from "@/components/ui/sonner";
 import { LayoutSync } from "@/components/layout/layout-sync";
-import { UpstoxLoginDialog } from "@/components/layout/upstox-login-dialog";
+import { BrokerLoginDialog } from "@/components/layout/broker-login-dialog";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,7 +34,7 @@ function AuthLoader({ children }: { children: React.ReactNode }) {
     <>
       {children}
       <LayoutSync />
-      <UpstoxLoginDialog />
+      <BrokerLoginDialog />
     </>
   );
 }

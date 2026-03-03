@@ -1,10 +1,12 @@
 """Integration tests for the realtime WebSocket handler."""
 
 import json
+from uuid import uuid4
 
 import pytest
 from starlette.testclient import TestClient
 
+from terminal.auth.security import create_access_token
 from terminal.main import app
 
 
@@ -16,15 +18,24 @@ def client() -> TestClient:
 @pytest.fixture
 def valid_token(client: TestClient) -> str:
     """Register a user and get a real JWT token."""
-    client.post(
+    username = f"ws_test_user_{uuid4().hex[:8]}"
+    password = "ws_test_pass"
+
+    register_resp = client.post(
         "/api/v1/auth/register",
-        json={"username": "ws_test_user", "password": "ws_test_pass"},
+        json={"username": username, "password": password},
     )
-    resp = client.post(
-        "/api/v1/auth/login",
-        data={"username": "ws_test_user", "password": "ws_test_pass"},
-    )
-    return resp.json()["access_token"]
+    assert register_resp.status_code == 200
+    return create_access_token({"sub": username})
+
+
+def recv_payload_message(ws) -> dict:
+    """Skip broker status broadcasts and return the next request-response payload."""
+    while True:
+        msg = json.loads(ws.receive_text())
+        if msg.get("m") in {"broker_status", "broker_login_required"}:
+            continue
+        return msg
 
 
 # ------------------------------------------------------------------
@@ -46,7 +57,7 @@ class TestAuth:
     def test_valid_token_accepted(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "ping"})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp == {"m": "pong"}
 
 
@@ -59,7 +70,7 @@ class TestPing:
     def test_ping_pong(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "ping"})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp == {"m": "pong"}
 
 
@@ -74,7 +85,7 @@ class TestScreener:
     ) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "create_screener", "p": ["scr1", None]})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp == {"m": "screener_session_created", "p": ["scr1"]}
 
     def test_create_screener_session_with_params(
@@ -83,7 +94,7 @@ class TestScreener:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             params = {"source": "list_a"}
             ws.send_json({"m": "create_screener", "p": ["scr2", params]})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp == {"m": "screener_session_created", "p": ["scr2"]}
 
 
@@ -96,13 +107,13 @@ class TestErrors:
     def test_unknown_type(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"m": "foobar"})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp["m"] == "error"
 
     def test_invalid_message(self, client: TestClient, valid_token: str) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"bad": "data"})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp["m"] == "error"
             assert "Missing" in resp["p"][0]
 
@@ -111,8 +122,8 @@ class TestErrors:
     ) -> None:
         with client.websocket_connect(f"/ws?token={valid_token}") as ws:
             ws.send_json({"bad": "data"})
-            json.loads(ws.receive_text())  # error
+            recv_payload_message(ws)  # error
 
             ws.send_json({"m": "ping"})
-            resp = json.loads(ws.receive_text())
+            resp = recv_payload_message(ws)
             assert resp == {"m": "pong"}

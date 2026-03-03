@@ -25,6 +25,7 @@ import type {
   ColumnSet,
   Symbol,
 } from "@/types/models";
+import type { BrokerDefault, BrokerInfo, BrokerStatus } from "@/types/broker";
 
 // ─── Axios Instance ────────────────────────────────────────────────
 const api = axios.create({
@@ -221,17 +222,21 @@ export const chartsApi = {
 
 // ─── Broker API ────────────────────────────────────────────────────
 
-export interface BrokerStatus {
-  connected: boolean;
-  login_required: boolean;
-  provider: string;
-}
-
 export const brokerApi = {
-  getUpstoxAuthUrl: () => api.get<{ url: string }>("/broker/upstox/auth-url"),
-  exchangeUpstoxCode: (code: string) =>
-    api.post<{ status: string }>("/broker/upstox/callback", { code }),
-  getUpstoxStatus: () => api.get<BrokerStatus>("/broker/upstox/status"),
+  list: () => api.get<BrokerInfo[]>("/broker"),
+  listDefaults: () => api.get<BrokerDefault[]>("/broker/defaults"),
+  setDefault: (data: BrokerDefault) =>
+    api.put<BrokerDefault>("/broker/defaults", data),
+  getAuthUrl: (providerId: string) =>
+    api.get<{ url: string }>(`/broker/${providerId}/auth-url`),
+  exchangeCode: (providerId: string, code: string) =>
+    api.post<{ status: string }>(`/broker/${providerId}/callback`, { code }),
+  getStatus: (providerId: string) =>
+    api.get<BrokerStatus>(`/broker/${providerId}/status`),
+  removeAccount: (providerId: string, credentialId: string) =>
+    api.delete<{ status: string }>(
+      `/broker/${providerId}/accounts/${credentialId}`,
+    ),
 };
 
 export default api;
