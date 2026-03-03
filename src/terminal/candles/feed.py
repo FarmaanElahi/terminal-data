@@ -110,6 +110,13 @@ class UpstoxFeed:
         if self._ws:
             await self._send_subscription("unsub", keys_to_remove)
 
+    def remove_callback(self, callback: CandleCallback) -> None:
+        """Deregister a previously registered callback."""
+        try:
+            self._callbacks.remove(callback)
+        except ValueError:
+            pass
+
     def on_candle(self, callback: CandleCallback) -> None:
         """Register a callback for OHLC updates.
 
@@ -361,6 +368,16 @@ class UpstoxFeed:
             await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
         except asyncio.TimeoutError:
             pass
+
+    async def update_token(self, new_token: str) -> None:
+        """Stop the feed, swap the access token, and restart.
+
+        Existing subscriptions in ``_subscribed_keys`` are preserved and will
+        be re-subscribed automatically inside ``_connection_loop`` on reconnect.
+        """
+        await self.stop()
+        self._access_token = new_token
+        await self.start()
 
     @property
     def is_connected(self) -> bool:

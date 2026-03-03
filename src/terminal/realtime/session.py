@@ -52,6 +52,9 @@ class RealtimeSession:
         self._quotes: dict[str, QuoteSession] = {}
         self._charts: dict[str, ChartSession] = {}
         self._closed = False
+        # Set to True when this session holds a ref in the feed_registry.
+        # Used by handler.py teardown to know whether to call feed_registry.release().
+        self._has_upstox_ref: bool = False
 
     def cleanup(self) -> None:
         """Stop all active sub-sessions. Call on WebSocket disconnect."""
@@ -237,3 +240,25 @@ class RealtimeSession:
     async def send_error(self, message: str) -> None:
         """Send an error message to the client."""
         await self.send(ErrorMessage(p=(message,)))
+
+    async def restart_upstox_feed(self, new_token: str) -> None:
+        """Attach or re-attach this session to the user's shared Upstox feed.
+
+        Called by broker/router.py after a successful OAuth token exchange.
+        If this session didn't previously hold a registry ref (e.g. the user
+        had no token when they connected), we acquire one and hot-plug the
+        shared feed into this session's UpstoxClient.
+        """
+        from terminal.candles.feed_registry import feed_registry
+
+        if not self._has_upstox_ref:
+            # First time this session gets a feed — acquire a ref and plug it in
+            shared_feed = await feed_registry.acquire(self.user_id, new_token)
+            self._has_upstox_ref = True
+            if self.candle_manager:
+                await self.candle_manager.attach_provider_feed("india", shared_feed)
+
+        await self.send(ServerMessage(
+            m="upstox_status",
+            p=({"connected": True, "login_required": False},),
+        ))

@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from terminal.market_feed.tradingview import TradingViewDataProvider
 from terminal.market_feed import OHLCStore, MarketDataManager
 from terminal.candles.upstox import UpstoxClient
-from terminal.candles.feed import UpstoxFeed
 from terminal.candles.service import CandleManager
 from terminal.storage.fs import fs
 
@@ -33,17 +32,13 @@ def _get_market_manager_instance() -> MarketDataManager:
 
 @lru_cache
 def _get_candle_manager_instance() -> CandleManager:
-    """
-    Internal helper to provide a memoized CandleManager singleton.
-    Registers market-specific providers.
-    """
-    feed: UpstoxFeed | None = None
-    if settings.upstox_access_token:
-        feed = UpstoxFeed(access_token=settings.upstox_access_token)
+    """Singleton CandleManager for HTTP candle fetching only.
 
-    upstox = UpstoxClient(access_token=settings.upstox_access_token, feed=feed)
-    manager = CandleManager(providers={"india": upstox})
-    return manager
+    Real-time feeds are per-session (created in handler.py when a user
+    WebSocket connects). This singleton has no feed attached.
+    """
+    upstox = UpstoxClient(access_token=settings.upstox_access_token or "")
+    return CandleManager(providers={"india": upstox})
 
 
 # Dependencies for FastAPI

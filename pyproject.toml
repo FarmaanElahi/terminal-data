@@ -29,6 +29,7 @@ dependencies = [
     "grpcio-tools>=1.78.0",
     "pydantic>=2.12.5",
     "pandas-stubs~=3.0.0",
+    "cryptography>=44.0.0",
 ]
 
 

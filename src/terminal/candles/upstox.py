@@ -73,11 +73,13 @@ class UpstoxClient(CandleProvider):
         access_token: str | None = None,
         timeout: float = 30.0,
         feed: UpstoxFeed | None = None,
+        owns_feed: bool = True,
     ) -> None:
         self._access_token = access_token
         self._client: httpx.AsyncClient | None = None
         self._timeout = timeout
         self._feed = feed
+        self._owns_feed = owns_feed
         self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._ticker_map: dict[str, str] = {}  # token -> ticker
 
@@ -85,20 +87,37 @@ class UpstoxClient(CandleProvider):
             self._feed.on_candle(self._on_feed_update)
 
     async def subscribe(self, ticker: str) -> None:
-        if not self._feed:
-            return
         token = self.get_candle_feed_token(ticker)
-        if token:
-            self._ticker_map[token] = ticker
+        if not token:
+            return
+        # Always record in ticker_map so attach_feed() can replay pending subs
+        self._ticker_map[token] = ticker
+        if self._feed:
             await self._feed.subscribe([token])
 
     async def unsubscribe(self, ticker: str) -> None:
-        if not self._feed:
-            return
         token = self.get_candle_feed_token(ticker)
-        if token:
-            self._ticker_map.pop(token, None)
+        if not token:
+            return
+        self._ticker_map.pop(token, None)
+        if self._feed:
             await self._feed.unsubscribe([token])
+
+    async def attach_feed(self, feed: UpstoxFeed) -> None:
+        """Attach a shared feed to this client.
+
+        Registers the candle callback and replays any subscriptions that
+        were requested before the feed was available.
+        """
+        if self._feed is feed:
+            return
+        if self._feed:
+            self._feed.remove_callback(self._on_feed_update)
+        self._feed = feed
+        feed.on_candle(self._on_feed_update)
+        # Replay pending subscriptions
+        if self._ticker_map:
+            await feed.subscribe(list(self._ticker_map.keys()))
 
     async def on_update(self) -> AsyncGenerator[dict[str, Any], None]:
         """Yields real-time updates for subscribed tickers."""
@@ -123,6 +142,10 @@ class UpstoxClient(CandleProvider):
     def has_feed(self) -> bool:
         return self._feed is not None
 
+    @property
+    def is_feed_connected(self) -> bool:
+        return self._feed is not None and self._feed.is_connected
+
     async def _ensure_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             headers = {
@@ -144,9 +167,16 @@ class UpstoxClient(CandleProvider):
         return self._client
 
     async def close(self) -> None:
-        """Close the underlying HTTP client and feed."""
+        """Deregister from the feed and close the HTTP client.
+
+        If this client owns its feed (``owns_feed=True``), the feed is also
+        stopped. When using a shared feed from the registry, the registry
+        controls the feed lifecycle — we only deregister our callback.
+        """
         if self._feed:
-            await self._feed.stop()
+            self._feed.remove_callback(self._on_feed_update)
+            if self._owns_feed:
+                await self._feed.stop()
 
         if self._client and not self._client.is_closed:
             await self._client.aclose()

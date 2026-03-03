@@ -219,4 +219,19 @@ export const chartsApi = {
     api.delete(`/charts/study-templates/${encodeURIComponent(name)}`),
 };
 
+// ─── Broker API ────────────────────────────────────────────────────
+
+export interface BrokerStatus {
+  connected: boolean;
+  login_required: boolean;
+  provider: string;
+}
+
+export const brokerApi = {
+  getUpstoxAuthUrl: () => api.get<{ url: string }>("/broker/upstox/auth-url"),
+  exchangeUpstoxCode: (code: string) =>
+    api.post<{ status: string }>("/broker/upstox/callback", { code }),
+  getUpstoxStatus: () => api.get<BrokerStatus>("/broker/upstox/status"),
+};
+
 export default api;

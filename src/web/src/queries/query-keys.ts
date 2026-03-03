@@ -6,4 +6,5 @@ export const QUERY_KEYS = {
   preferences: ["preferences"] as const,
   communityFeed: (type: string, key: string) =>
     ["community-feed", type, key] as const,
+  upstoxStatus: ["broker", "upstox", "status"] as const,
 };

@@ -9,11 +9,14 @@ from starlette.websockets import WebSocketState
 
 from terminal.auth import service as auth_service
 from terminal.database.core import engine
-from terminal.dependencies import get_market_manager, get_candle_manager
+from terminal.dependencies import get_market_manager
 from terminal.market_feed.manager import MarketDataManager
 from terminal.candles.service import CandleManager
+from terminal.candles.upstox import UpstoxClient
+from terminal.candles.feed_registry import feed_registry
 
 from .session import RealtimeSession
+from .models import ServerMessage
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,9 @@ class ConnectionManager:
         if not sessions:
             self._connections.pop(user_id, None)
 
+    def get_sessions(self, user_id: str) -> list[RealtimeSession]:
+        return list(self._connections.get(user_id, []))
+
     async def close_all(self, timeout: float = 10.0) -> None:
         """Send close frame to all sessions with a timeout."""
         tasks = []
@@ -79,6 +85,11 @@ class ConnectionManager:
     async def _close_session(session: RealtimeSession) -> None:
         try:
             session.cleanup()
+            if session.candle_manager:
+                await session.candle_manager.close()
+            # Release feed registry ref if this session held one
+            if session._has_upstox_ref:
+                await feed_registry.release(session.user_id)
             if session.websocket.client_state == WebSocketState.CONNECTED:
                 await session.websocket.close(code=1001, reason="Server shutting down")
         except Exception:
@@ -94,17 +105,13 @@ async def websocket_endpoint(
     websocket: WebSocket,
     token: str = Query(default=None),
     manager: MarketDataManager = Depends(get_market_manager),
-    candle_manager: CandleManager = Depends(get_candle_manager),
 ) -> None:
     """
     Main realtime WebSocket endpoint.
 
-    Authentication is performed during the handshake via a ``token``
-    query parameter (``ws://host/ws?token=<jwt>``).  If the token is
-    missing or invalid the connection is closed with code **4401**.
-
-    After successful auth, every incoming JSON message is forwarded to
-    the :class:`RealtimeSession`.
+    Each session gets its own ``UpstoxClient`` but shares one ``UpstoxFeed``
+    per user via the ``feed_registry``. The feed is ref-counted: it starts
+    on the first session connect and stops when the last session disconnects.
     """
     # --- Check if shutting down ---
     if getattr(websocket.app, "_shutting_down", False):
@@ -121,7 +128,6 @@ async def websocket_endpoint(
         await websocket.close(code=4401, reason="Invalid token")
         return
 
-    # Resolve username -> User.id (UUID) so DB queries match REST APIs
     from sqlalchemy.orm import Session as SASession
 
     with SASession(engine) as db:
@@ -138,20 +144,52 @@ async def websocket_endpoint(
         await websocket.close(code=4429, reason=reason)
         return
 
+    # --- Load user's Upstox token and acquire shared feed ---
+    from terminal.broker import service as broker_service
+
+    user_upstox_token: str | None = None
+    try:
+        with SASession(engine) as broker_db:
+            user_upstox_token = broker_service.get_active_token(broker_db, user_id, "upstox")
+    except Exception:
+        logger.debug("Could not load Upstox token for user=%s", user_id)
+
+    shared_feed = None
+    if user_upstox_token:
+        shared_feed = await feed_registry.acquire(user_id, user_upstox_token)
+
+    # UpstoxClient holds a reference to the shared feed (does not own it)
+    upstox_client = UpstoxClient(
+        access_token=user_upstox_token or "",
+        feed=shared_feed,
+        owns_feed=False,
+    )
+    session_candle_manager = CandleManager(providers={"india": upstox_client})
+
     # --- Accept & run ---
     await websocket.accept()
+
     session = RealtimeSession(
         websocket,
         user_id=user_id,
         manager=manager,
-        candle_manager=candle_manager,
+        candle_manager=session_candle_manager,
     )
+    session._has_upstox_ref = shared_feed is not None
+
     connection_manager.add(user_id, session)
     logger.info(
-        "Realtime connection opened for user=%s (total=%d)",
+        "Realtime connection opened for user=%s (total=%d, upstox_feed=%s)",
         user_id,
         connection_manager.total_connections,
+        "shared" if shared_feed else "none",
     )
+
+    # Inform the client of the current Upstox feed status
+    await session.send(ServerMessage(
+        m="upstox_status",
+        p=({"connected": feed_registry.is_connected(user_id), "login_required": not bool(user_upstox_token)},),
+    ))
 
     try:
         while True:
@@ -165,4 +203,12 @@ async def websocket_endpoint(
             await websocket.close(code=1011)
     finally:
         session.cleanup()
+        had_ref = session._has_upstox_ref
+
+        async def _teardown() -> None:
+            await session_candle_manager.close()  # deregisters callback from shared feed
+            if had_ref:
+                await feed_registry.release(user_id)
+
+        asyncio.create_task(_teardown())
         connection_manager.remove(user_id, session)

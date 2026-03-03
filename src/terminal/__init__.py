@@ -8,5 +8,6 @@ try:
     from terminal.formula.models import Formula  # noqa: F401
     from terminal.preferences.models import UserPreferences  # noqa: F401
     from terminal.charts.models import UserChart, UserStudyTemplate  # noqa: F401
+    from terminal.broker.models import BrokerCredential  # noqa: F401
 except Exception:
     traceback.print_exc()

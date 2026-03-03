@@ -47,7 +47,27 @@ class Settings(BaseSettings):
     environment: str = "development"  # development | staging | production
 
     # Upstox
-    upstox_access_token: str = ""  # Required only for WebSocket feed
+    upstox_access_token: str = ""  # Deprecated — kept for backward compat during migration
+
+    # Encryption key for DB secrets (generate: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+    encryption_key: str = ""
+
+    # Upstox OAuth2 credentials
+    upstox_api_key: str = ""
+    upstox_api_secret: str = ""
+    upstox_redirect_uri: str = ""  # e.g. "http://localhost:5173/broker/upstox/callback"
+
+    @field_validator("encryption_key", mode="after")
+    @classmethod
+    def check_encryption_key(cls, v: str, info) -> str:
+        env = info.data.get("environment", "development")
+        if env == "production" and not v:
+            raise ValueError("Must set ENCRYPTION_KEY in production environment")
+        return v
+
+    @property
+    def is_upstox_oauth_configured(self) -> bool:
+        return all([self.upstox_api_key, self.upstox_api_secret, self.upstox_redirect_uri])
 
     # Auth
     secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"

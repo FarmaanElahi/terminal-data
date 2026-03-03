@@ -223,3 +223,9 @@ class CandleManager:
     def has_feed(self) -> bool:
         """Whether any provider has a real-time feed configured."""
         return any(getattr(p, "has_feed", False) for p in self._providers.values())
+
+    async def attach_provider_feed(self, market: str, feed) -> None:
+        """Attach a shared feed to an existing provider (hot-plug after token arrives)."""
+        provider = self._providers.get(market)
+        if provider and hasattr(provider, "attach_feed"):
+            await provider.attach_feed(feed)

@@ -14,7 +14,7 @@ from .realtime.handler import router as realtime_router
 from .config import settings
 from .health.router import router as health_router
 from .middleware import RequestLoggingMiddleware
-from .dependencies import get_market_manager, get_fs, get_settings, get_candle_manager
+from .dependencies import get_market_manager, get_fs, get_settings
 from .symbols import service as symbols_service
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ configure_logging()
 async def lifespan(application: FastAPI):
     # Startup: Start the managers
     manager = await get_market_manager()
-    candle_manager = await get_candle_manager()
 
     logger.info("Initializing managers...")
 
@@ -45,10 +44,6 @@ async def lifespan(application: FastAPI):
     md_task = asyncio.create_task(manager.start())
     md_task.add_done_callback(lambda t: handle_startup_task(t, "MarketDataManager"))
     application.state.md_startup_task = md_task
-
-    candle_task = asyncio.create_task(candle_manager.start_feed())
-    candle_task.add_done_callback(lambda t: handle_startup_task(t, "CandleManager"))
-    application.state.candle_startup_task = candle_task
 
     # Preload symbols
     logger.info("Preloading symbols...")
@@ -91,9 +86,6 @@ async def lifespan(application: FastAPI):
                 logger.info("Cache flushed successfully.")
         except Exception:
             logger.exception("Failed to flush cache during shutdown")
-
-    # 5. Close CandleManager feeds
-    await candle_manager.close()
 
     logger.info("Shutdown complete.")
 
