@@ -5,7 +5,11 @@ import { toast } from "sonner";
 import { useWidget } from "@/hooks/use-widget";
 import { useScreener } from "@/hooks/use-screener";
 import { useLayoutStore } from "@/stores/layout-store";
-import { useListsQuery } from "@/queries/use-lists";
+import {
+  useListsQuery,
+  useRemoveSymbolMutation,
+  useSetFlagMutation,
+} from "@/queries/use-lists";
 import {
   useAlertsQuery,
   useCreateAlertMutation,
@@ -142,6 +146,8 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
   const createAlert = useCreateAlertMutation();
   const modifyAlert = useModifyAlertMutation();
   const deleteAlert = useDeleteAlertMutation();
+  const setFlagMutation = useSetFlagMutation();
+  const removeSymbolMutation = useRemoveSymbolMutation();
   const { data: brokers = [], defaults, openLogin } = useBrokers();
 
   const theme = useLayoutStore((s) => s.theme);
@@ -243,6 +249,50 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
 
     return map;
   }, [allAlerts]);
+
+  const colorLists = useMemo(
+    () => lists.filter((l) => l.type === "color"),
+    [lists],
+  );
+
+  const findColorListForSymbol = (symbol: string) => {
+    return colorLists.find((l) => l.symbols.includes(symbol)) ?? null;
+  };
+
+  const getFlagColor = (symbol: string): string | null => {
+    return findColorListForSymbol(symbol)?.color ?? null;
+  };
+
+  const handleToggleFlag = (symbol: string, currentColor: string | null) => {
+    const currentList = findColorListForSymbol(symbol);
+    if (currentColor && currentList) {
+      removeSymbolMutation.mutate({ listId: currentList.id, ticker: symbol });
+      return;
+    }
+
+    const lastUsedColor = localStorage.getItem("last_flag_color") || "red";
+    const targetList =
+      colorLists.find((l) => l.color === lastUsedColor) ?? colorLists[0] ?? null;
+    if (!targetList) return;
+    setFlagMutation.mutate({ targetListId: targetList.id, ticker: symbol });
+  };
+
+  const handleSelectFlagColor = (
+    symbol: string,
+    color: string,
+    currentColor: string | null,
+  ) => {
+    const currentList = findColorListForSymbol(symbol);
+    if (currentColor === color && currentList) {
+      removeSymbolMutation.mutate({ listId: currentList.id, ticker: symbol });
+      return;
+    }
+
+    localStorage.setItem("last_flag_color", color);
+    const targetList = colorLists.find((l) => l.color === color);
+    if (!targetList) return;
+    setFlagMutation.mutate({ targetListId: targetList.id, ticker: symbol });
+  };
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [gridRowHeight, setGridRowHeight] = useState(GRID_ROW_HEIGHT);
@@ -694,10 +744,13 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
                           maConfigs={defaultsMerged.maConfigs}
                           session={session}
                           active
+                          flagColor={getFlagColor(row.ticker)}
                           isSelected={activeSymbol === row.ticker.toUpperCase()}
                           isDark={isDark}
                           alerts={symbolAlerts}
                           onSelectSymbol={setChannelSymbol}
+                          onToggleFlag={handleToggleFlag}
+                          onSelectFlagColor={handleSelectFlagColor}
                           onCreateAlert={handleCreateAlert}
                           onModifyAlert={handleModifyAlert}
                           onDeleteAlert={handleDeleteAlert}

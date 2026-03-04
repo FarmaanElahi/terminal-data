@@ -31,8 +31,27 @@ import {
 } from "@/lib/lightweight/user-price-alerts";
 import { cn } from "@/lib/utils";
 import { Trash2 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FLAG_COLORS: Record<string, string> = {
+  red: "text-red-500 fill-red-500",
+  green: "text-green-500 fill-green-500",
+  yellow: "text-yellow-500 fill-yellow-500",
+  blue: "text-blue-500 fill-blue-500",
+  purple: "text-purple-500 fill-purple-500",
+};
+const COLOR_OPTIONS = [
+  { label: "Red", value: "red", className: "bg-red-500" },
+  { label: "Green", value: "green", className: "bg-green-500" },
+  { label: "Yellow", value: "yellow", className: "bg-yellow-500" },
+  { label: "Blue", value: "blue", className: "bg-blue-500" },
+  { label: "Purple", value: "purple", className: "bg-purple-500" },
+];
 
 interface MiniChartTileProps {
   symbol: string;
@@ -44,10 +63,17 @@ interface MiniChartTileProps {
   maConfigs: MiniChartMAConfig[];
   session: MiniChartSession;
   active: boolean;
+  flagColor?: string | null;
   isSelected?: boolean;
   isDark: boolean;
   alerts: Alert[];
   onSelectSymbol: (symbol: string) => void;
+  onToggleFlag: (symbol: string, currentColor: string | null) => void;
+  onSelectFlagColor: (
+    symbol: string,
+    color: string,
+    currentColor: string | null,
+  ) => void;
   onCreateAlert: (symbol: string, price: number, operator: string) => void;
   onModifyAlert: (alert: Alert, price: number) => void;
   onDeleteAlert: (alert: Alert) => void;
@@ -63,6 +89,30 @@ interface ContextMenuState {
 
 function toChartTime(ms: number): UTCTimestamp {
   return Math.floor(ms / 1000) as UTCTimestamp;
+}
+
+function FlagIcon({
+  className,
+  onClick,
+}: {
+  className?: string;
+  onClick?: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      preserveAspectRatio="none"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      onClick={onClick}
+    >
+      <path d="M0 0h24l-8 12 8 12H0V0z" fill="currentColor" />
+    </svg>
+  );
 }
 
 function mergeBar(prev: MiniChartBar[], next: MiniChartBar): MiniChartBar[] {
@@ -183,10 +233,13 @@ export function MiniChartTile({
   maConfigs,
   session,
   active,
+  flagColor = null,
   isSelected = false,
   isDark,
   alerts,
   onSelectSymbol,
+  onToggleFlag,
+  onSelectFlagColor,
   onCreateAlert,
   onModifyAlert,
   onDeleteAlert,
@@ -206,6 +259,7 @@ export function MiniChartTile({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [alertOverrides, setAlertOverrides] = useState<Record<string, number>>({});
   const [draggingAlertId, setDraggingAlertId] = useState<string | null>(null);
+  const [flagMenuOpen, setFlagMenuOpen] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState>({
     open: false,
     x: 0,
@@ -684,6 +738,52 @@ export function MiniChartTile({
               {shortSymbol(symbol).slice(0, 1)}
             </div>
           )}
+          <DropdownMenu open={flagMenuOpen} onOpenChange={setFlagMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setFlagMenuOpen(true);
+                }}
+                className="group/flag relative h-4 w-2.5 outline-none transition-opacity shrink-0"
+                title="Toggle/watchlist color flag"
+              >
+                <FlagIcon
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleFlag(symbol, flagColor ?? null);
+                  }}
+                  className={cn(
+                    "w-full h-full transition-all",
+                    flagColor
+                      ? (FLAG_COLORS[flagColor] ?? "text-primary/80")
+                      : "text-muted-foreground/25 hover:text-muted-foreground/50",
+                  )}
+                />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              className="w-auto p-2 flex gap-2 bg-card border-border"
+              align="start"
+            >
+              {COLOR_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => {
+                    onSelectFlagColor(symbol, opt.value, flagColor ?? null);
+                    setFlagMenuOpen(false);
+                  }}
+                  className={`w-4 h-4 rounded-full ${opt.className} hover:scale-110 transition-transform ${
+                    flagColor === opt.value
+                      ? "ring-2 ring-white ring-offset-1 ring-offset-background"
+                      : ""
+                  }`}
+                  title={opt.label}
+                />
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <button
             className="min-w-0 text-left shrink-0 max-w-[34%]"
             onClick={(e) => {
