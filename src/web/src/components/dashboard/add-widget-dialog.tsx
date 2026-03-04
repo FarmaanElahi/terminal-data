@@ -15,6 +15,7 @@ import {
 const WIDGET_ICONS: Record<string, React.ElementType> = {
   screener: TableProperties,
   chart: LineChart,
+  mini_chart: LineChart,
   watchlist: List,
   community: Users,
   broker: Link,

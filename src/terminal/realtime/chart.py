@@ -44,6 +44,7 @@ class ChartSession:
         self.realtime = realtime
         self.candle_manager = candle_manager
         self._streaming_tasks: dict[str, asyncio.Task] = {}  # series_id -> task
+        self._history_tasks: dict[str, asyncio.Task] = {}  # series_id -> task
         self._symbol: str | None = None
 
     async def handle(self, msg: ClientMessage) -> None:
@@ -65,7 +66,7 @@ class ChartSession:
         elif isinstance(msg, GetBarRequest):
             _, params = msg.p
             logger.debug("Get bar: %s", params)
-            await self._get_bar(params)
+            self._queue_get_bar(params)
         elif isinstance(msg, SubscribeBarRequest):
             _, params = msg.p
             logger.debug("Subscribe bar: %s", params)
@@ -103,6 +104,23 @@ class ChartSession:
     async def _get_bar(self, params: ChartParams) -> None:
         """Just an alias for _load_chart for now, but explicitly for get_bar msg."""
         await self._load_chart(params)
+
+    def _queue_get_bar(self, params: ChartParams) -> None:
+        """Queue get_bar in the background so requests can run concurrently."""
+        series_id = params.series_id or f"{params.symbol}-{params.interval}"
+        existing = self._history_tasks.pop(series_id, None)
+        if existing:
+            existing.cancel()
+
+        task = asyncio.create_task(self._get_bar(params))
+        self._history_tasks[series_id] = task
+
+        def _clear(done_task: asyncio.Task, sid: str = series_id) -> None:
+            tracked = self._history_tasks.get(sid)
+            if tracked is done_task:
+                self._history_tasks.pop(sid, None)
+
+        task.add_done_callback(_clear)
 
     async def _subscribe_bar(self, params: ChartParams) -> None:
         """Subscribe to a series."""
@@ -166,6 +184,42 @@ class ChartSession:
                         volume=c.volume,
                     )
                 )
+
+            # Mini chart requests should honor their explicit date range window
+            # so initial tile payloads stay small and fast.
+            strict_range = bool(series_id and series_id.startswith("mini-history-"))
+            if strict_range:
+                from_ms: int | None = None
+                to_ms: int | None = None
+                if from_date is not None:
+                    from_ms = int(
+                        datetime(
+                            from_date.year,
+                            from_date.month,
+                            from_date.day,
+                            tzinfo=timezone.utc,
+                        ).timestamp()
+                        * 1000
+                    )
+                if to_date is not None:
+                    to_ms = int(
+                        datetime(
+                            to_date.year,
+                            to_date.month,
+                            to_date.day,
+                            23,
+                            59,
+                            59,
+                            999000,
+                            tzinfo=timezone.utc,
+                        ).timestamp()
+                        * 1000
+                    )
+
+                if from_ms is not None:
+                    data = [d for d in data if d.time >= from_ms]
+                if to_ms is not None:
+                    data = [d for d in data if d.time <= to_ms]
 
             await self.realtime.send(
                 ChartSeriesResponse(
@@ -313,6 +367,10 @@ class ChartSession:
         for task in self._streaming_tasks.values():
             task.cancel()
         self._streaming_tasks.clear()
+
+        for task in self._history_tasks.values():
+            task.cancel()
+        self._history_tasks.clear()
 
     def __repr__(self) -> str:
         return f"ChartSession(id={self.session_id}, symbol={self._symbol})"

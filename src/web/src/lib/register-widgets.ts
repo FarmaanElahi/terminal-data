@@ -10,6 +10,7 @@ import { CommunityFeedGlobalWidget } from "@/components/widgets/community-feed-g
 import { BubbleChartWidget } from "@/components/widgets/bubble-chart-widget";
 import { BrokerWidget } from "@/components/widgets/broker-widget";
 import { AlertsWidget } from "@/components/widgets/alerts-widget";
+import { MiniChartWidget } from "@/components/widgets/mini-chart-widget";
 import type { ColumnDef } from "@/types/models";
 
 export const DEFAULT_SCREENER_COLUMNS: ColumnDef[] = [
@@ -146,4 +147,30 @@ registerWidget({
   icon: "bell",
   component: AlertsWidget,
   defaultSettings: {},
+});
+
+registerWidget({
+  type: "mini_chart",
+  title: "Mini Chart",
+  icon: "layout-grid",
+  component: MiniChartWidget,
+  defaultSettings: {
+    listId: null,
+    viewMode: "grid",
+    columns: DEFAULT_SCREENER_COLUMNS,
+    headerColumnIds: [
+      DEFAULT_SCREENER_COLUMNS[0].id,
+      DEFAULT_SCREENER_COLUMNS[1].id,
+      DEFAULT_SCREENER_COLUMNS[2].id,
+    ],
+    sortKey: "ticker",
+    sortDirection: "asc",
+    timeframe: "1D",
+    scaleMode: "linear",
+    maConfigs: [
+      { id: "ema20", length: 20, color: "#3B82F6", enabled: true },
+      { id: "ema50", length: 50, color: "#EC4899", enabled: true },
+    ],
+    gridColumns: 3,
+  },
 });
