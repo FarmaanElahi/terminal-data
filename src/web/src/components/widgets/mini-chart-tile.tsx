@@ -14,6 +14,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Alert } from "@/types/alert";
+import type { List } from "@/types/models";
 import type {
   MiniChartBar,
   MiniChartMAConfig,
@@ -30,7 +31,16 @@ import {
   type UserPriceAlert,
 } from "@/lib/lightweight/user-price-alerts";
 import { cn } from "@/lib/utils";
-import { Trash2 } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,6 +71,7 @@ interface MiniChartTileProps {
   timeframe: string;
   scaleMode: MiniChartScaleMode;
   maConfigs: MiniChartMAConfig[];
+  watchlists: List[];
   session: MiniChartSession;
   active: boolean;
   flagColor?: string | null;
@@ -68,6 +79,7 @@ interface MiniChartTileProps {
   isDark: boolean;
   alerts: Alert[];
   onSelectSymbol: (symbol: string) => void;
+  onToggleWatchlist: (symbol: string, listId: string, inList: boolean) => void;
   onToggleFlag: (symbol: string, currentColor: string | null) => void;
   onSelectFlagColor: (
     symbol: string,
@@ -77,14 +89,6 @@ interface MiniChartTileProps {
   onCreateAlert: (symbol: string, price: number, operator: string) => void;
   onModifyAlert: (alert: Alert, price: number) => void;
   onDeleteAlert: (alert: Alert) => void;
-}
-
-interface ContextMenuState {
-  open: boolean;
-  x: number;
-  y: number;
-  price: number | null;
-  nearestAlertId: string | null;
 }
 
 function toChartTime(ms: number): UTCTimestamp {
@@ -231,6 +235,7 @@ export function MiniChartTile({
   timeframe,
   scaleMode,
   maConfigs,
+  watchlists,
   session,
   active,
   flagColor = null,
@@ -238,6 +243,7 @@ export function MiniChartTile({
   isDark,
   alerts,
   onSelectSymbol,
+  onToggleWatchlist,
   onToggleFlag,
   onSelectFlagColor,
   onCreateAlert,
@@ -260,13 +266,8 @@ export function MiniChartTile({
   const [alertOverrides, setAlertOverrides] = useState<Record<string, number>>({});
   const [draggingAlertId, setDraggingAlertId] = useState<string | null>(null);
   const [flagMenuOpen, setFlagMenuOpen] = useState(false);
-  const [menu, setMenu] = useState<ContextMenuState>({
-    open: false,
-    x: 0,
-    y: 0,
-    price: null,
-    nearestAlertId: null,
-  });
+  const [chartMenuPrice, setChartMenuPrice] = useState<number | null>(null);
+  const [chartMenuNearestAlertId, setChartMenuNearestAlertId] = useState<string | null>(null);
 
   const effectiveAlerts = useMemo(() => {
     return alerts
@@ -286,12 +287,12 @@ export function MiniChartTile({
       });
   }, [alerts, alertOverrides, symbol]);
 
-  const selectedAlert = useMemo(
+  const nearestMenuAlert = useMemo(
     () =>
-      menu.nearestAlertId
-        ? alerts.find((a) => a.uuid === menu.nearestAlertId) ?? null
+      chartMenuNearestAlertId
+        ? alerts.find((a) => a.uuid === chartMenuNearestAlertId) ?? null
         : null,
-    [alerts, menu.nearestAlertId],
+    [alerts, chartMenuNearestAlertId],
   );
 
   useEffect(() => {
@@ -610,48 +611,6 @@ export function MiniChartTile({
     }
   }, [effectiveAlerts]);
 
-  useEffect(() => {
-    if (!menu.open) return;
-
-    const onWindowClick = () => {
-      setMenu((prev) => ({ ...prev, open: false }));
-    };
-
-    window.addEventListener("click", onWindowClick);
-    return () => window.removeEventListener("click", onWindowClick);
-  }, [menu.open]);
-
-  const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const container = containerRef.current;
-    const candleSeries = candleSeriesRef.current;
-    if (!container || !candleSeries) return;
-
-    const rect = container.getBoundingClientRect();
-    const y = e.clientY - rect.top;
-
-    const price = getPriceFromEvent(container, e.clientY, (coord) =>
-      candleSeries.coordinateToPrice(coord),
-    );
-
-    const nearest = findNearestAlertByY(
-      effectiveAlerts,
-      y,
-      (p) => candleSeries.priceToCoordinate(p),
-      8,
-    );
-
-    setMenu({
-      open: true,
-      x: e.clientX - rect.left,
-      y,
-      price,
-      nearestAlertId: nearest?.alert.id ?? null,
-    });
-  };
-
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
 
@@ -713,6 +672,34 @@ export function MiniChartTile({
     }
   };
 
+  const latestPrice = bars.length > 0 ? bars[bars.length - 1].close : null;
+  const contextPrice = chartMenuPrice ?? latestPrice;
+
+  const handleChartContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    const candleSeries = candleSeriesRef.current;
+    if (!container || !candleSeries) {
+      setChartMenuPrice(latestPrice);
+      setChartMenuNearestAlertId(null);
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const price = getPriceFromEvent(container, e.clientY, (coord) =>
+      candleSeries.coordinateToPrice(coord),
+    );
+    const nearest = findNearestAlertByY(
+      effectiveAlerts,
+      y,
+      (p) => candleSeries.priceToCoordinate(p),
+      8,
+    );
+
+    setChartMenuPrice(price ?? latestPrice);
+    setChartMenuNearestAlertId(nearest?.alert.id ?? null);
+  };
+
   return (
     <div
       className={cn(
@@ -720,7 +707,6 @@ export function MiniChartTile({
         isSelected && "border-primary/70 ring-1 ring-primary/30",
         draggingAlertId && "cursor-ns-resize",
       )}
-      onContextMenu={handleContextMenu}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
@@ -784,26 +770,62 @@ export function MiniChartTile({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          <button
-            className="min-w-0 text-left shrink-0 max-w-[34%]"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSelectSymbol(symbol);
-            }}
-            title={symbol}
-          >
-            <p
-              className={cn(
-                "text-[11px] font-semibold truncate leading-4",
-                isSelected ? "text-primary" : "text-foreground",
-              )}
-            >
-              {shortSymbol(symbol)}
-            </p>
-            <p className="text-[10px] text-muted-foreground truncate leading-4">
-              {name ?? symbol}
-            </p>
-          </button>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <button
+                className="min-w-0 text-left shrink-0 max-w-[34%]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectSymbol(symbol);
+                }}
+                title={symbol}
+              >
+                <p
+                  className={cn(
+                    "text-[11px] font-semibold truncate leading-4",
+                    isSelected ? "text-primary" : "text-foreground",
+                  )}
+                >
+                  {shortSymbol(symbol)}
+                </p>
+                <p className="text-[10px] text-muted-foreground truncate leading-4">
+                  {name ?? symbol}
+                </p>
+              </button>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-56">
+              <ContextMenuSub>
+                <ContextMenuSubTrigger>Add to Watchlist</ContextMenuSubTrigger>
+                <ContextMenuSubContent className="w-48">
+                  {watchlists.map((list) => {
+                    const inList = list.symbols.includes(symbol);
+                    return (
+                      <ContextMenuItem
+                        key={list.id}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onToggleWatchlist(symbol, list.id, inList);
+                        }}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="truncate">{list.name}</span>
+                          {inList && <span className="text-primary text-xs">Added</span>}
+                        </div>
+                      </ContextMenuItem>
+                    );
+                  })}
+                  {watchlists.length === 0 && (
+                    <ContextMenuItem
+                      disabled
+                      className="text-xs text-muted-foreground"
+                    >
+                      No watchlists
+                    </ContextMenuItem>
+                  )}
+                </ContextMenuSubContent>
+              </ContextMenuSub>
+            </ContextMenuContent>
+          </ContextMenu>
           <div className="ml-auto flex items-start justify-end gap-2 min-w-0 flex-1 pr-1">
             {headerValues.slice(0, 4).map((item) => (
               <div key={item.colId} className="min-w-0 max-w-[68px] text-right">
@@ -819,7 +841,50 @@ export function MiniChartTile({
         </div>
       </div>
 
-      <div ref={containerRef} className="absolute inset-0 pt-[56px] pr-4" />
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            ref={containerRef}
+            className="absolute inset-0 pt-[56px] pr-4"
+            onContextMenu={handleChartContextMenu}
+          />
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52">
+          <ContextMenuItem
+            disabled={contextPrice == null}
+            onClick={(e) => {
+              e.preventDefault();
+              if (contextPrice != null) {
+                onCreateAlert(symbol, contextPrice, ">=");
+              }
+            }}
+          >
+            Alert Above {contextPrice != null ? contextPrice.toFixed(2) : "-"}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={contextPrice == null}
+            onClick={(e) => {
+              e.preventDefault();
+              if (contextPrice != null) {
+                onCreateAlert(symbol, contextPrice, "<=");
+              }
+            }}
+          >
+            Alert Below {contextPrice != null ? contextPrice.toFixed(2) : "-"}
+          </ContextMenuItem>
+          {nearestMenuAlert && <ContextMenuSeparator />}
+          {nearestMenuAlert && (
+            <ContextMenuItem
+              onClick={(e) => {
+                e.preventDefault();
+                onDeleteAlert(nearestMenuAlert);
+              }}
+            >
+              Delete Alert {nearestMenuAlert.name || nearestMenuAlert.uuid.slice(0, 8)}
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
 
       {loading && (
         <div className="absolute inset-0 z-30 flex items-center justify-center text-xs text-muted-foreground bg-background/50">
@@ -830,52 +895,6 @@ export function MiniChartTile({
       {!loading && loadError && (
         <div className="absolute inset-0 z-30 flex items-center justify-center text-xs text-destructive bg-background/70 px-3 text-center">
           {loadError}
-        </div>
-      )}
-
-      {menu.open && (
-        <div
-          className="absolute z-40 min-w-44 rounded-sm border border-border bg-popover shadow-lg py-1"
-          style={{ left: Math.max(4, menu.x), top: Math.max(58, menu.y) }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            className="w-full px-2 py-1 text-left text-xs hover:bg-muted"
-            disabled={menu.price == null}
-            onClick={() => {
-              if (menu.price != null) {
-                onCreateAlert(symbol, menu.price, ">=");
-              }
-              setMenu((prev) => ({ ...prev, open: false }));
-            }}
-          >
-            Alert above {menu.price != null ? menu.price.toFixed(2) : "-"}
-          </button>
-          <button
-            className="w-full px-2 py-1 text-left text-xs hover:bg-muted"
-            disabled={menu.price == null}
-            onClick={() => {
-              if (menu.price != null) {
-                onCreateAlert(symbol, menu.price, "<=");
-              }
-              setMenu((prev) => ({ ...prev, open: false }));
-            }}
-          >
-            Alert below {menu.price != null ? menu.price.toFixed(2) : "-"}
-          </button>
-
-          {selectedAlert && (
-            <button
-              className="w-full px-2 py-1 text-left text-xs text-destructive hover:bg-muted inline-flex items-center gap-1"
-              onClick={() => {
-                onDeleteAlert(selectedAlert);
-                setMenu((prev) => ({ ...prev, open: false }));
-              }}
-            >
-              <Trash2 className="size-3" />
-              Delete alert
-            </button>
-          )}
         </div>
       )}
     </div>

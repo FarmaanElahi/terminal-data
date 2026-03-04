@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { List as ListIcon, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -6,6 +6,7 @@ import { useWidget } from "@/hooks/use-widget";
 import { useScreener } from "@/hooks/use-screener";
 import { useLayoutStore } from "@/stores/layout-store";
 import {
+  useAddSymbolMutation,
   useListsQuery,
   useRemoveSymbolMutation,
   useSetFlagMutation,
@@ -143,6 +144,7 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
   const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const { data: lists = [] } = useListsQuery();
   const { data: allAlerts = [] } = useAlertsQuery();
+  const addSymbolMutation = useAddSymbolMutation();
   const createAlert = useCreateAlertMutation();
   const modifyAlert = useModifyAlertMutation();
   const deleteAlert = useDeleteAlertMutation();
@@ -254,6 +256,10 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
     () => lists.filter((l) => l.type === "color"),
     [lists],
   );
+  const watchlists = useMemo(
+    () => lists.filter((l) => l.type === "simple"),
+    [lists],
+  );
 
   const findColorListForSymbol = (symbol: string) => {
     return colorLists.find((l) => l.symbols.includes(symbol)) ?? null;
@@ -292,6 +298,15 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
     const targetList = colorLists.find((l) => l.color === color);
     if (!targetList) return;
     setFlagMutation.mutate({ targetListId: targetList.id, ticker: symbol });
+  };
+
+  const handleToggleWatchlist = (symbol: string, listId: string, inList: boolean) => {
+    if (inList) {
+      removeSymbolMutation.mutate({ listId, ticker: symbol });
+      return;
+    }
+    addSymbolMutation.mutate({ listId, ticker: symbol });
+    localStorage.setItem("last_screener_list_id", listId);
   };
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -499,6 +514,43 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
 
   const session = sessionRef.current;
 
+  const handleKeyboardNavigate = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (displayRows.length === 0) return;
+
+      let delta = 0;
+      if (e.key === "ArrowLeft") delta = -1;
+      else if (e.key === "ArrowRight") delta = 1;
+      else if (e.key === "ArrowUp") delta = -defaultsMerged.gridColumns;
+      else if (e.key === "ArrowDown") delta = defaultsMerged.gridColumns;
+      else return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const currentIdx = displayRows.findIndex(
+        (row) => row.ticker.toUpperCase() === activeSymbol,
+      );
+      const startIdx = currentIdx >= 0 ? currentIdx : 0;
+      const nextIdx = Math.max(0, Math.min(displayRows.length - 1, startIdx + delta));
+      const nextRow = displayRows[nextIdx];
+      if (!nextRow) return;
+
+      setChannelSymbol(nextRow.ticker);
+      rowVirtualizer.scrollToIndex(
+        Math.floor(nextIdx / defaultsMerged.gridColumns),
+        { align: "auto" },
+      );
+    },
+    [
+      activeSymbol,
+      defaultsMerged.gridColumns,
+      displayRows,
+      rowVirtualizer,
+      setChannelSymbol,
+    ],
+  );
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center gap-2 p-2 border-b border-border shrink-0">
@@ -682,7 +734,12 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
         </DropdownMenu>
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-auto">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-auto focus:outline-none"
+        tabIndex={0}
+        onKeyDown={handleKeyboardNavigate}
+      >
         {!sessionReady || !session ? (
           <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
             Initializing chart session...
@@ -742,6 +799,7 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
                           timeframe={defaultsMerged.timeframe}
                           scaleMode={defaultsMerged.scaleMode}
                           maConfigs={defaultsMerged.maConfigs}
+                          watchlists={watchlists}
                           session={session}
                           active
                           flagColor={getFlagColor(row.ticker)}
@@ -749,6 +807,7 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
                           isDark={isDark}
                           alerts={symbolAlerts}
                           onSelectSymbol={setChannelSymbol}
+                          onToggleWatchlist={handleToggleWatchlist}
                           onToggleFlag={handleToggleFlag}
                           onSelectFlagColor={handleSelectFlagColor}
                           onCreateAlert={handleCreateAlert}
