@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { List as ListIcon, SlidersHorizontal } from "lucide-react";
+import { List as ListIcon, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useWidget } from "@/hooks/use-widget";
 import { useScreener } from "@/hooks/use-screener";
@@ -21,6 +21,7 @@ import type { Alert } from "@/types/alert";
 import type { WidgetProps } from "@/types/layout";
 import type { ColumnDef, FilterState } from "@/types/models";
 import type {
+  MiniChartMAType,
   MiniChartSettings,
   MiniChartSortDirection,
   MiniChartValueItem,
@@ -60,6 +61,20 @@ function clampGridColumns(value: number): number {
   return Math.max(2, Math.min(5, value));
 }
 
+function createMAConfig(maType: MiniChartMAType): MiniChartMAConfig {
+  const suffix =
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+  return {
+    id: `${maType}-${suffix}`,
+    maType,
+    length: maType === "ema" ? 20 : 50,
+    color: maType === "ema" ? "#3B82F6" : "#F59E0B",
+    enabled: true,
+  };
+}
+
 function defaultMiniChartSettings(): MiniChartSettings {
   const columns = sanitizeColumns(DEFAULT_SCREENER_COLUMNS);
   return {
@@ -72,8 +87,8 @@ function defaultMiniChartSettings(): MiniChartSettings {
     timeframe: "1D",
     scaleMode: "linear",
     maConfigs: [
-      { id: "ema20", length: 20, color: "#3B82F6", enabled: true },
-      { id: "ema50", length: 50, color: "#EC4899", enabled: true },
+      { id: "ema20", maType: "ema", length: 20, color: "#3B82F6", enabled: true },
+      { id: "sma50", maType: "sma", length: 50, color: "#EC4899", enabled: false },
     ],
     gridColumns: 3,
   };
@@ -160,6 +175,7 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
         incoming.headerColumnIds?.slice(0, 4) ?? base.headerColumnIds,
       maConfigs: (incoming.maConfigs ?? base.maConfigs).map((ma) => ({
         ...ma,
+        maType: (ma as MiniChartMAConfig).maType ?? "ema",
         length: Math.max(2, Math.floor(ma.length || 20)),
       })),
       gridColumns: clampGridColumns(incoming.gridColumns ?? base.gridColumns),
@@ -406,6 +422,18 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
     onSettingsChange({ maConfigs: updated });
   };
 
+  const updateMAType = (maId: string, maType: MiniChartMAType) => {
+    updateMA(maId, { maType });
+  };
+
+  const addMA = (maType: MiniChartMAType) => {
+    onSettingsChange({ maConfigs: [...defaultsMerged.maConfigs, createMAConfig(maType)] });
+  };
+
+  const removeMA = (maId: string) => {
+    onSettingsChange({ maConfigs: defaultsMerged.maConfigs.filter((ma) => ma.id !== maId) });
+  };
+
   const getHeaderValues = (row: DisplayRow): MiniChartValueItem[] => {
     return defaultsMerged.headerColumnIds.slice(0, 4).map((colId) => {
       const col = screenerColumns.find((c) => c.id === colId);
@@ -538,6 +566,22 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
 
             <div>
               <p className="text-xs font-semibold">Moving Averages</p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  className="h-6 rounded border border-border px-2 text-[11px] inline-flex items-center gap-1 hover:bg-muted"
+                  onClick={() => addMA("ema")}
+                >
+                  <Plus className="size-3" />
+                  EMA
+                </button>
+                <button
+                  className="h-6 rounded border border-border px-2 text-[11px] inline-flex items-center gap-1 hover:bg-muted"
+                  onClick={() => addMA("sma")}
+                >
+                  <Plus className="size-3" />
+                  SMA
+                </button>
+              </div>
               <div className="mt-2 space-y-2">
                 {defaultsMerged.maConfigs.map((ma) => (
                   <div key={ma.id} className="flex items-center gap-2 text-xs">
@@ -546,7 +590,17 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
                       checked={ma.enabled}
                       onChange={(e) => updateMA(ma.id, { enabled: e.target.checked })}
                     />
-                    <span className="w-12">{ma.id}</span>
+                    <span className="w-14">{ma.id}</span>
+                    <select
+                      value={ma.maType}
+                      className="h-6 w-16 rounded border border-border bg-background px-1"
+                      onChange={(e) =>
+                        updateMAType(ma.id, e.target.value as MiniChartMAType)
+                      }
+                    >
+                      <option value="ema">EMA</option>
+                      <option value="sma">SMA</option>
+                    </select>
                     <input
                       type="number"
                       min={2}
@@ -560,8 +614,18 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
                       className="h-6 w-8 rounded border border-border bg-background px-0"
                       onChange={(e) => updateMA(ma.id, { color: e.target.value })}
                     />
+                    <button
+                      className="h-6 w-6 rounded border border-border inline-flex items-center justify-center hover:bg-muted"
+                      onClick={() => removeMA(ma.id)}
+                      title="Remove MA"
+                    >
+                      <Trash2 className="size-3" />
+                    </button>
                   </div>
                 ))}
+                {defaultsMerged.maConfigs.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground">No MA lines configured.</p>
+                )}
               </div>
             </div>
           </DropdownMenuContent>

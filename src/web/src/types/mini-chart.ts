@@ -3,12 +3,14 @@ import type { ColumnDef } from "@/types/models";
 export type MiniChartViewMode = "grid" | "list";
 export type MiniChartSortDirection = "asc" | "desc";
 export type MiniChartScaleMode = "linear" | "log";
+export type MiniChartMAType = "ema" | "sma";
 
 export interface MiniChartMAConfig {
   id: string;
   length: number;
   color: string;
   enabled: boolean;
+  maType: MiniChartMAType;
 }
 
 export interface MiniChartSettings {

@@ -168,8 +168,8 @@ registerWidget({
     timeframe: "1D",
     scaleMode: "linear",
     maConfigs: [
-      { id: "ema20", length: 20, color: "#3B82F6", enabled: true },
-      { id: "ema50", length: 50, color: "#EC4899", enabled: true },
+      { id: "ema20", maType: "ema", length: 20, color: "#3B82F6", enabled: true },
+      { id: "sma50", maType: "sma", length: 50, color: "#EC4899", enabled: false },
     ],
     gridColumns: 3,
   },

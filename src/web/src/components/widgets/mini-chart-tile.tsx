@@ -17,6 +17,7 @@ import type { Alert } from "@/types/alert";
 import type {
   MiniChartBar,
   MiniChartMAConfig,
+  MiniChartMAType,
   MiniChartScaleMode,
   MiniChartValueItem,
 } from "@/types/mini-chart";
@@ -107,6 +108,36 @@ function computeEMA(bars: MiniChartBar[], length: number): Array<{ time: Time; v
   }
 
   return out;
+}
+
+function computeSMA(bars: MiniChartBar[], length: number): Array<{ time: Time; value: number }> {
+  if (length <= 1 || bars.length < length) return [];
+
+  const out: Array<{ time: Time; value: number }> = [];
+  let windowSum = 0;
+
+  for (let i = 0; i < bars.length; i++) {
+    windowSum += bars[i].close;
+    if (i >= length) {
+      windowSum -= bars[i - length].close;
+    }
+    if (i >= length - 1) {
+      out.push({
+        time: toChartTime(bars[i].time),
+        value: windowSum / length,
+      });
+    }
+  }
+
+  return out;
+}
+
+function computeMovingAverage(
+  bars: MiniChartBar[],
+  length: number,
+  maType: MiniChartMAType,
+): Array<{ time: Time; value: number }> {
+  return maType === "sma" ? computeSMA(bars, length) : computeEMA(bars, length);
 }
 
 function formatHeaderValue(value: unknown): string {
@@ -425,7 +456,7 @@ export function MiniChartTile({
         series.applyOptions({ color: ma.color, lineWidth: 2 });
       }
 
-      series.setData(computeEMA(bars, ma.length));
+      series.setData(computeMovingAverage(bars, ma.length, ma.maType ?? "ema"));
     }
 
     if (!hasFittedRef.current && bars.length > 0) {
