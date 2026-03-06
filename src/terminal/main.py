@@ -1,12 +1,13 @@
 import warnings
-
 from contextlib import asynccontextmanager
+from pathlib import Path
 import logging
 import asyncio
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import FileResponse, ORJSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api import api_router as api_router
 from .logging import configure_logging
@@ -16,6 +17,7 @@ from .health.router import router as health_router
 from .middleware import RequestLoggingMiddleware
 from .dependencies import get_market_manager, get_fs, get_settings
 from .symbols import service as symbols_service
+from .proxy import router as proxy_router
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,10 @@ warnings.filterwarnings("ignore", message=".*has been moved to.*")
 
 # we configure the logging level and format
 configure_logging()
+
+# Resolve the built frontend dist directory
+# Layout: src/terminal/main.py → parents[1] = src/ → parents[2] = project root
+_WEB_DIST = Path(__file__).resolve().parents[1] / "web" / "dist"
 
 
 @asynccontextmanager
@@ -117,5 +123,31 @@ app.add_middleware(
 app.add_middleware(RequestLoggingMiddleware)
 
 app.include_router(health_router)
+
+# Proxy /tv/* → charting-library.tradingview-widget.com
+# Mounted as a sub-app so the catch-all /{path:path} route is correctly scoped.
+# In dev, Vite's proxy (vite.config.ts) intercepts /tv/* before it reaches here.
+tv_proxy_app = FastAPI()
+tv_proxy_app.include_router(proxy_router)
+app.mount("/tv", tv_proxy_app)
+
 app.mount("/api/v1", api)
 app.include_router(realtime_router)
+
+# ── Static file serving for the built Vite frontend ──────────────────────────
+# Serve the compiled frontend from localhost:8080 in production.
+# Falls back to index.html for any path not matched above (SPA routing).
+if _WEB_DIST.is_dir():
+    # Serve immutable hashed assets directly
+    app.mount("/assets", StaticFiles(directory=str(_WEB_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str, request: Request):
+        """Catch-all: serve index.html so React Router handles client-side routing."""
+        return FileResponse(str(_WEB_DIST / "index.html"))
+else:
+    logger.warning(
+        "Web dist not found at %s — run 'npm run build' in src/web to enable "
+        "serving the frontend from FastAPI.",
+        _WEB_DIST,
+    )
