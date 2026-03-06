@@ -29,15 +29,42 @@ class FuncDef:
     name: str
     n_args: int  # total args including source
     impl: FuncImpl
+    series_args: frozenset[int]
+    implicit_series: tuple[str, ...]
+    series_args: frozenset[int]
 
 
 # Global registry — keyed by uppercase function name.
 _REGISTRY: dict[str, FuncDef] = {}
 
 
-def register(name: str, n_args: int, impl: FuncImpl) -> None:
+def register(
+    name: str,
+    n_args: int,
+    impl: FuncImpl,
+    *,
+    series_args: set[int] | None = None,
+    implicit_series: list[str] | tuple[str, ...] | None = None,
+) -> None:
     """Register a vectorised function for use in formulas."""
-    _REGISTRY[name.upper()] = FuncDef(name=name.upper(), n_args=n_args, impl=impl)
+    if series_args is None:
+        series_args = {0}
+    implicit = tuple(s.upper() for s in (implicit_series or ()))
+    if not series_args and not implicit:
+        raise ValueError(f"{name}: series_args cannot be empty without implicit_series.")
+    for idx in series_args:
+        if idx < 0 or idx >= n_args:
+            raise ValueError(
+                f"{name}: series_args index {idx} out of range for {n_args} args."
+            )
+
+    _REGISTRY[name.upper()] = FuncDef(
+        name=name.upper(),
+        n_args=n_args,
+        impl=impl,
+        series_args=frozenset(series_args),
+        implicit_series=implicit,
+    )
 
 
 def get_func(name: str, *, formula: str = "", position: int = 0) -> FuncDef:
@@ -102,6 +129,52 @@ def _lowest(source: np.ndarray, period: int) -> np.ndarray:
     return pd.Series(source).rolling(int(period)).min().to_numpy()
 
 
+def _rmv(
+    high: np.ndarray, low: np.ndarray, close: np.ndarray, loopback: int
+) -> np.ndarray:
+    """Relative Momentum Volatility (RMV)."""
+    lb = int(loopback)
+    if lb <= 0:
+        return np.full_like(np.asarray(close, dtype=np.float64), np.nan, dtype=float)
+
+    high_s = pd.Series(np.asarray(high, dtype=np.float64))
+    low_s = pd.Series(np.asarray(low, dtype=np.float64))
+    close_s = pd.Series(np.asarray(close, dtype=np.float64))
+
+    # 2-period calculations
+    high2 = high_s.rolling(2).max()
+    low_of_high2 = high_s.rolling(2).min()
+    close2 = close_s.rolling(2).max()
+    low_close2 = close_s.rolling(2).min()
+    high_of_low2 = low_s.rolling(2).max()
+    low2 = low_s.rolling(2).min()
+
+    term1_2p = ((high2 - low_of_high2) / low_close2) * 100
+    term2_2p = ((close2 - low_close2) / low_close2) * 100
+    term3_2p = ((high_of_low2 - low2) / low2) * 100
+    avg_2p = (term1_2p + 1.5 * term2_2p + term3_2p) / 3
+
+    # 3-period calculations
+    high3 = high_s.rolling(3).max()
+    low_of_high3 = high_s.rolling(3).min()
+    close3 = close_s.rolling(3).max()
+    low_close3 = close_s.rolling(3).min()
+
+    term1_3p = ((high3 - low_of_high3) / low_close3) * 100
+    term2_3p = 1.5 * ((close3 - low_close3) / low_close3) * 100
+    avg_3p = (term1_3p + term2_3p) / 2
+
+    combined_avg = (3 * avg_2p + avg_3p) / 4
+
+    highest_combined = combined_avg.rolling(lb).max()
+    lowest_combined = combined_avg.rolling(lb).min()
+
+    return (
+        ((combined_avg - lowest_combined) / (highest_combined - lowest_combined))
+        * 100
+    ).to_numpy()
+
+
 # Register builtins
 register("SMA", 2, _sma)
 register("EMA", 2, _ema)
@@ -109,3 +182,4 @@ register("MIN", 2, _min)
 register("MAX", 2, _max)
 register("HIGHEST", 2, _highest)
 register("LOWEST", 2, _lowest)
+register("RMV", 1, _rmv, series_args=set(), implicit_series=("H", "L", "C"))

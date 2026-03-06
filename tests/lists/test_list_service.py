@@ -1,5 +1,5 @@
 import pytest
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from terminal.lists import service as lists_service
 from terminal.lists.models import (
     ListCreate,

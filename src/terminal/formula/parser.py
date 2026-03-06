@@ -383,9 +383,12 @@ class _Parser:
         self.expect(TokenType.RPAREN)
 
         if len(args) != func_def.n_args:
+            expected = f"{name}(" + ", ".join(
+                [f"arg{i + 1}" for i in range(func_def.n_args)]
+            ) + ")"
             raise FormulaError(
-                f"{name} requires {func_def.n_args} arguments: "
-                f"{name}(source, period). Got {len(args)}.",
+                f"{name} requires {func_def.n_args} arguments. "
+                f"Expected {expected}. Got {len(args)}.",
                 formula=self.formula,
                 position=pos,
             )

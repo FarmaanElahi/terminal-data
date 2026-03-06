@@ -1,4 +1,4 @@
-from sqlmodel import Session
+from sqlalchemy.orm import Session
 from terminal.auth import service as auth_service
 from terminal.auth.models import UserCreate
 

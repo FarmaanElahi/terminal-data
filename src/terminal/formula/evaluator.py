@@ -108,13 +108,30 @@ def _eval(node: Node, df: pd.DataFrame) -> np.ndarray:
 
     if isinstance(node, FuncCall):
         func_def = get_func(node.name)
-        # First arg is the source (an array), remaining are numeric params.
         evaluated_args: list[np.ndarray | float] = []
+        if func_def.implicit_series:
+            for series_name in func_def.implicit_series:
+                col = fields.get_column(series_name)
+                if col is None or col not in df.columns:
+                    raise FormulaError(
+                        f'Cannot resolve field "{series_name}" to a DataFrame column'
+                    )
+                evaluated_args.append(df[col].to_numpy(dtype=np.float64))
         for i, arg in enumerate(node.args):
             val = _eval(arg, df)
-            if i == 0:
-                # Source must be a full array
-                evaluated_args.append(np.asarray(val, dtype=np.float64))
+            if i in func_def.series_args:
+                # Series args must be full arrays
+                if isinstance(val, np.ndarray):
+                    if val.ndim == 0:
+                        evaluated_args.append(
+                            np.full(len(df), float(val), dtype=np.float64)
+                        )
+                    else:
+                        evaluated_args.append(np.asarray(val, dtype=np.float64))
+                else:
+                    evaluated_args.append(
+                        np.full(len(df), float(val), dtype=np.float64)
+                    )
             else:
                 # Numeric params — extract scalar
                 if isinstance(val, np.ndarray):

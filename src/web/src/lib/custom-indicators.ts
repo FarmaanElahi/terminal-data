@@ -27,7 +27,7 @@ const DEF_COLOR_AVG_MOVE = "#82B1FF"; // Light Blue
 const DEF_COLOR_EMA_UP = "#B9F6CA"; // Light Green
 
 export function getCustomIndicators(PineJS: any): Promise<any[]> {
-  return Promise.resolve([buildCandleClassifier(PineJS)]);
+  return Promise.resolve([buildCandleClassifier(PineJS), buildRMV(PineJS)]);
 }
 
 // ─── Smart Candle Classifier ─────────────────────────────────────────────────
@@ -265,6 +265,145 @@ function buildCandleClassifier(PineJS: any): any {
         }
 
         return [NaN]; // no condition met → default bar color
+      };
+    },
+  };
+}
+
+// ─── RMV (Relative Momentum Volatility) ────────────────────────────────
+
+const DEF_RMV_COLOR = "#F59E0B"; // Amber
+
+function buildRMV(PineJS: any): any {
+  return {
+    name: "RMV",
+    metainfo: {
+      _metainfoVersion: 51,
+      id: "RMV@tv-basicstudies-1",
+      description: "RMV",
+      shortDescription: "RMV",
+      is_price_study: false,
+      isCustomIndicator: true,
+      format: { type: "percent", precision: 2 },
+
+      plots: [{ id: "plot_0", type: "line" }],
+
+      defaults: {
+        styles: {
+          plot_0: {
+            linestyle: 0,
+            visible: true,
+            linewidth: 2,
+            plottype: 2,
+            trackPrice: false,
+            color: DEF_RMV_COLOR,
+          },
+        },
+        inputs: {
+          loopback: 20,
+        },
+      },
+
+      styles: {
+        plot_0: {
+          title: "RMV",
+          histogramBase: 0,
+        },
+      },
+
+      inputs: [
+        {
+          id: "loopback",
+          name: "Loopback",
+          defval: 20,
+          type: "integer",
+          min: 2,
+          max: 500,
+        },
+      ],
+    },
+
+    constructor: function (this: any) {
+      this.main = function (ctx: any, inputs: any) {
+        this._context = ctx;
+        this._input = inputs;
+
+        this._context.select_sym(0);
+
+        const loopback: number = this._input(0);
+
+        const high: number = PineJS.Std.high(this._context);
+        const low: number = PineJS.Std.low(this._context);
+        const close: number = PineJS.Std.close(this._context);
+
+        // Persistent series (order must stay stable)
+        const highS = this._context.new_var(high); // #1
+        const lowS = this._context.new_var(low); // #2
+        const closeS = this._context.new_var(close); // #3
+
+        // === 2-period Calculations ===
+        const high2 = PineJS.Std.highest(highS, 2, this._context);
+        const lowOfHigh2 = PineJS.Std.lowest(highS, 2, this._context);
+        const close2 = PineJS.Std.highest(closeS, 2, this._context);
+        const lowClose2 = PineJS.Std.lowest(closeS, 2, this._context);
+        const highOfLow2 = PineJS.Std.highest(lowS, 2, this._context);
+        const low2 = PineJS.Std.lowest(lowS, 2, this._context);
+
+        const invalid2p =
+          !isFinite(lowClose2) || lowClose2 === 0 || !isFinite(low2) || low2 === 0;
+
+        const term1_2p = invalid2p
+          ? NaN
+          : ((high2 - lowOfHigh2) / lowClose2) * 100;
+        const term2_2p = invalid2p
+          ? NaN
+          : ((close2 - lowClose2) / lowClose2) * 100;
+        const term3_2p = invalid2p
+          ? NaN
+          : ((highOfLow2 - low2) / low2) * 100;
+        const avg_2p = (term1_2p + 1.5 * term2_2p + term3_2p) / 3;
+
+        // === 3-period Calculations ===
+        const high3 = PineJS.Std.highest(highS, 3, this._context);
+        const lowOfHigh3 = PineJS.Std.lowest(highS, 3, this._context);
+        const close3 = PineJS.Std.highest(closeS, 3, this._context);
+        const lowClose3 = PineJS.Std.lowest(closeS, 3, this._context);
+
+        const invalid3p = !isFinite(lowClose3) || lowClose3 === 0;
+
+        const term1_3p = invalid3p
+          ? NaN
+          : ((high3 - lowOfHigh3) / lowClose3) * 100;
+        const term2_3p = invalid3p
+          ? NaN
+          : 1.5 * ((close3 - lowClose3) / lowClose3) * 100;
+        const avg_3p = (term1_3p + term2_3p) / 2;
+
+        // === Combine Averages ===
+        const combinedAvg = (3 * avg_2p + avg_3p) / 4;
+
+        // Persistent series for rolling normalization
+        const combinedS = this._context.new_var(combinedAvg); // #4
+
+        // === Normalization over loopback ===
+        const highestCombined = PineJS.Std.highest(
+          combinedS,
+          loopback,
+          this._context,
+        );
+        const lowestCombined = PineJS.Std.lowest(
+          combinedS,
+          loopback,
+          this._context,
+        );
+
+        const denom = highestCombined - lowestCombined;
+        if (!isFinite(denom) || denom === 0) return [NaN];
+
+        const normalizedScore =
+          ((combinedAvg - lowestCombined) / denom) * 100;
+
+        return [normalizedScore];
       };
     },
   };

@@ -134,16 +134,21 @@ def _completion_items() -> list[dict]:
     for fn_name in registered_names():
         func_def = get_func(fn_name)
         # Build snippet: SMA(${1:source}, ${2:period})
-        params = ["${1:source}"]
-        for i in range(1, func_def.n_args):
-            params.append(f"${{{i + 1}:param{i}}}")
+        if func_def.implicit_series:
+            params = ["${1:loopback}"]
+            detail_args = ["loopback"]
+        else:
+            params = ["${1:source}"]
+            for i in range(1, func_def.n_args):
+                params.append(f"${{{i + 1}:param{i}}}")
+            detail_args = ["source"] + [f"param{i}" for i in range(1, func_def.n_args)]
         snippet = f"{fn_name}({', '.join(params)})"
 
         items.append(
             {
                 "label": fn_name,
                 "kind": "function",
-                "detail": f"{fn_name}({', '.join(['source'] + [f'param{i}' for i in range(1, func_def.n_args)])})",
+                "detail": f"{fn_name}({', '.join(detail_args)})",
                 "documentation": f"Built-in function: {fn_name}. Takes {func_def.n_args} arguments.",
                 "insertText": snippet,
                 "insertTextRules": "insertAsSnippet",
