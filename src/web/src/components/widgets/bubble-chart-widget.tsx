@@ -153,6 +153,7 @@ function BubbleChartCanvas({
   const panStartRef = useRef<{ px: number; py: number; vp: Viewport } | null>(null);
   const isSelectingRef = useRef(false);
   const selectStartRef = useRef<{ x: number; y: number } | null>(null);
+  const userInteractedRef = useRef(false);
 
   // Animation refs — avoids stale closures in the RAF loop
   const vpRef = useRef<Viewport | null>(null);        // current rendered viewport
@@ -199,12 +200,21 @@ function BubbleChartCanvas({
     return { xMin: xMin - xPad, xMax: xMax + xPad, yMin: yMin - yPad, yMax: yMax + yPad };
   }, [points]);
 
-  // Reset viewport when data changes
+  // Keep user zoom/pan across data updates; only follow data if no interaction yet.
   useEffect(() => {
-    setViewport(baseDomain);
-    vpRef.current = baseDomain;
-    targetVpRef.current = null;
-  }, [baseDomain]);
+    if (!baseDomain) {
+      if (!vpRef.current) setViewport(null);
+      return;
+    }
+
+    const hasUserInteracted = userInteractedRef.current;
+
+    if (!vpRef.current || !viewport || !hasUserInteracted) {
+      setViewport(baseDomain);
+      vpRef.current = baseDomain;
+      targetVpRef.current = null;
+    }
+  }, [baseDomain, viewport]);
 
   // Keep vpRef in sync with rendered viewport
   useEffect(() => { vpRef.current = viewport; }, [viewport]);
@@ -304,21 +314,27 @@ function BubbleChartCanvas({
   );
 
   const zoomIn = useCallback(() => {
+    userInteractedRef.current = true;
     zoomAround(chartW / 2, chartH / 2, ZOOM_FACTOR);
   }, [zoomAround, chartW, chartH]);
 
   const zoomOut = useCallback(() => {
+    userInteractedRef.current = true;
     zoomAround(chartW / 2, chartH / 2, 1 / ZOOM_FACTOR);
   }, [zoomAround, chartW, chartH]);
 
   const resetZoom = useCallback(() => {
-    if (baseDomain) animateTo(baseDomain);
+    if (baseDomain) {
+      userInteractedRef.current = false;
+      animateTo(baseDomain);
+    }
   }, [animateTo, baseDomain]);
 
   // Wheel to zoom — proportional to deltaY so trackpad feels smooth
   const handleWheel = useCallback(
     (e: React.WheelEvent<SVGSVGElement>) => {
       e.preventDefault();
+      userInteractedRef.current = true;
       const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
       const px = e.clientX - rect.left - MARGIN.left;
       const py = e.clientY - rect.top - MARGIN.top;
@@ -352,6 +368,7 @@ function BubbleChartCanvas({
         selectStartRef.current = { x: px, y: py };
         setSelectBox({ x1: px, y1: py, x2: px, y2: py });
       } else {
+        userInteractedRef.current = true;
         isPanningRef.current = true;
         panStartRef.current = { px: e.clientX, py: e.clientY, vp: { ...vp } };
       }
@@ -402,6 +419,7 @@ function BubbleChartCanvas({
         if (maxX - minX > 8 && maxY - minY > 8) {
           const v = vpRef.current;
           if (v) {
+            userInteractedRef.current = true;
             const xRange = v.xMax - v.xMin;
             const yRange = v.yMax - v.yMin;
             // Note: y-axis is flipped — top of chart = yMax in data space
