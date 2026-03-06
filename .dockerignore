@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.ruff_cache/
+.python-version
+
+# Node.js
+node_modules/
+src/web/node_modules/
+src/web/dist/
+
+# IDEs
+.idea/
+.vscode/
+
+# Data and Logs
+data/
+logs/
+*.log
+
+# Project specific
+.claude/
+.jbeval/
+old/
+docs/
+tests/
+infra/
+scripts/

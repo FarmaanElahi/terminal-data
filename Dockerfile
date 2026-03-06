@@ -1,25 +1,44 @@
-# Multi-stage build for Terminal backend
-# Stage 1: Build with uv
-FROM python:3.13-slim AS builder
+# Stage 1: Build the Web Frontend
+FROM node:22-slim AS web-builder
+
+WORKDIR /app/src/web
+# Copy package files for better caching
+COPY src/web/package*.json ./
+RUN npm ci
+
+# Copy the rest of the web source
+COPY src/web/ ./
+# Build the production assets
+RUN npm run build
+
+# Stage 2: Build the Python Backend
+FROM python:3.13-slim AS backend-builder
 
 WORKDIR /app
 
-# Install uv
+# Install uv and binutils (for strip)
+RUN apt-get update && apt-get install -y --no-install-recommends binutils && \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Copy dependency files
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 
-# Install dependencies
-RUN uv sync --frozen --no-dev --no-editable
+# Install dependencies (excluding dev deps) and cleanup venv
+RUN uv sync --frozen --no-dev --no-editable && \
+    # Strip debug symbols from binary extensions
+    find .venv -name "*.so" -exec strip --strip-unneeded {} + && \
+    # Cleanup unnecessary files from venv
+    find .venv -type d -name "__pycache__" -exec rm -rf {} + && \
+    find .venv -type f -name "*.pyc" -delete && \
+    find .venv -type d -name "tests" -exec rm -rf {} + && \
+    find .venv -type d -name "testing" -exec rm -rf {} + && \
+    rm -rf /root/.cache/uv
 
-# Copy source code
-COPY src/ src/
+# Copy Python source code
+COPY src/terminal src/terminal
 
-# Install the project itself
-RUN uv sync --frozen --no-dev
-
-# Stage 2: Runtime
+# Stage 3: Final Runtime
 FROM python:3.13-slim AS runtime
 
 # Create non-root user
@@ -28,22 +47,26 @@ RUN groupadd --gid 1000 terminal && \
 
 WORKDIR /app
 
-# Copy the virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
-COPY --from=builder /app/src /app/src
+# Copy the optimized virtual environment
+COPY --from=backend-builder --chown=terminal:terminal /app/.venv /app/.venv
+# Copy the backend source
+COPY --from=backend-builder --chown=terminal:terminal /app/src/terminal /app/src/terminal
+# Copy the web dist from web-builder
+COPY --from=web-builder --chown=terminal:terminal /app/src/web/dist /app/src/web/dist
 
 # Add venv to PATH
 ENV PATH="/app/.venv/bin:$PATH"
+ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
 
 # Create data directory for local cache
-RUN mkdir -p /app/data && chown -R terminal:terminal /app
+RUN mkdir -p /app/data && chown -R terminal:terminal /app/data
 
 USER terminal
 
-EXPOSE 8000
+EXPOSE $PORT
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD python -c "import urllib.request; import os; port = os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')" || exit 1
 
-CMD ["uvicorn", "terminal.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["sh", "-c", "uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
