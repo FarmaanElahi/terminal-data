@@ -22,6 +22,7 @@ class DataProvider(ABC):
         cache_dir: str = "data",
         provider_name: str = "tv",
     ):
+        self.supports_live_stream = False
         self.fs = fs
         self.bucket = bucket
         self.cache_dir = Path(cache_dir)

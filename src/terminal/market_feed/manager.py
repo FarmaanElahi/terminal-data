@@ -46,7 +46,8 @@ class BroadcastChannel:
 class MarketDataManager:
     """
     Coordinates data loading and realtime updates between OHLCStore and DataProvider.
-    Uses TradingView Scanner API polling (every 5s) for live OHLCV updates.
+    Uses TradingView websocket quote stream when available,
+    with Scanner API polling as a fallback.
     Includes circuit breaker for external API resilience and staleness tracking.
     """
 
@@ -128,14 +129,17 @@ class MarketDataManager:
 
     async def start_realtime_streaming(self, tickers: list[str]):
         """
-        Starts the background polling task for realtime updates using scanner API.
+        Starts the background realtime task for OHLCV updates.
         """
         if self._streaming_task and not self._streaming_task.done():
             logger.warning("Realtime streaming is already running.")
             return
 
         self._stop_event.clear()
-        self._streaming_task = asyncio.create_task(self._stream_loop(tickers))
+        if getattr(self.provider, "supports_live_stream", False):
+            self._streaming_task = asyncio.create_task(self._stream_quote_loop(tickers))
+        else:
+            self._streaming_task = asyncio.create_task(self._stream_loop(tickers))
         logger.info(f"Started realtime streaming for {len(tickers)} tickers")
 
     async def stop_realtime_streaming(self):
@@ -153,7 +157,7 @@ class MarketDataManager:
 
     async def _stream_loop(self, tickers: list[str]):
         """
-        Polling loop that fetches daily OHLCV from TradingView Scanner API every 5s.
+        Polling loop that fetches daily OHLCV from TradingView Scanner API every interval.
         Updates the store and broadcasts changes. Uses circuit breaker for resilience.
         """
         ticker_set = set(tickers)
@@ -211,6 +215,75 @@ class MarketDataManager:
             pass
         except Exception as e:
             logger.error(f"Error in realtime stream loop: {e}", exc_info=True)
+
+    async def _stream_quote_loop(self, tickers: list[str]):
+        """
+        Streaming loop that subscribes to TradingView quote updates.
+        Updates the store and broadcasts changes.
+        """
+        ticker_set = set(tickers)
+        stream_callable = getattr(self.provider, "stream_live_ohlcv", None)
+        if stream_callable is None or not callable(stream_callable):
+            logger.info("Live stream unavailable, falling back to polling.")
+            await self._stream_loop(tickers)
+            return
+
+        while not self._stop_event.is_set():
+            try:
+                async for symbol, candle in stream_callable(tickers):
+                    if self._stop_event.is_set():
+                        break
+                    if symbol not in ticker_set:
+                        continue
+
+                    self.store.add_realtime(symbol, candle)
+                    await self._broadcast.publish(symbol, candle)
+
+                    self._last_successful_poll = time.time()
+                    self._consecutive_failures = 0
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                self._consecutive_failures += 1
+                logger.error(
+                    "Error in quote stream loop (failures=%d): %s",
+                    self._consecutive_failures,
+                    e,
+                    exc_info=True,
+                )
+
+                if self._consecutive_failures >= 5:
+                    logger.warning(
+                        "Quote stream unstable, switching to polling fallback."
+                    )
+                    await self._stream_loop(tickers)
+                    return
+
+                if self._stop_event.is_set():
+                    break
+
+                # Reconnect delay before retrying the quote stream.
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=self.poll_interval
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    continue
+
+            else:
+                if self._stop_event.is_set():
+                    break
+
+                # If stream closes normally (rare), retry after interval.
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=self.poll_interval
+                    )
+                    break
+                except asyncio.TimeoutError:
+                    continue
 
     def _start_periodic_cache_updater(self):
         """

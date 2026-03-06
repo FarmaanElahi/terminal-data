@@ -100,6 +100,45 @@ async def test_manager_streaming_and_pubsub():
 
 
 @pytest.mark.asyncio
+async def test_manager_streaming_from_quotes():
+    store = OHLCStore()
+    provider = MockDataProvider()
+    provider.supports_live_stream = True
+    manager = MarketDataManager(store, provider, poll_interval=0.1)
+
+    now = int(time.time())
+
+    async def stream_live_ohlcv(tickers: list[str]):
+        yield (tickers[0], (now, 100.0, 105.0, 95.0, 102.0, 1000.0))
+
+    provider.stream_live_ohlcv = stream_live_ohlcv
+
+    await manager.start_realtime_streaming(["AAPL"])
+
+    updates = []
+
+    async def subscriber_task():
+        async for update in manager.subscribe():
+            updates.append(update)
+            if len(updates) >= 1:
+                break
+
+    sub_task = asyncio.create_task(subscriber_task())
+    await asyncio.sleep(0.2)
+
+    await manager.stop_realtime_streaming()
+    await sub_task
+
+    data = store.get_data("AAPL")
+    assert data is not None
+    assert len(data) >= 1
+    assert data.iloc[-1]["close"] == pytest.approx(102.0, rel=1e-3)
+    assert len(updates) >= 1
+    assert updates[0]["symbol"] == "AAPL"
+    assert updates[0]["candle"][4] == 102.0
+
+
+@pytest.mark.asyncio
 async def test_manager_get_ohlcv():
     store = OHLCStore()
     provider = MockDataProvider()

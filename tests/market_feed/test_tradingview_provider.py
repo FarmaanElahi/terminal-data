@@ -82,3 +82,50 @@ async def test_refresh_cache_flow(tv_provider, mock_fs):
     # Verify FS.put was called to OCI
     mock_fs.put.assert_called_once()
     assert "candles_tv.parquet" in mock_fs.put.call_args[0][1]
+
+
+@pytest.mark.asyncio
+async def test_stream_live_ohlcv_aggregates_per_day(tv_provider):
+    import time
+    from unittest.mock import patch
+
+    now = int(time.time())
+    day_start = now - (now % 86400)
+
+    async def fake_stream_quotes(tickers, fields=None):
+        yield {
+            "NSE:RELIANCE": {
+                "open_price": 100.0,
+                "high_price": 108.0,
+                "low_price": 95.0,
+                "lp": 103.0,
+                "volume": 1200.0,
+                "lp_time": now,
+            }
+        }
+        yield {
+            "NSE:RELIANCE": {
+                "open_price": 99.0,
+                "high_price": 112.0,
+                "low_price": 94.0,
+                "lp": 106.0,
+                "volume": 2000.0,
+                "lp_time": now + 120,
+            }
+        }
+
+    with patch("terminal.tradingview.streamer2.streamer.stream_quotes", fake_stream_quotes):
+        updates = []
+        async for symbol, candle in tv_provider.stream_live_ohlcv(["NSE:RELIANCE"]):
+            updates.append((symbol, candle))
+            if len(updates) >= 2:
+                break
+
+    assert len(updates) == 2
+    assert updates[0][1][0] == day_start
+    assert updates[0][1][1] == 100.0
+    assert updates[1][1][0] == day_start
+    assert updates[1][1][1] == 100.0  # open remains first
+    assert updates[1][1][2] == 112.0  # high is tracked
+    assert updates[1][1][3] == 94.0   # low is tracked
+    assert updates[1][1][5] == 2000.0 # latest cumulative volume
