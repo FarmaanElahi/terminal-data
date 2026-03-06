@@ -3,6 +3,7 @@ import { useWidget } from "@/hooks/use-widget";
 import { useLayoutStore } from "@/stores/layout-store";
 import type { WidgetProps } from "@/types/layout";
 import { TerminalDatafeed } from "@/lib/terminal-datafeed";
+import { ChartSession } from "@/lib/chart-session";
 import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
 import { getCustomIndicators } from "@/lib/custom-indicators";
 import { useAddSymbolMutation, useListsQuery } from "@/queries/use-lists";
@@ -168,7 +169,8 @@ export function ChartWidget({
     currentSymbolRef.current = initialSymbol;
 
     const isDark = theme === "dark";
-    const datafeed = new TerminalDatafeed();
+    const session = new ChartSession();
+    const datafeed = new TerminalDatafeed(session);
     const storageAdapter = new ChartStorageAdapter();
 
     storageAdapter.hydrate();
@@ -298,7 +300,7 @@ export function ChartWidget({
       } catch {
         /* already disposed */
       }
-      datafeed.destroy();
+      session.destroy();
       widgetRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
