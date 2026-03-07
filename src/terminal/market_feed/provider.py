@@ -1,18 +1,45 @@
-from abc import ABC
-from fsspec import AbstractFileSystem
+"""Exchange-partitioned Parquet storage with lazy loading.
 
-from pathlib import Path
-import pandas as pd
+Storage layout::
+
+    {bucket}/market_feed/candles/{timeframe}/{exchange}.parquet
+
+Each Parquet file contains all symbols for one exchange at one timeframe,
+with a maximum of ``MAX_BARS`` rows per symbol.
+
+Files are loaded lazily on first access, with ``asyncio.Lock`` per
+``(timeframe, exchange)`` to prevent duplicate loads under concurrency.
+"""
+
+import asyncio
 import logging
-from typing import Dict
+from pathlib import Path
+
+import pandas as pd
+from fsspec import AbstractFileSystem
 
 logger = logging.getLogger(__name__)
 
+MAX_BARS = 1500
 
-class DataProvider(ABC):
-    """
-    Abstract base class for providing OHLC data.
-    Stores history as Dict[str, pd.DataFrame] — no numpy intermediate.
+# Known exchanges and their canonical names
+EXCHANGES = ("NSE", "BSE", "NASDAQ", "NYSE", "AMEX")
+
+# Standard timeframes supported
+TIMEFRAMES = ("1D", "1W", "1M")
+
+
+def _extract_exchange(symbol: str) -> str:
+    """Extract exchange prefix from a ticker like ``NSE:RELIANCE``."""
+    return symbol.split(":")[0] if ":" in symbol else "NSE"
+
+
+class PartitionedProvider:
+    """Exchange-partitioned Parquet provider with lazy loading.
+
+    Data is organised as one Parquet file per ``(timeframe, exchange)`` pair.
+    Files are synced between a remote filesystem (e.g. OCI Object Storage)
+    and a local cache directory.
     """
 
     def __init__(
@@ -20,51 +47,83 @@ class DataProvider(ABC):
         fs: AbstractFileSystem,
         bucket: str,
         cache_dir: str = "data",
-        provider_name: str = "tv",
     ):
-        self.supports_live_stream = False
         self.fs = fs
         self.bucket = bucket
-        self.cache_dir = Path(cache_dir)
+        self.cache_dir = Path(cache_dir) / "candles"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.cache_file_local = self.cache_dir / f"{provider_name}_candles.parquet"
-        self.cache_file_oci = f"{bucket}/market_feed/candles_{provider_name}.parquet"
-        self._history_dict: Dict[str, pd.DataFrame] = {}
-        self._cache_loaded = False
+        self.supports_live_stream = True
 
-    def load_cache(self):
-        """Loads the entire Parquet cache into memory as DataFrames."""
-        if self._cache_loaded:
+        # Loaded data: {(timeframe, exchange): {symbol: DataFrame}}
+        self._data: dict[tuple[str, str], dict[str, pd.DataFrame]] = {}
+
+        # Per-(timeframe, exchange) locks for lazy loading
+        self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+    # ------------------------------------------------------------------
+    # Path helpers
+    # ------------------------------------------------------------------
+
+    def _remote_path(self, timeframe: str, exchange: str) -> str:
+        return f"{self.bucket}/market_feed/candles/{timeframe}/{exchange}.parquet"
+
+    def _local_path(self, timeframe: str, exchange: str) -> Path:
+        d = self.cache_dir / timeframe
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{exchange}.parquet"
+
+    # ------------------------------------------------------------------
+    # Lazy loading
+    # ------------------------------------------------------------------
+
+    async def ensure_loaded(self, timeframe: str, exchange: str) -> None:
+        """Lazy-load an exchange file with lock — safe for concurrent access."""
+        key = (timeframe, exchange)
+        if key in self._data:
             return
 
-        if not self.cache_file_local.exists():
-            self._sync_from_oci()
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            if key in self._data:  # double-check after acquiring lock
+                return
+            await asyncio.to_thread(self._load_exchange, timeframe, exchange)
 
-        if not self.cache_file_local.exists():
-            self._cache_loaded = True
+    def _load_exchange(self, timeframe: str, exchange: str) -> None:
+        """Load one exchange file from local cache (sync from remote if needed)."""
+        key = (timeframe, exchange)
+        local = self._local_path(timeframe, exchange)
+
+        if not local.exists():
+            self._sync_from_remote(timeframe, exchange)
+
+        if not local.exists():
+            logger.info(
+                "No data found for %s/%s (local and remote empty)", timeframe, exchange
+            )
+            self._data[key] = {}
             return
 
         try:
-            df = pd.read_parquet(self.cache_file_local)
+            df = pd.read_parquet(local)
             if df.empty:
-                self._cache_loaded = True
+                self._data[key] = {}
                 return
 
+            symbols: dict[str, pd.DataFrame] = {}
             for symbol, group in df.groupby("symbol"):
                 hist = group[
                     ["timestamp", "open", "high", "low", "close", "volume"]
                 ].copy()
 
-                # Convert timestamp to int32 seconds
+                # Convert timestamp to int64 seconds
                 if pd.api.types.is_datetime64_any_dtype(hist["timestamp"]):
                     hist["timestamp"] = (
                         hist["timestamp"]
                         .values.astype("datetime64[s]")
                         .astype("int64")
-                        .astype("int32")
                     )
                 else:
-                    hist["timestamp"] = hist["timestamp"].astype("int32")
+                    hist["timestamp"] = hist["timestamp"].astype("int64")
 
                 # Downcast OHLCV to float32
                 for col in ("open", "high", "low", "close", "volume"):
@@ -72,69 +131,212 @@ class DataProvider(ABC):
 
                 hist = hist.sort_values("timestamp")
                 hist = hist.set_index("timestamp")
-                self._history_dict[str(symbol)] = hist
 
-            logger.info(f"Loaded {len(self._history_dict)} symbols from cache.")
-        except Exception as e:
-            logger.error(f"Error reading local cache: {e}")
-        finally:
-            self._cache_loaded = True
+                # Limit to MAX_BARS most recent bars
+                if len(hist) > MAX_BARS:
+                    hist = hist.iloc[-MAX_BARS:]
 
-    def _sync_from_oci(self):
+                symbols[str(symbol)] = hist
+
+            self._data[key] = symbols
+            logger.info(
+                "Loaded %d symbols for %s/%s from cache",
+                len(symbols),
+                timeframe,
+                exchange,
+            )
+        except Exception:
+            logger.exception("Error loading %s/%s from local cache", timeframe, exchange)
+            self._data[key] = {}
+
+    def _sync_from_remote(self, timeframe: str, exchange: str) -> None:
+        """Download a remote Parquet file to local cache."""
+        remote = self._remote_path(timeframe, exchange)
+        local = self._local_path(timeframe, exchange)
         max_retries = 3
+
         for attempt in range(max_retries):
             try:
-                if self.fs.exists(self.cache_file_oci):
-                    self.fs.get(self.cache_file_oci, str(self.cache_file_local))
-                    logger.info(f"Synced cache from OCI: {self.cache_file_oci}")
+                if self.fs.exists(remote):
+                    self.fs.get(remote, str(local))
+                    logger.info("Synced from remote: %s", remote)
                     return
                 else:
-                    logger.info("OCI cache file does not exist: %s", self.cache_file_oci)
+                    logger.info("Remote file does not exist: %s", remote)
                     return
             except Exception as e:
                 logger.warning(
-                    "OCI sync attempt %d/%d failed: %s",
+                    "Remote sync attempt %d/%d failed for %s: %s",
                     attempt + 1,
                     max_retries,
+                    remote,
                     e,
                 )
                 if attempt == max_retries - 1:
-                    if self.cache_file_local.exists():
+                    if local.exists():
                         logger.warning(
-                            "OCI unreachable after %d retries — using local cache",
+                            "Remote unreachable after %d retries — using local cache for %s/%s",
                             max_retries,
+                            timeframe,
+                            exchange,
                         )
                     else:
                         logger.error(
-                            "OCI unreachable and no local cache available"
+                            "Remote unreachable and no local cache for %s/%s",
+                            timeframe,
+                            exchange,
                         )
 
-    def get_history(self, symbol: str) -> pd.DataFrame | None:
-        """
-        Retrieves historical data for a symbol as a DataFrame.
-        Returns None if no data available.
-        """
-        if not self._cache_loaded:
-            self.load_cache()
-        return self._history_dict.get(symbol)
+    # ------------------------------------------------------------------
+    # Data access
+    # ------------------------------------------------------------------
 
-    def get_all_tickers(self) -> list[str]:
-        """
-        Returns all tickers loaded in the cache.
-        """
-        if not self._cache_loaded:
-            self.load_cache()
-        return list(self._history_dict.keys())
+    def get_history(
+        self, symbol: str, timeframe: str = "1D"
+    ) -> pd.DataFrame | None:
+        """Retrieve historical data for a symbol at a timeframe.
 
-    def update_cache(self, df: pd.DataFrame):
+        Returns ``None`` if the exchange file has not been loaded yet
+        or the symbol is not found.  Callers should ``await ensure_loaded()``
+        first.
         """
-        Persists data to local Parquet + OCI (seeding only).
-        In-memory cache is populated once via load_cache() at startup.
-        Uses ZSTD compression for smaller Parquet files.
+        exchange = _extract_exchange(symbol)
+        key = (timeframe, exchange)
+        return self._data.get(key, {}).get(symbol)
+
+    def get_all_tickers(self, timeframe: str = "1D") -> list[str]:
+        """Return all tickers loaded across all exchanges for a timeframe."""
+        tickers: list[str] = []
+        for (tf, _ex), symbols in self._data.items():
+            if tf == timeframe:
+                tickers.extend(symbols.keys())
+        return tickers
+
+    def get_loaded_exchanges(self, timeframe: str = "1D") -> list[str]:
+        """Return exchanges that have been loaded for a timeframe."""
+        return [ex for (tf, ex) in self._data if tf == timeframe]
+
+    # ------------------------------------------------------------------
+    # Writing
+    # ------------------------------------------------------------------
+
+    def save_exchange(
+        self,
+        timeframe: str,
+        exchange: str,
+        data: dict[str, pd.DataFrame],
+    ) -> None:
+        """Persist data for one exchange at one timeframe.
+
+        Uses atomic write (write to temp, rename) to prevent corruption.
+
+        Args:
+            timeframe: e.g. ``"1D"``, ``"1m"``
+            exchange: e.g. ``"NSE"``, ``"NASDAQ"``
+            data: mapping of symbol → DataFrame with OHLCV columns and
+                  timestamp index
         """
+        if not data:
+            logger.warning("No data to save for %s/%s", timeframe, exchange)
+            return
+
+        # Build combined DataFrame
+        dfs: list[pd.DataFrame] = []
+        for symbol, df in data.items():
+            if df is None or len(df) == 0:
+                continue
+            df_copy = df.copy()
+            df_copy["symbol"] = symbol
+            df_copy.reset_index(inplace=True)
+            dfs.append(df_copy)
+
+        if not dfs:
+            return
+
+        full_df = pd.concat(dfs, ignore_index=True)
+
+        local = self._local_path(timeframe, exchange)
+        tmp = local.with_suffix(".parquet.tmp")
+
         try:
-            df.to_parquet(self.cache_file_local, index=False, compression="zstd")
-            self.fs.put(str(self.cache_file_local), self.cache_file_oci)
-            logger.info(f"Saved cache to OCI: {self.cache_file_oci}")
-        except Exception as e:
-            logger.error(f"Failed to save cache: {e}")
+            # Atomic write: temp file → rename
+            full_df.to_parquet(tmp, index=False, compression="zstd")
+            tmp.rename(local)
+
+            # Upload to remote
+            remote = self._remote_path(timeframe, exchange)
+            self.fs.put(str(local), remote)
+            logger.info(
+                "Saved %d symbols for %s/%s to remote",
+                len(data),
+                timeframe,
+                exchange,
+            )
+        except Exception:
+            logger.exception("Failed to save %s/%s", timeframe, exchange)
+            # Clean up temp file
+            if tmp.exists():
+                tmp.unlink()
+
+    def update_exchange_in_memory(
+        self,
+        timeframe: str,
+        exchange: str,
+        data: dict[str, pd.DataFrame],
+    ) -> None:
+        """Update the in-memory cache for an exchange without writing to disk."""
+        key = (timeframe, exchange)
+        self._data[key] = data
+
+    # ------------------------------------------------------------------
+    # Backward compatibility helpers
+    # ------------------------------------------------------------------
+
+    def update_cache(self, df: pd.DataFrame, timeframe: str = "1D") -> None:
+        """Persist data from a combined DataFrame, splitting by exchange.
+
+        This provides backward compatibility with the old monolithic cache
+        approach.  The DataFrame must contain a ``symbol`` column with
+        ``EXCHANGE:TICKER`` formatted values.
+        """
+        if df.empty:
+            return
+
+        # Group by exchange
+        df = df.copy()
+        df["_exchange"] = df["symbol"].apply(_extract_exchange)
+
+        for exchange, group in df.groupby("_exchange"):
+            symbols: dict[str, pd.DataFrame] = {}
+            for symbol, sym_group in group.groupby("symbol"):
+                hist = sym_group[
+                    ["timestamp", "open", "high", "low", "close", "volume"]
+                ].copy()
+
+                if pd.api.types.is_datetime64_any_dtype(hist["timestamp"]):
+                    hist["timestamp"] = (
+                        hist["timestamp"]
+                        .values.astype("datetime64[s]")
+                        .astype("int64")
+                    )
+                else:
+                    hist["timestamp"] = hist["timestamp"].astype("int64")
+
+                for col in ("open", "high", "low", "close", "volume"):
+                    hist[col] = hist[col].astype("float32")
+
+                hist = hist.sort_values("timestamp").set_index("timestamp")
+
+                if len(hist) > MAX_BARS:
+                    hist = hist.iloc[-MAX_BARS:]
+
+                symbols[str(symbol)] = hist
+
+            self.save_exchange(timeframe, str(exchange), symbols)
+            self.update_exchange_in_memory(timeframe, str(exchange), symbols)
+
+        logger.info(
+            "Updated cache for %d exchanges at timeframe %s",
+            df["_exchange"].nunique(),
+            timeframe,
+        )

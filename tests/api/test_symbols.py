@@ -49,6 +49,7 @@ async def test_get_symbols_api(client, mock_fs, mock_settings):
         }
     ]
     await symbol_service.refresh(mock_fs, mock_settings, mock_data)
+    await symbol_service.init(mock_fs, mock_settings)
 
     # 2. Test search via API
     response = await client.get("/api/v1/symbols/q?q=NVDA&market=america")
@@ -73,6 +74,7 @@ async def test_get_symbols_metadata_api(client, mock_fs, mock_settings):
         }
     ]
     await symbol_service.refresh(mock_fs, mock_settings, mock_data)
+    await symbol_service.init(mock_fs, mock_settings)
 
     # 2. Test metadata via API
     response = await client.get("/api/v1/symbols/search_metadata")

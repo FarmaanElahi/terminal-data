@@ -43,6 +43,10 @@ async def client_fixture(session):
     def get_session_override():
         yield session
 
+    # Clear auth rate limiter between tests to avoid 429s
+    from terminal.auth.router import _LOGIN_ATTEMPTS
+    _LOGIN_ATTEMPTS.clear()
+
     api.dependency_overrides[get_session] = get_session_override
     async with AsyncClient(
         transport=ASGITransport(app=api), base_url="http://testserver"

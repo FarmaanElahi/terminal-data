@@ -88,6 +88,7 @@ async def seeded_fs_settings(mock_fs, mock_settings):
     ]
 
     await symbol_service.refresh(mock_fs, mock_settings, mock_data)
+    await symbol_service.init(mock_fs, mock_settings)
     return mock_fs, mock_settings
 
 

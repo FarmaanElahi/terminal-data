@@ -62,7 +62,7 @@ async def test_run_scan_via_list(client: AsyncClient, token: str, mock_market_ma
 
     # 1. Create a List with columns
     list_response = await client.post(
-        "/api/v1/lists/",
+        "/api/v1/lists",
         headers=headers,
         json={
             "name": "Tech Stocks",

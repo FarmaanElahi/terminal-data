@@ -25,6 +25,9 @@ async def get_ohlcv(
     Retrieve OHLCV data for a given symbol in columnar format.
     Example symbol: 'NSE:RELIANCE', 'NASDAQ:AAPL'
     """
+    # Ensure exchange data is loaded (lazy loading)
+    await manager.ensure_symbol_loaded(symbol)
+
     if refresh:
         await manager.load_history([symbol])
 

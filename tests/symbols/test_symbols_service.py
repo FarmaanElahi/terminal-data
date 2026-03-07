@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 from unittest.mock import patch, AsyncMock
 from terminal.symbols.service import get_all_symbols_external
+from terminal.symbols import service as symbol_service
 
 
 @pytest.mark.asyncio
@@ -39,7 +40,7 @@ async def test_all_ticker():
     mock_fs = AsyncMock()
     mock_settings = AsyncMock()
 
-    with patch("terminal.symbols.service._ensure_data_loaded", return_value=mock_df):
+    with patch.object(symbol_service, "_symbols_df", mock_df):
         from terminal.symbols.service import all_ticker
 
         tickers = await all_ticker(mock_fs, mock_settings)

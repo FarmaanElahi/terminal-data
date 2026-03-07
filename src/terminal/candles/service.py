@@ -71,11 +71,11 @@ class CandleManager:
         if market in self._listener_tasks:
             self._listener_tasks[market].cancel()
 
+        coro = self._listen_to_provider(market, provider)
         try:
-            self._listener_tasks[market] = asyncio.create_task(
-                self._listen_to_provider(market, provider)
-            )
+            self._listener_tasks[market] = asyncio.create_task(coro)
         except RuntimeError:
+            coro.close()
             logger.debug("No event loop running, deferring listener for %s", market)
 
     async def _listen_to_provider(self, market: str, provider: CandleProvider) -> None:

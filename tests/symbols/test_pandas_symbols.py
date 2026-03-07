@@ -67,6 +67,7 @@ async def test_symbol_fts_search(mock_fs, mock_settings):
         },
     ]
     await symbol_service.refresh(mock_fs, mock_settings, symbols)
+    await symbol_service.init(mock_fs, mock_settings)
 
     # 2. Search by ticker (prefix) -> now regex/substring depending on implementation
     # Implementation uses str.contains
@@ -128,6 +129,7 @@ async def test_get_metadata(mock_fs, mock_settings):
         },
     ]
     await symbol_service.refresh(mock_fs, mock_settings, symbols)
+    await symbol_service.init(mock_fs, mock_settings)
 
     metadata = await symbol_service.get_filter_metadata(mock_fs, mock_settings)
     assert "america" in metadata["markets"]
@@ -149,8 +151,9 @@ async def test_symbol_upsert_logic(mock_fs, mock_settings):
         }
     ]
     await symbol_service.refresh(mock_fs, mock_settings, initial_symbols)
+    await symbol_service.init(mock_fs, mock_settings)
 
-    symbol_data_1 = await symbol_service._ensure_data_loaded(mock_fs, mock_settings)
+    symbol_data_1 = symbol_service._symbols_df
     assert len(symbol_data_1) == 1
     assert symbol_data_1.iloc[0]["name"] == "Apple"
 
@@ -166,9 +169,10 @@ async def test_symbol_upsert_logic(mock_fs, mock_settings):
         }
     ]
     await symbol_service.refresh(mock_fs, mock_settings, updated_symbols)
+    await symbol_service.init(mock_fs, mock_settings)
 
     # 3. Verify total count and updated data
-    symbol_data_2 = await symbol_service._ensure_data_loaded(mock_fs, mock_settings)
+    symbol_data_2 = symbol_service._symbols_df
     assert len(symbol_data_2) == 1
     assert symbol_data_2.iloc[0]["ticker"] == "AAPL"
     assert symbol_data_2.iloc[0]["name"] == "Apple Inc."

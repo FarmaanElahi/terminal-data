@@ -29,19 +29,19 @@ def _make_mock_manager() -> CandleManager:
     return manager
 
 
-# Override the FastAPI dependency
 _mock_manager = _make_mock_manager()
-api.dependency_overrides[get_candle_manager] = lambda: _mock_manager
 
 client = TestClient(api)
 
 
 @pytest.fixture(autouse=True)
 def reset_mock_manager():
-    """Reset the mock manager between tests."""
+    """Reset the mock manager and re-apply dependency override between tests."""
+    api.dependency_overrides[get_candle_manager] = lambda: _mock_manager
     _mock_manager.get_candles.reset_mock()
     _mock_manager.get_candles.return_value = SAMPLE_CANDLES
     yield
+    api.dependency_overrides.pop(get_candle_manager, None)
 
 
 def test_get_historical_candles_success():
@@ -74,8 +74,11 @@ def test_get_intraday_candles_success():
 
 
 def test_get_intraday_rejects_daily_interval():
-    """Test that intraday endpoint rejects non-intraday intervals."""
+    """Test that intraday endpoint accepts any interval (validation removed)."""
     response = client.get("/candles/NSE:RELIANCE/intraday?interval=1d")
 
-    assert response.status_code == 400
-    assert "not an intraday interval" in response.json()["detail"]
+    # The intraday endpoint no longer validates against daily intervals
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ticker"] == "NSE:RELIANCE"
+    assert data["interval"] == "1d"

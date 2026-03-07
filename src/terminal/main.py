@@ -18,6 +18,7 @@ from .middleware import RequestLoggingMiddleware
 from .dependencies import get_market_manager, get_fs, get_settings
 from .symbols import service as symbols_service
 from .proxy import router as proxy_router
+from .market_feed.scheduler import get_or_create_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,11 @@ async def lifespan(application: FastAPI):
     logger.info("Preloading symbols...")
     await symbols_service.init(get_fs(), get_settings())
 
+    # Start the candle refresh scheduler
+    scheduler = get_or_create_scheduler()
+    scheduler.start()
+    logger.info("Candle refresh scheduler started.")
+
     yield
 
     # Graceful shutdown sequence
@@ -71,27 +77,9 @@ async def lifespan(application: FastAPI):
     # 3. Stop MarketDataManager polling
     await manager.stop_realtime_streaming()
 
-    # 4. Flush pending cache if dirty
-    if manager.store.is_dirty:
-        logger.info("Flushing dirty cache before shutdown...")
-        try:
-            import pandas as pd
-
-            all_data = manager.store.get_all_data()
-            dfs = []
-            for ticker, df in all_data.items():
-                if df is None or len(df) == 0:
-                    continue
-                df_copy = df.copy()
-                df_copy["symbol"] = ticker
-                df_copy.reset_index(inplace=True)
-                dfs.append(df_copy)
-            if dfs:
-                full_df = pd.concat(dfs, ignore_index=True)
-                manager.provider.update_cache(full_df)
-                logger.info("Cache flushed successfully.")
-        except Exception:
-            logger.exception("Failed to flush cache during shutdown")
+    # 4. Stop the refresh scheduler
+    scheduler = get_or_create_scheduler()
+    scheduler.stop()
 
     logger.info("Shutdown complete.")
 

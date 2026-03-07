@@ -37,7 +37,7 @@ async def test_scanner_fetch_ohlcv_mock(tv_provider):
 
 
 def test_save_load_cache(tv_provider):
-    # Create dummy data
+    # Create per-exchange Parquet file matching the new partitioned layout
     df = pd.DataFrame(
         {
             "timestamp": [pd.Timestamp("2023-01-01")],
@@ -46,19 +46,23 @@ def test_save_load_cache(tv_provider):
             "low": [95.0],
             "close": [102.0],
             "volume": [1000.0],
-            "symbol": ["AAPL"],
+            "symbol": ["NSE:AAPL"],
         }
     )
 
-    cache_file = Path(tv_provider.cache_file_local)
-    df.to_parquet(cache_file, index=False)
+    # Write to the exchange-partitioned path
+    local_path = tv_provider._local_path("1D", "NSE")
+    df.to_parquet(local_path, index=False)
 
-    # Test get_history — now returns a DataFrame
-    history = tv_provider.get_history("AAPL")
+    # Load the exchange
+    tv_provider._load_exchange("1D", "NSE")
+
+    # Test get_history
+    history = tv_provider.get_history("NSE:AAPL", "1D")
     assert history is not None
     assert len(history) == 1
     assert history["close"].iloc[0] == pytest.approx(102.0, rel=1e-3)
-    # Timestamp should be int32 seconds
+    # Timestamp should be int64 seconds
     expected_ts = int(pd.Timestamp("2023-01-01").timestamp())
     assert history.index[0] == expected_ts
 
@@ -69,19 +73,20 @@ async def test_refresh_cache_flow(tv_provider, mock_fs):
 
     now = int(time.time())
     mock_result = {
-        "AAPL": (now, 100.0, 105.0, 95.0, 102.0, 1000.0),
+        "NSE:AAPL": (now, 100.0, 105.0, 95.0, 102.0, 1000.0),
     }
 
     tv_provider._scanner.fetch_ohlcv = AsyncMock(return_value=mock_result)
 
-    await tv_provider.refresh_cache(["AAPL"])
+    await tv_provider.refresh_cache(["NSE:AAPL"])
 
-    # Verify local file exists
-    assert Path(tv_provider.cache_file_local).exists()
+    # Verify local exchange file exists (new partitioned path)
+    local_path = tv_provider._local_path("1D", "NSE")
+    assert local_path.exists()
 
-    # Verify FS.put was called to OCI
+    # Verify FS.put was called to remote for the exchange
     mock_fs.put.assert_called_once()
-    assert "candles_tv.parquet" in mock_fs.put.call_args[0][1]
+    assert "NSE.parquet" in mock_fs.put.call_args[0][1]
 
 
 @pytest.mark.asyncio

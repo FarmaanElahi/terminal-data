@@ -59,5 +59,6 @@ async def trigger_sync(
     Synchronous (foreground) execution.
     """
     count = await symbol_service.refresh(fs=fs, settings=settings)
+    await symbol_service.init(fs, settings)
 
     return {"status": "Sync complete", "count": count}

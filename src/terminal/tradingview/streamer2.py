@@ -260,7 +260,7 @@ class TradingViewWorker:
                                         series_id,
                                         symbol_key,
                                         session_data["timeframe"],
-                                        1250,
+                                        session_data.get("bars", 1500),
                                     ],
                                 }
                             )
@@ -445,7 +445,7 @@ class TradingViewClient:
                 await worker.unregister_session(session_id)
 
     async def stream_bars(
-        self, tickers: List[str], timeframe: str = "1D"
+        self, tickers: List[str], timeframe: str = "1D", bars: int = 1500
     ) -> AsyncGenerator[dict, None]:
         """
         Fetches historical bars for multiple tickers.
@@ -466,7 +466,7 @@ class TradingViewClient:
             nonlocal active_tasks
             try:
                 async with semaphore:
-                    async for item in self._stream_bars_chunk(chunk, timeframe):
+                    async for item in self._stream_bars_chunk(chunk, timeframe, bars=bars):
                         await queue.put(item)
             except Exception as e:
                 logger.error(f"Error in stream_bars chunk task: {e}", exc_info=True)
@@ -493,7 +493,7 @@ class TradingViewClient:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _stream_bars_chunk(
-        self, tickers: List[str], timeframe: str
+        self, tickers: List[str], timeframe: str, bars: int = 1500
     ) -> AsyncGenerator[dict, None]:
         session_id = self._gen_session_id("cs")
         worker = await self._get_least_loaded_worker(type="bar")
@@ -512,6 +512,7 @@ class TradingViewClient:
             "symbol_resolve_count": 0,
             "total_symbols": len(keys),
             "timeframe": timeframe,
+            "bars": bars,
         }
 
         await worker.register_session(session_id, queue, session_data)

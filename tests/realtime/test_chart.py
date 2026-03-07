@@ -197,12 +197,12 @@ async def test_streaming_updates_filtered_by_interval(
     # Should only have sent ONE update (the 1d one)
     assert mock_realtime.send.call_count == 1
     update_call = mock_realtime.send.call_args[0][0]
-    assert update_call.p[2].o == 200.0
+    assert update_call.p[2].open == 200.0
 
 
 def test_stop_chart_session(chart_session):
     chart_session.stop()
-    assert chart_session._streaming_task is None
+    assert len(chart_session._streaming_tasks) == 0
 
 
 def test_chart_repr(chart_session):

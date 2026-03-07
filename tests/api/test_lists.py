@@ -6,7 +6,7 @@ async def test_create_and_get_list(client, token):
     headers = {"Authorization": f"Bearer {token}"}
     # Create
     resp = await client.post(
-        "/api/v1/lists/",
+        "/api/v1/lists",
         json={"name": "Test List", "type": "simple"},
         headers=headers,
     )
@@ -28,7 +28,7 @@ async def test_append_and_remove_symbols(client, token):
     headers = {"Authorization": f"Bearer {token}"}
     # Create
     resp = await client.post(
-        "/api/v1/lists/",
+        "/api/v1/lists",
         json={"name": "Simple", "type": "simple"},
         headers=headers,
     )
@@ -64,16 +64,16 @@ async def test_combo_source_list_management(client, token):
     headers = {"Authorization": f"Bearer {token}"}
     # Create two simple lists
     l1 = await client.post(
-        "/api/v1/lists/", json={"name": "L1", "type": "simple"}, headers=headers
+        "/api/v1/lists", json={"name": "L1", "type": "simple"}, headers=headers
     )
     l2 = await client.post(
-        "/api/v1/lists/", json={"name": "L2", "type": "simple"}, headers=headers
+        "/api/v1/lists", json={"name": "L2", "type": "simple"}, headers=headers
     )
     l1_id, l2_id = l1.json()["id"], l2.json()["id"]
 
     # Create a combo list
     combo = await client.post(
-        "/api/v1/lists/",
+        "/api/v1/lists",
         json={"name": "Combo", "type": "combo", "source_list_ids": [l1_id]},
         headers=headers,
     )
@@ -103,7 +103,7 @@ async def test_update_list(client, token):
     headers = {"Authorization": f"Bearer {token}"}
     # Create
     resp = await client.post(
-        "/api/v1/lists/",
+        "/api/v1/lists",
         json={"name": "Old Name", "type": "simple"},
         headers=headers,
     )
@@ -126,7 +126,7 @@ async def test_update_list(client, token):
 @pytest.mark.asyncio
 async def test_unauthorized_access(client):
     # Try to list without token
-    resp = await client.get("/api/v1/lists/")
+    resp = await client.get("/api/v1/lists")
     assert resp.status_code == 401
 
 
@@ -144,7 +144,7 @@ async def test_default_lists_initialization(client):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Access lists for the first time
-    resp = await client.get("/api/v1/lists/", headers=headers)
+    resp = await client.get("/api/v1/lists", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
 

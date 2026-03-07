@@ -1,7 +1,9 @@
 """Efficient OHLC store using pre-allocated numpy ring buffers.
 
-Storage layout per symbol:
-  - timestamps: int32 array   (Unix seconds, ~68 year range)
+Supports multiple timeframes per symbol via (symbol, timeframe) composite keys.
+
+Storage layout per (symbol, timeframe):
+  - timestamps: int64 array   (Unix seconds)
   - ohlcv:      float32 array  (capacity × 5)
   - size:       int            (current row count)
 
@@ -20,34 +22,49 @@ logger = logging.getLogger(__name__)
 _OHLCV_COLS = ("open", "high", "low", "close", "volume")
 _NUM_COLS = len(_OHLCV_COLS)
 
+# Type alias for the composite key
+type StoreKey = tuple[str, str]  # (symbol, timeframe)
+
+_DEFAULT_TF = "1D"
+
 
 class OHLCStore:
-    """Ring-buffer OHLC store with O(1) realtime updates."""
+    """Ring-buffer OHLC store with O(1) realtime updates.
+
+    All data is keyed by ``(symbol, timeframe)`` to support multiple
+    resolutions for the same instrument simultaneously.
+    """
 
     def __init__(self, capacity_per_symbol: int = 10000):
         self.capacity = capacity_per_symbol
-        # Per-symbol storage
-        self._timestamps: dict[str, np.ndarray] = {}  # int32
-        self._ohlcv: dict[str, np.ndarray] = {}  # float32, shape (cap, 5)
-        self._sizes: dict[str, int] = {}
-        self._locks: dict[str, asyncio.Lock] = {}
-        self.is_dirty = False
+        # Per-(symbol, timeframe) storage
+        self._timestamps: dict[StoreKey, np.ndarray] = {}  # int64
+        self._ohlcv: dict[StoreKey, np.ndarray] = {}  # float32, shape (cap, 5)
+        self._sizes: dict[StoreKey, int] = {}
+        self._locks: dict[StoreKey, asyncio.Lock] = {}
 
-    def _ensure_symbol(self, symbol: str) -> None:
-        """Allocate storage for a symbol if not already present."""
-        if symbol not in self._ohlcv:
-            self._timestamps[symbol] = np.zeros(self.capacity, dtype=np.int32)
-            self._ohlcv[symbol] = np.zeros((self.capacity, _NUM_COLS), dtype=np.float32)
-            self._sizes[symbol] = 0
-            self._locks[symbol] = asyncio.Lock()
+    @staticmethod
+    def _key(symbol: str, timeframe: str = _DEFAULT_TF) -> StoreKey:
+        return (symbol, timeframe)
 
-    def load_history(self, symbol: str, history: pd.DataFrame) -> None:
-        """Load historical data for a symbol from a DataFrame.
+    def _ensure_key(self, key: StoreKey) -> None:
+        """Allocate storage for a (symbol, timeframe) if not already present."""
+        if key not in self._ohlcv:
+            self._timestamps[key] = np.zeros(self.capacity, dtype=np.int64)
+            self._ohlcv[key] = np.zeros((self.capacity, _NUM_COLS), dtype=np.float32)
+            self._sizes[key] = 0
+            self._locks[key] = asyncio.Lock()
+
+    def load_history(
+        self, symbol: str, history: pd.DataFrame, timeframe: str = _DEFAULT_TF
+    ) -> None:
+        """Load historical data for a symbol at a given timeframe from a DataFrame.
 
         Expects columns: open, high, low, close, volume.
         Index should be named 'timestamp' (int seconds).
         """
-        self._ensure_symbol(symbol)
+        key = self._key(symbol, timeframe)
+        self._ensure_key(key)
 
         n = min(len(history), self.capacity)
         if n == 0:
@@ -60,63 +77,66 @@ class OHLCStore:
         # Extract timestamps from index
         ts = history.index.values
         if hasattr(ts, "astype"):
-            self._timestamps[symbol][:n] = ts[-n:].astype(np.int32)
+            self._timestamps[key][:n] = ts[-n:].astype(np.int64)
         else:
-            self._timestamps[symbol][:n] = np.array(ts[-n:], dtype=np.int32)
+            self._timestamps[key][:n] = np.array(ts[-n:], dtype=np.int64)
 
         # Extract OHLCV values
         for i, col in enumerate(_OHLCV_COLS):
-            self._ohlcv[symbol][:n, i] = history[col].values[-n:].astype(np.float32)
+            self._ohlcv[key][:n, i] = history[col].values[-n:].astype(np.float32)
 
-        self._sizes[symbol] = n
-        self.is_dirty = True
+        self._sizes[key] = n
 
-    def add_realtime(self, symbol: str, candle: tuple) -> None:
+    def add_realtime(
+        self, symbol: str, candle: tuple, timeframe: str = _DEFAULT_TF
+    ) -> None:
         """Update the store with a realtime candle.
 
         candle: (timestamp, open, high, low, close, volume)
         If the timestamp matches the last entry, update in-place.
         Otherwise append a new row.
         """
-        self._ensure_symbol(symbol)
+        key = self._key(symbol, timeframe)
+        self._ensure_key(key)
 
         ts = int(candle[0])
-        size = self._sizes[symbol]
+        size = self._sizes[key]
         values = np.array(
             [candle[1], candle[2], candle[3], candle[4], candle[5]],
             dtype=np.float32,
         )
 
-        if size > 0 and self._timestamps[symbol][size - 1] == ts:
+        if size > 0 and self._timestamps[key][size - 1] == ts:
             # Update existing row in-place
-            self._ohlcv[symbol][size - 1] = values
+            self._ohlcv[key][size - 1] = values
         else:
             # Append new row
             if size >= self.capacity:
                 # Ring buffer: shift left by one
-                self._timestamps[symbol][:-1] = self._timestamps[symbol][1:]
-                self._ohlcv[symbol][:-1] = self._ohlcv[symbol][1:]
+                self._timestamps[key][:-1] = self._timestamps[key][1:]
+                self._ohlcv[key][:-1] = self._ohlcv[key][1:]
                 idx = self.capacity - 1
             else:
                 idx = size
-                self._sizes[symbol] = size + 1
+                self._sizes[key] = size + 1
 
-            self._timestamps[symbol][idx] = np.int32(ts)
-            self._ohlcv[symbol][idx] = values
+            self._timestamps[key][idx] = np.int64(ts)
+            self._ohlcv[key][idx] = values
 
-        self.is_dirty = True
-
-    def get_data(self, symbol: str) -> pd.DataFrame | None:
-        """Return a DataFrame view for a symbol, or None if not loaded."""
-        if symbol not in self._ohlcv:
+    def get_data(
+        self, symbol: str, timeframe: str = _DEFAULT_TF
+    ) -> pd.DataFrame | None:
+        """Return a DataFrame view for a symbol at a timeframe, or None if not loaded."""
+        key = self._key(symbol, timeframe)
+        if key not in self._ohlcv:
             return None
 
-        size = self._sizes.get(symbol, 0)
+        size = self._sizes.get(key, 0)
         if size == 0:
             return None
 
-        ts = self._timestamps[symbol][:size]
-        data = self._ohlcv[symbol][:size]
+        ts = self._timestamps[key][:size]
+        data = self._ohlcv[key][:size]
 
         df = pd.DataFrame(
             data,
@@ -125,21 +145,28 @@ class OHLCStore:
         )
         return df
 
-    def get_all_data(self) -> dict[str, pd.DataFrame]:
-        """Return DataFrames for all symbols."""
+    def get_all_data(
+        self, timeframe: str = _DEFAULT_TF
+    ) -> dict[str, pd.DataFrame]:
+        """Return DataFrames for all symbols at a given timeframe."""
         result = {}
-        for symbol in self._ohlcv:
-            df = self.get_data(symbol)
+        for key in self._ohlcv:
+            sym, tf = key
+            if tf != timeframe:
+                continue
+            df = self.get_data(sym, tf)
             if df is not None:
-                result[symbol] = df
+                result[sym] = df
         return result
 
-    def has_symbol(self, symbol: str) -> bool:
-        """Check whether a symbol is loaded in the store."""
-        return symbol in self._ohlcv and self._sizes.get(symbol, 0) > 0
+    def has_symbol(self, symbol: str, timeframe: str = _DEFAULT_TF) -> bool:
+        """Check whether a symbol is loaded at a given timeframe."""
+        key = self._key(symbol, timeframe)
+        return key in self._ohlcv and self._sizes.get(key, 0) > 0
 
-    def get_lock(self, symbol: str) -> asyncio.Lock:
-        """Return the asyncio.Lock for a given symbol (for lazy loading)."""
-        if symbol not in self._locks:
-            self._locks[symbol] = asyncio.Lock()
-        return self._locks[symbol]
+    def get_lock(self, symbol: str, timeframe: str = _DEFAULT_TF) -> asyncio.Lock:
+        """Return the asyncio.Lock for a given (symbol, timeframe) pair."""
+        key = self._key(symbol, timeframe)
+        if key not in self._locks:
+            self._locks[key] = asyncio.Lock()
+        return self._locks[key]

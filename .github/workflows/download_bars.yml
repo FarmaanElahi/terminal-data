@@ -1,0 +1,64 @@
+name: Download TradingView Bars
+
+on:
+  schedule:
+    # Daily at 4:30 PM IST (11:00 AM UTC) for NSE/BSE
+    - cron: '0 11 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      exchange:
+        description: 'Exchange to download (NSE, BSE, NASDAQ, NYSE, or all)'
+        required: true
+        default: 'NSE'
+      timeframe:
+        description: 'Timeframe (1D, 1W, 1M, 1)'
+        required: true
+        default: '1D'
+      bars:
+        description: 'Number of bars to download'
+        required: true
+        default: '1500'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Download Bars
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_REGION: ${{ secrets.OCI_REGION }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
+          # Some legacy env vars if still needed by external modules
+          PG_CONNECTION: ${{ secrets.DATABASE_URL }}
+        run: |
+          # Use values if triggered manually, otherwise defaults
+          EXCHANGE="${{ github.event.inputs.exchange || 'NSE' }}"
+          TIMEFRAME="${{ github.event.inputs.timeframe || '1D' }}"
+          BARS="${{ github.event.inputs.bars || '1500' }}"
+          
+          # We define uv to run terminal market-data download-bars
+          uv run terminal market-data download-bars \
+            --exchange "$EXCHANGE" \
+            --timeframe "$TIMEFRAME" \
+            --bars "$BARS"

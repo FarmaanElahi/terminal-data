@@ -8,12 +8,19 @@ from terminal.market_feed import OHLCStore, MarketDataManager, TradingViewDataPr
 
 class MockDataProvider(TradingViewDataProvider):
     def __init__(self):
-        # Bypass parent __init__ to avoid fs/bucket setup
+        # Bypass parent __init__ to avoid fs/bucket setup, but initialize
+        # the PartitionedProvider state needed by the base class
+        self._data = {}
+        self._locks = {}
         self._history_dict = {}
         self._cache_loaded = True
         self._scanner = MagicMock()
+        self.supports_live_stream = False
+        # Prevent inheriting real methods from TradingViewDataProvider
+        self.stream_live_ohlcv = None
+        self.fetch_live_ohlcv = None
 
-    def get_history(self, symbol: str) -> pd.DataFrame | None:
+    def get_history(self, symbol: str, timeframe: str = "1D") -> pd.DataFrame | None:
         """Returns a DataFrame with 10 rows of mock OHLCV data."""
         now = int(time.time())
         timestamps = [now - (10 - i) * 86400 for i in range(10)]
@@ -27,11 +34,18 @@ class MockDataProvider(TradingViewDataProvider):
             },
             index=pd.Index(timestamps, name="timestamp"),
         )
-        # Also populate _history_dict for get_all_tickers
-        self._history_dict[symbol] = df
+        # Also populate _data for get_all_tickers
+        key = (timeframe, "NSE")  # default exchange for simple symbol names
+        if key not in self._data:
+            self._data[key] = {}
+        self._data[key][symbol] = df
         return df
 
-    def update_cache(self, df):
+    def update_cache(self, df, timeframe: str = "1D"):
+        pass
+
+    async def ensure_loaded(self, timeframe: str, exchange: str) -> None:
+        """No-op — test data is already in memory."""
         pass
 
 
@@ -87,7 +101,15 @@ async def test_manager_streaming_and_pubsub():
 
     # Clean up
     await manager.stop_realtime_streaming()
-    await sub_task
+    # Give subscriber a moment to process, then cancel if still waiting
+    try:
+        await asyncio.wait_for(sub_task, timeout=2.0)
+    except asyncio.TimeoutError:
+        sub_task.cancel()
+        try:
+            await sub_task
+        except asyncio.CancelledError:
+            pass
 
     data = store.get_data("AAPL")
     assert data is not None
@@ -127,7 +149,14 @@ async def test_manager_streaming_from_quotes():
     await asyncio.sleep(0.2)
 
     await manager.stop_realtime_streaming()
-    await sub_task
+    try:
+        await asyncio.wait_for(sub_task, timeout=2.0)
+    except asyncio.TimeoutError:
+        sub_task.cancel()
+        try:
+            await sub_task
+        except asyncio.CancelledError:
+            pass
 
     data = store.get_data("AAPL")
     assert data is not None
@@ -184,17 +213,17 @@ def test_provider_get_all_tickers():
 async def test_manager_start():
     store = OHLCStore()
     provider = MockDataProvider()
-    # Mock get_all_tickers to return something
+    # Pre-load a symbol so get_all_tickers() returns something
     provider.get_history("AAPL")
     manager = MarketDataManager(store, provider)
 
-    # Mock load_history and start_realtime_streaming to avoid actual streaming logic
-    manager.load_history = AsyncMock()
+    # Mock start_realtime_streaming to avoid actual streaming logic
     manager.start_realtime_streaming = AsyncMock()
 
     await manager.start()
 
-    manager.load_history.assert_called_once_with(["AAPL"])
+    # With lazy loading, start() should find pre-loaded tickers
+    # and start streaming for them
     manager.start_realtime_streaming.assert_called_once_with(["AAPL"])
 
 

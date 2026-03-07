@@ -1,30 +1,30 @@
 import logging
-import pandas as pd
 import time
 from typing import AsyncGenerator
 
-from .provider import DataProvider
+import pandas as pd
 
+from .provider import PartitionedProvider, _extract_exchange
 from terminal.tradingview.scanner import TradingViewScanner
 
 logger = logging.getLogger(__name__)
 
 
-class TradingViewDataProvider(DataProvider):
-    """
-    DataProvider that fetches daily OHLCV data from TradingView.
+class TradingViewDataProvider(PartitionedProvider):
+    """DataProvider that fetches daily OHLCV data from TradingView.
+
     Supports both a Scanner REST API snapshot and full historical bar download
     via the WebSocket streamer (streamer2.py).
-    Caches data in OCI Object Storage and locally in Parquet format.
+    Caches data in per-exchange Parquet files on remote storage and locally.
     """
 
-    def __init__(self, fs: any, bucket: str, cache_dir: str = "data"):
-        super().__init__(fs, bucket, cache_dir, provider_name="tv")
+    def __init__(self, fs, bucket: str, cache_dir: str = "data"):
+        super().__init__(fs, bucket, cache_dir)
         self.supports_live_stream = True
         self._scanner = TradingViewScanner()
 
     @staticmethod
-    def _to_float(value: any) -> float | None:
+    def _to_float(value) -> float | None:
         try:
             if value is None:
                 return None
@@ -33,7 +33,7 @@ class TradingViewDataProvider(DataProvider):
             return None
 
     @staticmethod
-    def _to_int(value: any) -> int | None:
+    def _to_int(value) -> int | None:
         try:
             if value is None:
                 return None
@@ -51,8 +51,7 @@ class TradingViewDataProvider(DataProvider):
         quote: dict,
         previous: tuple[int, float, float, float, float, float] | None,
     ) -> tuple[int, float, float, float, float, float] | None:
-        """
-        Build one OHLCV candle from TradingView quote data.
+        """Build one OHLCV candle from TradingView quote data.
 
         Uses quoted bar fields directly when present and keeps per-symbol
         day bucketing stable so downstream code still works with D-based data.
@@ -130,9 +129,12 @@ class TradingViewDataProvider(DataProvider):
 
         return (day_ts, open_price, high_price, low_price, close, volume)
 
-    async def refresh_cache(self, symbols: list[str]):
-        """Refreshes the cache by fetching current daily OHLCV from scanner API."""
-        logger.info(f"Refreshing TV cache for {len(symbols)} symbols via scanner...")
+    async def refresh_cache(self, symbols: list[str]) -> None:
+        """Refreshes the cache by fetching current daily OHLCV from scanner API.
+
+        Splits results by exchange and writes per-exchange Parquet files.
+        """
+        logger.info("Refreshing TV cache for %d symbols via scanner...", len(symbols))
 
         ohlcv_data = await self._scanner.fetch_ohlcv()
 
@@ -161,24 +163,24 @@ class TradingViewDataProvider(DataProvider):
             return
 
         full_df = pd.DataFrame(rows)
-        self.update_cache(full_df)
-        logger.info(f"Refreshed cache with {len(rows)} symbols from scanner.")
+        self.update_cache(full_df, timeframe="1D")
+        logger.info("Refreshed cache with %d symbols from scanner.", len(rows))
 
     async def download_bars(
         self,
         tickers: list[str],
         timeframe: str = "1D",
+        bars: int = 1500,
         on_progress: callable = None,
     ) -> int:
-        """
-        Downloads full historical bar series for the given tickers via
+        """Downloads full historical bar series for the given tickers via
         the TradingView WebSocket streamer (streamer2.py) and persists
-        the result to local Parquet + OCI.
+        per-exchange Parquet files.
 
         Args:
             tickers:     List of TradingView tickers (e.g. ``"NSE:RELIANCE"``).
             timeframe:   TradingView timeframe string (default ``"1D"``).
-            on_progress: Optional callback(completed: int, total: int) for progress.
+            on_progress: Optional callback(completed: int, total: int).
 
         Returns:
             Number of symbols successfully saved.
@@ -186,19 +188,20 @@ class TradingViewDataProvider(DataProvider):
         from terminal.tradingview.streamer2 import streamer
 
         logger.info(
-            f"Downloading bars for {len(tickers)} symbols "
-            f"(timeframe={timeframe}) via WebSocket streamer..."
+            "Downloading bars for %d symbols (timeframe=%s) via WebSocket streamer...",
+            len(tickers),
+            timeframe,
         )
 
-        rows = []
+        rows: list[dict] = []
         completed = 0
         total = len(tickers)
 
-        async for item in streamer.stream_bars(tickers, timeframe=timeframe):
+        async for item in streamer.stream_bars(tickers, timeframe=timeframe, bars=bars):
             for ticker, bars in item.items():
                 completed += 1
                 if not bars:
-                    logger.warning(f"No bars received for {ticker}")
+                    logger.warning("No bars received for %s", ticker)
                     if on_progress:
                         on_progress(completed, total)
                     continue
@@ -220,7 +223,7 @@ class TradingViewDataProvider(DataProvider):
                         }
                     )
 
-                logger.debug(f"  [{completed}/{total}] {ticker}: {len(bars)} bars")
+                logger.debug("  [%d/%d] %s: %d bars", completed, total, ticker, len(bars))
                 if on_progress:
                     on_progress(completed, total)
 
@@ -229,25 +232,49 @@ class TradingViewDataProvider(DataProvider):
             return 0
 
         df = pd.DataFrame(rows)
-        self.update_cache(df)
+        self.update_cache(df, timeframe=timeframe)
         symbol_count = df["symbol"].nunique()
-        logger.info(f"Saved bar data for {symbol_count} symbols to OCIFS.")
+        logger.info("Saved bar data for %d symbols.", symbol_count)
         return symbol_count
+
+    async def download_bars_for_exchange(
+        self,
+        tickers: list[str],
+        exchange: str,
+        timeframe: str = "1D",
+        on_progress: callable = None,
+    ) -> int:
+        """Download bars for a specific exchange and save to its Parquet file.
+
+        Same as ``download_bars`` but filters tickers to the given exchange
+        and writes only that exchange's file.
+        """
+        exchange_tickers = [
+            t for t in tickers if _extract_exchange(t) == exchange
+        ]
+        if not exchange_tickers:
+            logger.warning("No tickers found for exchange %s", exchange)
+            return 0
+
+        return await self.download_bars(
+            exchange_tickers, timeframe=timeframe, on_progress=on_progress
+        )
 
     async def fetch_live_ohlcv(
         self,
     ) -> dict[str, tuple[int, float, float, float, float, float]]:
-        """
-        Fetches current daily OHLCV snapshot from TradingView Scanner API.
+        """Fetches current daily OHLCV snapshot from TradingView Scanner API.
+
         Used by MarketDataManager for polling-based realtime updates.
         """
         return await self._scanner.fetch_ohlcv()
 
     async def stream_live_ohlcv(
         self, tickers: list[str]
-    ) -> AsyncGenerator[tuple[str, tuple[int, float, float, float, float, float]], None]:
-        """
-        Stream realtime OHLCV updates from TradingView websocket quotes.
+    ) -> AsyncGenerator[
+        tuple[str, tuple[int, float, float, float, float, float]], None
+    ]:
+        """Stream realtime OHLCV updates from TradingView websocket quotes.
 
         The stream emits one tuple per symbol whenever a new quote tick is
         received:

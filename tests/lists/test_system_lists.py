@@ -13,6 +13,7 @@ def mock_symbols_cache():
                 "ticker": "AAPL",
                 "market": "usa",
                 "type": "stock",
+                "exchange": "NASDAQ",
                 "indexes": [],
                 "isin": None,
                 "typespecs": [],
@@ -21,6 +22,7 @@ def mock_symbols_cache():
                 "ticker": "RELIANCE",
                 "market": "india",
                 "type": "stock",
+                "exchange": "NSE",
                 "indexes": [{"name": "NIFTY 50"}],
                 "isin": None,
                 "typespecs": [],
@@ -29,6 +31,7 @@ def mock_symbols_cache():
                 "ticker": "TCS",
                 "market": "india",
                 "type": "stock",
+                "exchange": "NSE",
                 "indexes": [{"name": "NIFTY 50"}],
                 "isin": None,
                 "typespecs": [],
@@ -50,15 +53,17 @@ async def test_get_all_system_lists():
 
     system_lists = await lists_service.get_all_system_lists(MockFS(), MockSettings())
 
-    # india and usa markets, plus NIFTY 50 index
-    assert len(system_lists) == 3
+    # india and usa markets, NSE exchange, plus NIFTY 50 index
+    assert len(system_lists) == 4
     ids = [l.id for l in system_lists]
     assert "sys:mkt:india" in ids
     assert "sys:mkt:usa" in ids
+    assert "sys:exc:NSE" in ids
     assert "sys:idx:NIFTY 50" in ids
 
     names = [l.name for l in system_lists]
     assert "India Stock" in names
+    assert "NSE Stock" in names
     assert "NIFTY 50 Stock" in names
 
 

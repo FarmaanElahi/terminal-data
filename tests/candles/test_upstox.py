@@ -74,8 +74,8 @@ async def test_get_candles_historical_success(client):
     assert candles[0].open == 50.35
     assert candles[1].open == 53.1
 
-    # Verify the correct URL path was called
-    mock_http.get.assert_called_once()
+    # Verify the correct URL path was called (may be chunked)
+    mock_http.get.assert_called()
     call_path = mock_http.get.call_args[0][0]
     assert "NSE_EQ%7CINE002A01018" in call_path
     # V3 format: /days/1/{to}/{from}

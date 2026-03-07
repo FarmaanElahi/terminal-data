@@ -142,9 +142,16 @@ app.add_typer(data_app, name="market-data")
 
 
 @data_app.command("refresh-daily")
-def refresh_candle_day():
+def refresh_candle_day(
+    exchange: str = typer.Option(
+        "all",
+        "--exchange",
+        "-e",
+        help="Exchange to refresh (e.g. NSE, NASDAQ) or 'all'",
+    ),
+):
     """
-    Refresh 1D candle data from TradingView and save to OCI cache.
+    Refresh 1D candle data from TradingView scanner and save per-exchange Parquet files.
     """
     import asyncio
     from terminal.config import settings
@@ -153,6 +160,7 @@ def refresh_candle_day():
         get_fs,
     )
     from terminal.symbols import service as symbol_service
+    from terminal.market_feed.provider import EXCHANGES
 
     async def _run():
         typer.echo("Initializing providers...")
@@ -163,14 +171,26 @@ def refresh_candle_day():
         await symbol_service.init(fs, settings)
         symbols_info = await symbol_service.search(
             fs=fs, settings=settings, limit=20000
-        )  # Get all primary symbols
+        )
         tickers = [s["ticker"] for s in symbols_info]
 
         if not tickers:
             typer.echo("No symbols found to refresh.")
             return
 
-        typer.echo(f"Refreshing candles for {len(tickers)} symbols...")
+        # Filter by exchange if specified
+        if exchange != "all":
+            tickers = [
+                t for t in tickers if t.split(":")[0] == exchange.upper()
+            ]
+            typer.echo(f"Filtered to {len(tickers)} symbols for exchange {exchange.upper()}")
+        else:
+            typer.echo(f"Refreshing candles for {len(tickers)} symbols across all exchanges...")
+
+        if not tickers:
+            typer.echo("No symbols matched the exchange filter.")
+            return
+
         await tv_provider.refresh_cache(tickers)
         typer.echo("Refresh complete.")
 
@@ -180,15 +200,24 @@ def refresh_candle_day():
 @data_app.command("download-bars")
 def download_bars(
     timeframe: str = typer.Option(
-        "1D", "--timeframe", "-t", help="TradingView timeframe (e.g. 1D, 1W, 240)"
+        "1D", "--timeframe", "-t", help="TradingView timeframe (e.g. 1D, 1W, 1M, 1)"
+    ),
+    exchange: str = typer.Option(
+        "all",
+        "--exchange",
+        "-e",
+        help="Exchange to download (e.g. NSE, NASDAQ) or 'all'",
     ),
     limit: int = typer.Option(
         20000, "--limit", "-l", help="Max number of symbols to download"
     ),
+    bars: int = typer.Option(
+        1500, "--bars", "-b", help="Number of bars to download per symbol"
+    ),
 ):
     """
     Download full historical bar series from TradingView via WebSocket streamer
-    and save to OCI cache. Uses streamer2.py for efficient bulk streaming.
+    and save per-exchange Parquet files.
     """
     import asyncio
     from terminal.config import settings
@@ -199,32 +228,26 @@ def download_bars(
     from terminal.symbols import service as symbol_service
 
     async def _run():
-        typer.echo("Initializing providers...")
-        tv_provider = _get_tradingview_provider_instance()
+        from terminal.market_feed.scheduler import run_candle_refresh
 
-        typer.echo("Fetching symbol list from OCIFS...")
-        fs = get_fs()
-        await symbol_service.init(fs, settings)
-        symbols_info = await symbol_service.search(
-            fs=fs, settings=settings, limit=limit
+        typer.echo(
+            f"Downloading {bars} bars for exchange={exchange} (timeframe={timeframe})..."
         )
-        tickers = [s["ticker"] for s in symbols_info]
+        
+        # If exchange is 'all', we might want to iterate through known exchanges
+        # or just handle it in run_candle_refresh (which currently takes a single exchange)
+        from terminal.market_feed.provider import EXCHANGES
+        
+        exchanges_to_run = [exchange.upper()] if exchange != "all" else list(EXCHANGES)
+        
+        for ex in exchanges_to_run:
+            typer.echo(f"Running refresh for {ex}...")
+            await run_candle_refresh(ex, timeframe, bars=bars)
+            typer.echo(f"Completed {ex}.")
 
-        if not tickers:
-            typer.echo("No symbols found.")
-            return
+        typer.echo("Done.")
 
-        total = len(tickers)
-        typer.echo(f"Downloading bars for {total} symbols (timeframe={timeframe})...")
-
-        def on_progress(completed: int, total: int):
-            if completed % 100 == 0 or completed == total:
-                typer.echo(f"  Progress: {completed}/{total} symbols")
-
-        saved = await tv_provider.download_bars(
-            tickers, timeframe=timeframe, on_progress=on_progress
-        )
-        typer.echo(f"Done. Saved bar data for {saved} symbols to OCIFS.")
+    asyncio.run(_run())
 
     asyncio.run(_run())
 
@@ -384,53 +407,76 @@ def restore_database(
 
 
 @data_app.command("validate")
-def validate_market_data():
-    """Validate OCI market data cache integrity (row counts, date ranges, null checks)."""
+def validate_market_data(
+    exchange: str = typer.Option(
+        "all",
+        "--exchange",
+        "-e",
+        help="Exchange to validate (e.g. NSE) or 'all'",
+    ),
+    timeframe: str = typer.Option(
+        "1D",
+        "--timeframe",
+        "-t",
+        help="Timeframe to validate",
+    ),
+):
+    """Validate market data cache integrity (row counts, date ranges, null checks)."""
     import asyncio
     from terminal.dependencies import _get_tradingview_provider_instance, get_fs
+    from terminal.market_feed.provider import EXCHANGES
 
     async def _run():
-        typer.echo("Validating market data cache...")
-        fs = get_fs()
+        typer.echo(f"Validating market data cache (timeframe={timeframe})...")
         provider = _get_tradingview_provider_instance()
 
-        # Check if cache file exists in OCI
-        if not fs.exists(provider.cache_file_oci):
-            typer.echo(f"  OCI cache not found: {provider.cache_file_oci}")
-            raise typer.Exit(1)
-
-        # Load and validate
-        try:
-            provider.load_cache()
-        except Exception as e:
-            typer.echo(f"  Failed to load cache: {e}")
-            raise typer.Exit(1)
-
-        tickers = provider.get_all_tickers()
-        typer.echo(f"  Symbols in cache: {len(tickers)}")
-
-        if not tickers:
-            typer.echo("  WARNING: No symbols in cache!")
-            raise typer.Exit(1)
-
-        # Sample validation
-        null_count = 0
-        empty_count = 0
-        for ticker in tickers[:100]:
-            df = provider.get_history(ticker)
-            if df is None or len(df) == 0:
-                empty_count += 1
-                continue
-            nulls = df.isnull().sum().sum()
-            if nulls > 0:
-                null_count += 1
-
-        typer.echo(
-            f"  Sample check (first 100): {empty_count} empty, {null_count} with nulls"
+        exchanges_to_check = (
+            [exchange.upper()] if exchange != "all" else list(EXCHANGES)
         )
 
-        if empty_count > 50:
-            typer.echo("  WARNING: >50% of sampled symbols have no data!")
+        total_symbols = 0
+        total_null = 0
+        total_empty = 0
+
+        for ex in exchanges_to_check:
+            await provider.ensure_loaded(timeframe, ex)
+            tickers = [
+                t
+                for t in provider.get_all_tickers(timeframe)
+                if t.split(":")[0] == ex
+            ]
+
+            if not tickers:
+                typer.echo(f"  {ex}: no data found")
+                continue
+
+            null_count = 0
+            empty_count = 0
+            for ticker in tickers:
+                df = provider.get_history(ticker, timeframe)
+                if df is None or len(df) == 0:
+                    empty_count += 1
+                    continue
+                nulls = df.isnull().sum().sum()
+                if nulls > 0:
+                    null_count += 1
+
+            total_symbols += len(tickers)
+            total_null += null_count
+            total_empty += empty_count
+
+            typer.echo(
+                f"  {ex}: {len(tickers)} symbols, "
+                f"{empty_count} empty, {null_count} with nulls"
+            )
+
+        typer.echo(
+            f"\n  Total: {total_symbols} symbols, "
+            f"{total_empty} empty, {total_null} with nulls"
+        )
+
+        if total_empty > total_symbols * 0.5:
+            typer.echo("  WARNING: >50% of symbols have no data!")
         else:
             typer.echo("  Validation passed.")
 

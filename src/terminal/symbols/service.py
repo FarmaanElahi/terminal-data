@@ -175,7 +175,11 @@ async def get_filter_metadata(fs: Any, settings: Settings) -> dict[str, list[str
 
     markets = [m for m in df["market"].dropna().unique().tolist() if m]
     types = [t for t in df["type"].dropna().unique().tolist() if t]
-    exchanges = [e for e in df["exchange"].dropna().unique().tolist() if e]
+    exchanges = (
+        [e for e in df["exchange"].dropna().unique().tolist() if e]
+        if "exchange" in df.columns
+        else []
+    )
 
     unique_indexes = set()
     for idxs in df["indexes"].dropna():

@@ -74,13 +74,13 @@ def test_extract_ohlc_from_market_feed(feed):
     result = UpstoxFeed._extract_ohlc(feed_msg)
 
     assert len(result) == 1
-    assert result[0]["interval"] == "1D"
+    assert result[0]["interval"] == "1d"
     assert result[0]["open"] == 100.0
     assert result[0]["high"] == 110.0
     assert result[0]["low"] == 90.0
     assert result[0]["close"] == 105.0
     assert result[0]["volume"] == 50000
-    assert "2025-01-01T00:00:00+00:00" in result[0]["timestamp"]
+    assert result[0]["timestamp"] == 1735689600000
 
 
 def test_extract_ohlc_from_index_feed(feed):
@@ -125,7 +125,7 @@ def test_extract_ohlc_multiple_intervals(feed):
     result = UpstoxFeed._extract_ohlc(feed_msg)
     assert len(result) == 3
     intervals = [r["interval"] for r in result]
-    assert intervals == ["1D", "1W", "1M"]
+    assert intervals == ["1d", "1w", "1M"]
 
 
 def test_extract_ohlc_empty_feed(feed):
@@ -184,7 +184,7 @@ async def test_handle_feed_response_dispatches_callbacks(feed):
     callback.assert_called_once()
     args = callback.call_args[0]
     assert args[0] == "NSE_EQ|INE002A01018"
-    assert args[1]["interval"] == "1D"
+    assert args[1]["interval"] == "1d"
     assert args[1]["open"] == 100.0
 
 
@@ -230,8 +230,8 @@ def test_extract_ohlc_ist_normalization(feed):
     feed_msg.fullFeed.CopyFrom(full_feed)
 
     result = UpstoxFeed._extract_ohlc(feed_msg)
-    # Should be 2025-01-02 00:00:00 UTC
-    assert result[0]["timestamp"] == "2025-01-02T00:00:00+00:00"
+    # Timestamp is raw milliseconds from protobuf
+    assert result[0]["timestamp"] == 1735756200000
 
 
 def test_extract_ohlc_intraday_ist_offset(feed):
@@ -248,6 +248,5 @@ def test_extract_ohlc_intraday_ist_offset(feed):
     feed_msg.fullFeed.CopyFrom(full_feed)
 
     result = UpstoxFeed._extract_ohlc(feed_msg)
-    # Should be 2025-01-01 14:45:00 IST (+05:30)
-    assert "+05:30" in result[0]["timestamp"]
-    assert "2025-01-01T14:45:00+05:30" == result[0]["timestamp"]
+    # Timestamp is raw milliseconds from protobuf
+    assert result[0]["timestamp"] == 1735722900000

@@ -1,10 +1,10 @@
 from .store import OHLCStore
-from .provider import DataProvider
+from .provider import PartitionedProvider
 from .tradingview import TradingViewDataProvider
 from .manager import MarketDataManager
 
 __all__ = [
-    "DataProvider",
+    "PartitionedProvider",
     "TradingViewDataProvider",
     "OHLCStore",
     "MarketDataManager",
