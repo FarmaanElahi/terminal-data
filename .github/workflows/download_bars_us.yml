@@ -1,0 +1,64 @@
+name: Download US TradingView Bars
+
+on:
+  schedule:
+    # Daily at 10:00 PM UTC (approx 4:30 PM ET / 3:30 AM IST)
+    - cron: '0 22 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      exchange:
+        description: 'Exchange to download (NASDAQ, NYSE, AMEX, or all)'
+        required: true
+        default: 'all'
+      timeframe:
+        description: 'Timeframe (1D, 1W, 1M, 1)'
+        required: true
+        default: '1D'
+      bars:
+        description: 'Number of bars to download'
+        required: true
+        default: '1500'
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Create Env File
+        run: echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Download US Bars
+        run: |
+          EXCHANGE="${{ github.event.inputs.exchange || 'all' }}"
+          TIMEFRAME="${{ github.event.inputs.timeframe || '1D' }}"
+          BARS="${{ github.event.inputs.bars || '1500' }}"
+          
+          if [ "$EXCHANGE" = "all" ]; then
+            EXCHANGES=("NASDAQ" "NYSE" "AMEX")
+          else
+            EXCHANGES=("$EXCHANGE")
+          fi
+          
+          for ex in "${EXCHANGES[@]}"; do
+            echo "Downloading $ex..."
+            uv run terminal market-data download-bars \
+              --exchange "$ex" \
+              --timeframe "$TIMEFRAME" \
+              --bars "$BARS"
+          done

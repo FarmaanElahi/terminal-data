@@ -1,4 +1,4 @@
-name: Download TradingView Bars
+name: Download India TradingView Bars
 
 on:
   schedule:
@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       exchange:
-        description: 'Exchange to download (NSE, BSE, NASDAQ, NYSE, or all)'
+        description: 'Exchange to download (NSE, BSE, or all)'
         required: true
-        default: 'NSE'
+        default: 'all'
       timeframe:
         description: 'Timeframe (1D, 1W, 1M, 1)'
         required: true
@@ -43,15 +43,28 @@ jobs:
       - name: Create Env File
         run: echo "${{ secrets.ENV_FILE }}" > .env
 
-      - name: Download Bars
+      - name: Download NSE Bars
         run: |
-          # Use values if triggered manually, otherwise defaults
           EXCHANGE="${{ github.event.inputs.exchange || 'NSE' }}"
           TIMEFRAME="${{ github.event.inputs.timeframe || '1D' }}"
           BARS="${{ github.event.inputs.bars || '1500' }}"
           
-          # We define uv to run terminal market-data download-bars
-          uv run terminal market-data download-bars \
-            --exchange "$EXCHANGE" \
-            --timeframe "$TIMEFRAME" \
-            --bars "$BARS"
+          if [ "$EXCHANGE" = "all" ] || [ "$EXCHANGE" = "NSE" ]; then
+            uv run terminal market-data download-bars \
+              --exchange "NSE" \
+              --timeframe "$TIMEFRAME" \
+              --bars "$BARS"
+          fi
+
+      - name: Download BSE Bars
+        run: |
+          EXCHANGE="${{ github.event.inputs.exchange || 'all' }}"
+          TIMEFRAME="${{ github.event.inputs.timeframe || '1D' }}"
+          BARS="${{ github.event.inputs.bars || '1500' }}"
+          
+          if [ "$EXCHANGE" = "all" ] || [ "$EXCHANGE" = "BSE" ]; then
+             uv run terminal market-data download-bars \
+              --exchange "BSE" \
+              --timeframe "$TIMEFRAME" \
+              --bars "$BARS"
+          fi
