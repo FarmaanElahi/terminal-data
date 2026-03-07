@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: backend-builder # Better for dev: has uv and full context
+    volumes:
+      - ..:/app:cached
+    environment:
+      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/terminal
+      - ENVIRONMENT=development
+      - PYTHONPATH=/app/src
+    env_file:
+      - ../.env
+    command: sleep infinity # Kept alive by devcontainer
+
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: terminal
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

@@ -1,0 +1,31 @@
+{
+	"name": "Terminal Data Dev",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/app",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"charliermarsh.ruff",
+				"ms-azuretools.vscode-docker",
+				"tamasfe.even-better-toml",
+				"esbenp.prettier-vscode",
+				"dbaeumer.vscode-eslint"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/app/.venv/bin/python",
+				"python.testing.pytestEnabled": true,
+				"python.testing.pytestArgs": ["tests"],
+				"editor.formatOnSave": true,
+				"editor.codeActionsOnSave": {
+					"source.fixAll.ruff": "explicit",
+					"source.organizeImports.ruff": "explicit"
+				}
+			}
+		}
+	},
+	"remoteUser": "terminal",
+	"postCreateCommand": "uv sync"
+}
