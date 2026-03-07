@@ -242,6 +242,7 @@ class TradingViewDataProvider(PartitionedProvider):
         tickers: list[str],
         exchange: str,
         timeframe: str = "1D",
+        bars: int = 1500,
         on_progress: callable = None,
     ) -> int:
         """Download bars for a specific exchange and save to its Parquet file.
@@ -257,7 +258,7 @@ class TradingViewDataProvider(PartitionedProvider):
             return 0
 
         return await self.download_bars(
-            exchange_tickers, timeframe=timeframe, on_progress=on_progress
+            exchange_tickers, timeframe=timeframe, bars=bars, on_progress=on_progress
         )
 
     async def fetch_live_ohlcv(

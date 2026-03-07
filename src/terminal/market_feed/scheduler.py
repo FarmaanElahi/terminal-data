@@ -10,23 +10,9 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
-
 from terminal.dependencies import get_fs, get_settings
 
 logger = logging.getLogger(__name__)
-
-# -- Schedule configuration ---------------------------------------------------
-# Each entry defines when to refresh an exchange and its timezone.
-# cron format: minute hour day-of-month month day-of-week
-REFRESH_SCHEDULE: dict[str, dict] = {
-    "NSE": {"cron": "15 16 * * 1-5", "tz": "Asia/Kolkata"},
-    "BSE": {"cron": "15 16 * * 1-5", "tz": "Asia/Kolkata"},
-    # US exchanges — uncomment when US data is available:
-    # "NASDAQ": {"cron": "30 16 * * 1-5", "tz": "America/New_York"},
-    # "NYSE":   {"cron": "30 16 * * 1-5", "tz": "America/New_York"},
-}
 
 # Timeframes to refresh per schedule run
 REFRESH_TIMEFRAMES = ["1D"]
@@ -61,80 +47,6 @@ async def load_remote_status(exchange: str, timeframe: str) -> dict | None:
     except Exception as e:
         logger.error("Failed to load remote status from %s: %s", path, e)
     return None
-
-
-class CandleRefreshScheduler:
-    """Manages scheduled and on-demand candle data refresh jobs.
-
-    Uses APScheduler ``AsyncIOScheduler`` with cron triggers per exchange.
-    Each job run is tracked as a JSON file in remote storage.
-    """
-
-    def __init__(self) -> None:
-        self._scheduler = AsyncIOScheduler()
-
-    def start(self) -> None:
-        """Register cron jobs and start the scheduler."""
-        for exchange, config in REFRESH_SCHEDULE.items():
-            parts = config["cron"].split()
-            trigger = CronTrigger(
-                minute=parts[0],
-                hour=parts[1],
-                day=parts[2],
-                month=parts[3],
-                day_of_week=parts[4],
-                timezone=config["tz"],
-            )
-
-            for timeframe in REFRESH_TIMEFRAMES:
-                job_id = f"refresh_{exchange}_{timeframe}"
-                self._scheduler.add_job(
-                    self._run_refresh,
-                    trigger=trigger,
-                    id=job_id,
-                    name=f"Refresh {exchange} {timeframe}",
-                    kwargs={"exchange": exchange, "timeframe": timeframe},
-                    replace_existing=True,
-                    misfire_grace_time=300,
-                )
-                logger.info(
-                    "Scheduled refresh job: %s (cron=%s, tz=%s)",
-                    job_id,
-                    config["cron"],
-                    config["tz"],
-                )
-
-        self._scheduler.start()
-        logger.info("Candle refresh scheduler started.")
-
-    def stop(self) -> None:
-        """Shut down the scheduler gracefully."""
-        if self._scheduler.running:
-            self._scheduler.shutdown(wait=True)
-            logger.info("Candle refresh scheduler stopped.")
-
-    async def trigger_manual_refresh(self, exchange: str, timeframe: str) -> dict | None:
-        """Trigger an on-demand refresh and return the status data."""
-        return await run_candle_refresh(exchange, timeframe)
-
-    def get_scheduled_jobs(self) -> list[dict]:
-        """Return information about scheduled jobs."""
-        jobs = []
-        for job in self._scheduler.get_jobs():
-            next_run = job.next_run_time
-            jobs.append(
-                {
-                    "id": job.id,
-                    "name": job.name,
-                    "next_run_time": next_run.isoformat() if next_run else None,
-                    "trigger": str(job.trigger),
-                }
-            )
-        return jobs
-
-    async def _run_refresh(self, exchange: str, timeframe: str) -> dict | None:
-        """Execute a single refresh job."""
-        return await run_candle_refresh(exchange, timeframe)
 
 
 async def run_candle_refresh(
@@ -239,15 +151,3 @@ async def run_candle_refresh(
         await save_remote_status(exchange, timeframe, status_data)
 
     return status_data
-
-
-# Module-level singleton — initialized lazily
-_scheduler_instance: CandleRefreshScheduler | None = None
-
-
-def get_or_create_scheduler() -> CandleRefreshScheduler:
-    """Get or create the global scheduler singleton."""
-    global _scheduler_instance
-    if _scheduler_instance is None:
-        _scheduler_instance = CandleRefreshScheduler()
-    return _scheduler_instance

@@ -18,7 +18,6 @@ from .middleware import RequestLoggingMiddleware
 from .dependencies import get_market_manager, get_fs, get_settings
 from .symbols import service as symbols_service
 from .proxy import router as proxy_router
-from .market_feed.scheduler import get_or_create_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -56,10 +55,6 @@ async def lifespan(application: FastAPI):
     logger.info("Preloading symbols...")
     await symbols_service.init(get_fs(), get_settings())
 
-    # Start the candle refresh scheduler
-    scheduler = get_or_create_scheduler()
-    scheduler.start()
-    logger.info("Candle refresh scheduler started.")
 
     yield
 
@@ -77,9 +72,6 @@ async def lifespan(application: FastAPI):
     # 3. Stop MarketDataManager polling
     await manager.stop_realtime_streaming()
 
-    # 4. Stop the refresh scheduler
-    scheduler = get_or_create_scheduler()
-    scheduler.stop()
 
     logger.info("Shutdown complete.")
 
