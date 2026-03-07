@@ -40,17 +40,10 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked
 
+      - name: Create Env File
+        run: echo "${{ secrets.ENV_FILE }}" > .env
+
       - name: Download Bars
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          OCI_USER: ${{ secrets.OCI_USER }}
-          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
-          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_KEY: ${{ secrets.OCI_KEY }}
-          OCI_BUCKET: ${{ secrets.OCI_BUCKET }}
-          # Some legacy env vars if still needed by external modules
-          PG_CONNECTION: ${{ secrets.DATABASE_URL }}
         run: |
           # Use values if triggered manually, otherwise defaults
           EXCHANGE="${{ github.event.inputs.exchange || 'NSE' }}"
