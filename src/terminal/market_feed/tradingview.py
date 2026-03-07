@@ -223,7 +223,7 @@ class TradingViewDataProvider(PartitionedProvider):
                         }
                     )
 
-                logger.debug("  [%d/%d] %s: %d bars", completed, total, ticker, len(bars))
+                logger.info("  [%d/%d] %s: %d bars", completed, total, ticker, len(bars))
                 if on_progress:
                     on_progress(completed, total)
 

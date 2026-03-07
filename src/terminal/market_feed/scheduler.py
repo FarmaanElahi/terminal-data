@@ -108,9 +108,20 @@ async def run_candle_refresh(
             await save_remote_status(exchange, timeframe, status_data)
             return status_data
 
+        def on_progress(completed: int, total: int):
+            if completed % 10 == 0 or completed == total:
+                logger.info(
+                    "Progress for %s/%s: %d/%d (%.1f%%)",
+                    exchange,
+                    timeframe,
+                    completed,
+                    total,
+                    (completed / total) * 100,
+                )
+
         # Download bars
         saved = await provider.download_bars_for_exchange(
-            tickers, exchange, timeframe=timeframe, bars=bars
+            tickers, exchange, timeframe=timeframe, bars=bars, on_progress=on_progress
         )
 
         duration = asyncio.get_event_loop().time() - start_time

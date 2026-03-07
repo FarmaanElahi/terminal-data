@@ -228,8 +228,16 @@ def download_bars(
     from terminal.symbols import service as symbol_service
 
     async def _run():
+        import logging
+        # Simple logging config for CLI to show INFO messages (progress)
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(message)s",
+            force=True
+        )
+        
         from terminal.market_feed.scheduler import run_candle_refresh
-
+        
         typer.echo(
             f"Downloading {bars} bars for exchange={exchange} (timeframe={timeframe})..."
         )
