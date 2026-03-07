@@ -5,6 +5,8 @@ from terminal.config import settings
 from terminal.enums import LogLevels
 from terminal.database.logging import SessionTracker
 
+# Engine is created lazily by SQLAlchemy, but we can also handle the case
+# where we don't want to initialize it at all if not needed.
 engine = create_engine(
     settings.database_url,
     echo=(settings.log_level == LogLevels.debug),

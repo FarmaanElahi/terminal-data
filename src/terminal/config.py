@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str
+    database_url: str = "postgresql+psycopg2://localhost/terminal"
 
     # OCI Storage
     oci_bucket: str
