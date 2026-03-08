@@ -273,12 +273,14 @@ class ScreenerSession:
         tasks = []
         for tf in timeframes_needed:
             for ex in exchanges_needed:
+                # ensure_loaded() loads from local cache (or remote if first time).
+                # The background refresh in MarketDataManager handles freshness.
                 tasks.append(manager.provider.ensure_loaded(tf, ex))
 
         if tasks:
             await asyncio.gather(*tasks)
             logger.info(
-                "Screener %s: pre-loaded %d exchanges across %d timeframes",
+                "Screener %s: loaded %d exchanges across %d timeframes",
                 self.session_id,
                 len(exchanges_needed),
                 len(timeframes_needed),

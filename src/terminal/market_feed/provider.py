@@ -12,6 +12,7 @@ Files are loaded lazily on first access, with ``asyncio.Lock`` per
 """
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -60,6 +61,10 @@ class PartitionedProvider:
         # Per-(timeframe, exchange) locks for lazy loading
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
 
+        # ETag cache: {(timeframe, exchange): etag_string}
+        self._etags: dict[tuple[str, str], str] = {}
+        self._load_etags()
+
     # ------------------------------------------------------------------
     # Path helpers
     # ------------------------------------------------------------------
@@ -71,6 +76,30 @@ class PartitionedProvider:
         d = self.cache_dir / timeframe
         d.mkdir(parents=True, exist_ok=True)
         return d / f"{exchange}.parquet"
+
+    def _etag_file(self) -> Path:
+        return self.cache_dir / "_etags.json"
+
+    def _load_etags(self) -> None:
+        """Load persisted ETags from disk."""
+        path = self._etag_file()
+        if path.exists():
+            try:
+                data = json.loads(path.read_text())
+                for k, v in data.items():
+                    parts = k.split("|", 1)
+                    if len(parts) == 2:
+                        self._etags[(parts[0], parts[1])] = v
+            except Exception:
+                logger.warning("Failed to load ETag cache, starting fresh")
+
+    def _save_etags(self) -> None:
+        """Persist ETags to disk."""
+        data = {f"{tf}|{ex}": etag for (tf, ex), etag in self._etags.items()}
+        try:
+            self._etag_file().write_text(json.dumps(data))
+        except Exception:
+            logger.warning("Failed to persist ETag cache")
 
     # ------------------------------------------------------------------
     # Lazy loading
@@ -87,6 +116,72 @@ class PartitionedProvider:
             if key in self._data:  # double-check after acquiring lock
                 return
             await asyncio.to_thread(self._load_exchange, timeframe, exchange)
+
+    async def reload_exchange(self, timeframe: str, exchange: str) -> None:
+        """Conditionally re-sync from remote if the ETag has changed.
+
+        Compares the remote file's ETag against our cached ETag.
+        If they match, skips the download and just ensures the data is
+        loaded in memory.  If they differ (or we have no cached ETag),
+        downloads and re-parses.
+        """
+        key = (timeframe, exchange)
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            changed = await asyncio.to_thread(
+                self._check_and_sync, timeframe, exchange
+            )
+            if changed or key not in self._data:
+                await asyncio.to_thread(self._load_exchange, timeframe, exchange)
+                logger.info(
+                    "Reloaded %s/%s (data changed on remote)",
+                    timeframe, exchange,
+                )
+            else:
+                logger.debug(
+                    "Skipped reload for %s/%s (ETag unchanged)",
+                    timeframe, exchange,
+                )
+
+    def _check_and_sync(self, timeframe: str, exchange: str) -> bool:
+        """Check remote ETag; download only if changed.
+
+        Returns True if data was downloaded (i.e. changed), False otherwise.
+        """
+        key = (timeframe, exchange)
+        remote = self._remote_path(timeframe, exchange)
+
+        try:
+            if not self.fs.exists(remote):
+                logger.info("Remote file does not exist: %s", remote)
+                return False
+
+            info = self.fs.info(remote)
+            remote_etag = info.get("ETag") or info.get("etag") or ""
+            # Fall back to size + mtime as a pseudo-ETag
+            if not remote_etag:
+                size = info.get("size", 0)
+                mtime = info.get("mtime") or info.get("LastModified") or ""
+                remote_etag = f"{size}:{mtime}"
+
+            cached_etag = self._etags.get(key)
+
+            if cached_etag and cached_etag == remote_etag:
+                return False  # No change
+
+            # ETag differs — download
+            self._sync_from_remote(timeframe, exchange)
+            self._etags[key] = remote_etag
+            self._save_etags()
+            return True
+
+        except Exception as e:
+            logger.warning(
+                "ETag check failed for %s/%s: %s — falling back to full sync",
+                timeframe, exchange, e,
+            )
+            self._sync_from_remote(timeframe, exchange)
+            return True
 
     def _load_exchange(self, timeframe: str, exchange: str) -> None:
         """Load one exchange file from local cache (sync from remote if needed)."""

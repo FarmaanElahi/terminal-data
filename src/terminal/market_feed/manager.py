@@ -58,11 +58,14 @@ class MarketDataManager:
         store: OHLCStore,
         provider: PartitionedProvider,
         poll_interval: float = 5.0,
+        refresh_interval: float = 3600.0,  # 1 hour background data refresh
     ):
         self.store = store
         self.provider = provider
         self.poll_interval = poll_interval
+        self.refresh_interval = refresh_interval
         self._streaming_task: asyncio.Task | None = None
+        self._refresh_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._broadcast = BroadcastChannel()
 
@@ -111,6 +114,13 @@ class MarketDataManager:
                     "No symbols pre-loaded (lazy mode). "
                     "Streaming will start when exchanges are loaded."
                 )
+
+            # Start the background data refresh loop
+            self._refresh_task = asyncio.create_task(self._data_refresh_loop())
+            logger.info(
+                "Background data refresh started (interval=%ds)",
+                int(self.refresh_interval),
+            )
         except Exception as e:
             logger.error("Failed to start MarketDataManager: %s", e, exc_info=True)
 
@@ -190,7 +200,79 @@ class MarketDataManager:
             except asyncio.CancelledError:
                 pass
             self._streaming_task = None
+        if self._refresh_task:
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
+            self._refresh_task = None
         logger.info("Stopped realtime streaming.")
+
+    # ------------------------------------------------------------------
+    # Background data refresh
+    # ------------------------------------------------------------------
+
+    async def _data_refresh_loop(self) -> None:
+        """Periodically check ETags for all loaded exchanges and reload when changed.
+
+        This runs in the background so screener sessions never trigger
+        a remote sync themselves — they just use whatever data is in memory.
+        """
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(), timeout=self.refresh_interval
+                    )
+                    break  # stop event was set
+                except asyncio.TimeoutError:
+                    pass  # interval elapsed, time to refresh
+
+                # Check all loaded exchange keys
+                loaded_keys = list(self.provider._data.keys())
+                if not loaded_keys:
+                    continue
+
+                reloaded = 0
+                for tf, exchange in loaded_keys:
+                    try:
+                        changed = await asyncio.to_thread(
+                            self.provider._check_and_sync, tf, exchange
+                        )
+                        if changed:
+                            await asyncio.to_thread(
+                                self.provider._load_exchange, tf, exchange
+                            )
+                            # Reload symbols into the store
+                            symbols = self.provider._data.get((tf, exchange), {})
+                            for symbol, history in symbols.items():
+                                if history is not None and len(history) > 0:
+                                    self.store.load_history(symbol, history, tf)
+                            reloaded += 1
+                    except Exception as e:
+                        logger.warning(
+                            "Background refresh failed for %s/%s: %s",
+                            tf, exchange, e,
+                        )
+
+                if reloaded:
+                    logger.info(
+                        "Background refresh: reloaded %d/%d exchange files",
+                        reloaded, len(loaded_keys),
+                    )
+                    # Restart streaming with new tickers if needed
+                    await self.ensure_streaming()
+                else:
+                    logger.debug(
+                        "Background refresh: all %d exchange files up-to-date",
+                        len(loaded_keys),
+                    )
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("Background data refresh loop crashed: %s", e, exc_info=True)
 
     async def _stream_loop(self, tickers: list[str]):
         """Polling loop that fetches daily OHLCV from TradingView Scanner API every interval.
