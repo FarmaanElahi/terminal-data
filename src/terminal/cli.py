@@ -220,42 +220,30 @@ def download_bars(
     and save per-exchange Parquet files.
     """
     import asyncio
-    from terminal.config import settings
-    from terminal.dependencies import (
-        _get_tradingview_provider_instance,
-        get_fs,
-    )
-    from terminal.symbols import service as symbol_service
 
     async def _run():
         import logging
-        # Simple logging config for CLI to show INFO messages (progress)
         logging.basicConfig(
             level=logging.INFO,
             format="%(message)s",
             force=True
         )
-        
+
         from terminal.market_feed.scheduler import run_candle_refresh
-        
+        from terminal.market_feed.provider import EXCHANGES
+
         typer.echo(
             f"Downloading {bars} bars for exchange={exchange} (timeframe={timeframe})..."
         )
-        
-        # If exchange is 'all', we might want to iterate through known exchanges
-        # or just handle it in run_candle_refresh (which currently takes a single exchange)
-        from terminal.market_feed.provider import EXCHANGES
-        
+
         exchanges_to_run = [exchange.upper()] if exchange != "all" else list(EXCHANGES)
-        
+
         for ex in exchanges_to_run:
             typer.echo(f"Running refresh for {ex}...")
             await run_candle_refresh(ex, timeframe, bars=bars)
             typer.echo(f"Completed {ex}.")
 
         typer.echo("Done.")
-
-    asyncio.run(_run())
 
     asyncio.run(_run())
 

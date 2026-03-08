@@ -33,6 +33,7 @@ class TradingViewWorker:
         self.bar_sessions_count = 0
         self.on_idle = on_idle
         self._connected = asyncio.Event()
+        self.is_stopping = False
 
     async def start(self):
         """Starts the worker connection and listener."""
@@ -42,6 +43,7 @@ class TradingViewWorker:
 
     async def stop(self):
         """Stops the worker gracefully."""
+        self.is_stopping = True
         if self._listen_task:
             self._listen_task.cancel()
         if self.socket:
@@ -82,8 +84,10 @@ class TradingViewWorker:
 
     async def register_session(
         self, session_id: str, queue: asyncio.Queue, session_data: dict
-    ):
-        """Registers a new session to handle messages."""
+    ) -> bool:
+        """Registers a new session. Returns False if the worker is stopping."""
+        if self.is_stopping:
+            return False
         self._queues[session_id] = queue
         self._sessions[session_id] = session_data
         self.active_session_count += 1
@@ -91,6 +95,7 @@ class TradingViewWorker:
             self.quote_symbols_count += len(session_data.get("tickers", []))
         elif session_id.startswith("cs_"):
             self.bar_sessions_count += 1
+        return True
 
     async def unregister_session(self, session_id: str):
         """Cleans up a session."""
@@ -236,6 +241,8 @@ class TradingViewWorker:
                     if m == "symbol_error":
                         symbol_key = p[1]
                         if symbol_key in session_data["keys"]:
+                            ticker = session_data["keys"][symbol_key]["t"]
+                            logger.warning(f"Symbol error for {ticker} (key={symbol_key}), skipping.")
                             del session_data["keys"][symbol_key]
 
                     session_data["symbol_resolve_count"] += 1
@@ -330,12 +337,10 @@ class TradingViewClient:
         self._started = False
 
     async def _handle_worker_idle(self, worker: TradingViewWorker):
-        """Called when a worker has no active sessions."""
-        if worker.active_session_count == 0:
-            logger.info(f"Worker {worker.worker_id} is idle. Shutting down...")
-            await worker.stop()
-            if worker in self.workers:
-                self.workers.remove(worker)
+        """Called when a worker has no active sessions. Only shuts down quote-only workers."""
+        # Don't shut down workers during bar operations — they will be cleaned up
+        # explicitly by stream_bars() when the entire batch finishes.
+        pass
 
     async def _get_least_loaded_worker(self, type: str = "quote") -> TradingViewWorker:
         """
@@ -350,6 +355,8 @@ class TradingViewClient:
         # Try to find a worker that isn't busy
         available_workers = []
         for w in self.workers:
+            if w.is_stopping:
+                continue
             if type == "quote" and w.quote_symbols_count < 1000:
                 available_workers.append(w)
             elif type == "bar" and w.bar_sessions_count == 0:
@@ -373,8 +380,12 @@ class TradingViewClient:
             await new_worker.start()
             return new_worker
 
-        # Fallback to least loaded among all workers
-        return min(self.workers, key=lambda w: w.active_session_count)
+        # Fallback to least loaded among all non-stopping workers
+        active_workers = [w for w in self.workers if not w.is_stopping]
+        if not active_workers:
+            # If all are stopping, we must spawn a new one
+            return await self._get_least_loaded_worker(type)
+        return min(active_workers, key=lambda w: w.active_session_count)
 
     def _gen_session_id(self, prefix: str):
         return f"{prefix}_{''.join(choices(ascii_letters + digits, k=12))}"
@@ -415,7 +426,11 @@ class TradingViewClient:
             worker = await self._get_least_loaded_worker(type="quote")
 
             session_data = {"tickers": chunk, "fields": fields}
-            await worker.register_session(session_id, queue, session_data)
+            if not await worker.register_session(session_id, queue, session_data):
+                # Worker was stopping, retry getting a new one
+                async for data in self.stream_quotes(tickers, fields):
+                    yield data
+                return
 
             await worker.send_command({"m": "quote_create_session", "p": [session_id]})
             await worker.send_command(
@@ -491,6 +506,8 @@ class TradingViewClient:
                     t.cancel()
             # Suppress CancelledError from tasks
             await asyncio.gather(*tasks, return_exceptions=True)
+            # Clean up all workers after the entire bar download batch is done
+            await self.stop()
 
     async def _stream_bars_chunk(
         self, tickers: List[str], timeframe: str, bars: int = 1500
@@ -515,7 +532,11 @@ class TradingViewClient:
             "bars": bars,
         }
 
-        await worker.register_session(session_id, queue, session_data)
+        if not await worker.register_session(session_id, queue, session_data):
+            # Worker was stopping, recursive retry to pick a new worker
+            async for data in self._stream_bars_chunk(tickers, timeframe, bars):
+                yield data
+            return
 
         await worker.send_command({"m": "chart_create_session", "p": [session_id, ""]})
         await worker.send_command(
