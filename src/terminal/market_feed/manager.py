@@ -146,6 +146,24 @@ class MarketDataManager:
             except Exception as e:
                 logger.error("Failed to load history for %s: %s", symbol, e)
 
+    async def ensure_streaming(self) -> None:
+        """Start streaming if exchanges have been loaded but streaming wasn't started.
+
+        This handles the lazy-loading case: ``start()`` finds no tickers
+        and skips streaming.  When the screener (or any other consumer)
+        later loads exchanges, it should call this to kick off the stream.
+        """
+        if self._streaming_task and not self._streaming_task.done():
+            return  # already running
+
+        tickers = self.provider.get_all_tickers("1D")
+        if tickers:
+            logger.info(
+                "Deferred streaming start: %d tickers now available.",
+                len(tickers),
+            )
+            await self.start_realtime_streaming(tickers)
+
     async def start_realtime_streaming(self, tickers: list[str]):
         """Starts the background realtime task for OHLCV updates."""
         if self._streaming_task and not self._streaming_task.done():

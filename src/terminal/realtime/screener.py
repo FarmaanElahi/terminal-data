@@ -18,6 +18,7 @@ from terminal.symbols import service as symbols_service
 from terminal.database.core import engine
 from terminal.formula import FormulaError, evaluate, parse
 from terminal.config import settings
+from terminal.market_feed.provider import _extract_exchange
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -186,6 +187,18 @@ class ScreenerSession:
         # Pre-parse formula ASTs and cache condition sets
         self._cache_formulas()
 
+        # Ensure exchange data is loaded before evaluating columns.
+        # The PartitionedProvider is lazy — data files must be loaded
+        # via ensure_loaded() before get_history()/get_ohlcv() will return
+        # anything.  We batch-load all exchanges needed for the screener's
+        # symbols up-front so the synchronous evaluation paths work.
+        try:
+            await self._ensure_exchanges_loaded()
+        except Exception:
+            logger.exception(
+                "Failed to load exchange data for screener %s", self.session_id
+            )
+
         # Initial evaluation
         try:
             await self._run_filter(force=True)
@@ -225,6 +238,63 @@ class ScreenerSession:
             ScreenerCache.release(self._cache_key)
             self._cache_key = None
             self._shared_cache = None
+
+    # ------------------------------------------------------------------
+    # Exchange preloading
+    # ------------------------------------------------------------------
+
+    async def _ensure_exchanges_loaded(self) -> None:
+        """Pre-load all exchange Parquet files needed by the screener symbols.
+
+        This must be called before any synchronous ``get_ohlcv()`` calls,
+        because the provider stores data lazily and ``get_history()``
+        returns ``None`` for unloaded exchanges.
+        """
+        manager = self.realtime.manager
+        exchanges_needed: set[str] = set()
+        for symbol in self._symbols:
+            exchanges_needed.add(_extract_exchange(symbol))
+
+        # Collect all timeframes referenced by columns
+        timeframes_needed: set[str] = {"1D"}  # default
+        for col in self._columns:
+            if col.type == "value" and col.value_formula_tf:
+                tf = col.value_formula_tf
+                # Map screener timeframe codes (D, W, M) to provider codes (1D, 1W, 1M)
+                if tf in ("D", "W", "M"):
+                    tf = f"1{tf}"
+                timeframes_needed.add(tf)
+            if col.type == "condition" and col.conditions_tf:
+                tf = col.conditions_tf
+                if tf in ("D", "W", "M"):
+                    tf = f"1{tf}"
+                timeframes_needed.add(tf)
+
+        tasks = []
+        for tf in timeframes_needed:
+            for ex in exchanges_needed:
+                tasks.append(manager.provider.ensure_loaded(tf, ex))
+
+        if tasks:
+            await asyncio.gather(*tasks)
+            logger.info(
+                "Screener %s: pre-loaded %d exchanges across %d timeframes",
+                self.session_id,
+                len(exchanges_needed),
+                len(timeframes_needed),
+            )
+
+            # Load individual symbol histories into the in-memory store
+            # so get_ohlcv() can serve them without round-tripping the provider.
+            for symbol in self._symbols:
+                for tf in timeframes_needed:
+                    history = manager.provider.get_history(symbol, tf)
+                    if history is not None and len(history) > 0:
+                        manager.store.load_history(symbol, history, tf)
+
+            # Kick off realtime streaming if it wasn't started at boot
+            # (happens when exchanges are lazy-loaded after start()).
+            await manager.ensure_streaming()
 
     # ------------------------------------------------------------------
     # Data loading (DB) + Formula caching
