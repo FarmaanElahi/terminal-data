@@ -207,10 +207,12 @@ class TradingViewWorker:
                     )
 
                     # 2. Check pending or terminate
-                    pending = list(
-                        set(session_data["keys"].keys())
-                        - set(session_data["bar_started"])
-                    )
+                    # IMPORTANT: use deterministic order (not set()) to
+                    # avoid attributing bars to the wrong symbol.
+                    pending = [
+                        k for k in session_data["keys"]
+                        if k not in session_data["bar_started"]
+                    ]
                     if pending:
                         symbol_key = pending[0]
                         meta = session_data["keys"][symbol_key]
@@ -251,10 +253,12 @@ class TradingViewWorker:
                     if session_data["symbol_resolve_count"] == session_data.get(
                         "total_symbols", len(session_data["keys"])
                     ):
-                        pending = list(
-                            set(session_data["keys"].keys())
-                            - set(session_data["bar_started"])
-                        )
+                        # IMPORTANT: use deterministic order (not set())
+                        # to avoid attributing bars to the wrong symbol.
+                        pending = [
+                            k for k in session_data["keys"]
+                            if k not in session_data["bar_started"]
+                        ]
                         if pending:
                             symbol_key = pending[0]
                             series_id = f"s{session_data['keys'][symbol_key]['i']}"
