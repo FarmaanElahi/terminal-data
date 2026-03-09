@@ -32,6 +32,8 @@ export type ServerMessageType =
   | "chart_update"
   | "broker_status"
   | "broker_login_required"
+  | "alert_triggered"
+  | "alert_status_changed"
   | "error";
 
 // ─── Screener Types ────────────────────────────────────────────────

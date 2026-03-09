@@ -12,12 +12,11 @@ import {
   useSetFlagMutation,
 } from "@/queries/use-lists";
 import {
-  useAlertsQuery,
-  useCreateAlertMutation,
-  useDeleteAlertMutation,
-  useModifyAlertMutation,
+  useAlerts,
+  useCreateAlert,
+  useUpdateAlert,
+  useDeleteAlert,
 } from "@/queries/use-alerts";
-import { useBrokers } from "@/hooks/use-brokers";
 import { DEFAULT_SCREENER_COLUMNS } from "@/lib/register-widgets";
 import { MiniChartTile } from "@/components/widgets/mini-chart-tile";
 import { ListSelectionDialog } from "@/components/widgets/list-selection-dialog";
@@ -48,12 +47,6 @@ interface DisplayRow {
 const TIMEFRAME_OPTIONS = ["1", "5", "15", "60", "1D", "1W", "1M"];
 const GRID_OPTIONS = [2, 3, 4, 5];
 const GRID_ROW_HEIGHT = 320;
-
-function inferMarketFromSymbol(symbol: string): "india" | "us" {
-  const exchange = symbol.includes(":") ? symbol.split(":")[0].toUpperCase() : "";
-  if (exchange === "NSE" || exchange === "BSE") return "india";
-  return "us";
-}
 
 function sanitizeColumns(columns: ColumnDef[]): ColumnDef[] {
   return columns.map((col) => ({
@@ -143,14 +136,13 @@ function sortDisplayRows(
 export function MiniChartWidget({ instanceId, settings, onSettingsChange }: WidgetProps) {
   const { setChannelSymbol, channelContext } = useWidget(instanceId);
   const { data: lists = [] } = useListsQuery();
-  const { data: allAlerts = [] } = useAlertsQuery();
+  const { data: allAlerts = [] } = useAlerts();
   const addSymbolMutation = useAddSymbolMutation();
-  const createAlert = useCreateAlertMutation();
-  const modifyAlert = useModifyAlertMutation();
-  const deleteAlert = useDeleteAlertMutation();
+  const createAlert = useCreateAlert();
+  const updateAlert = useUpdateAlert();
+  const deleteAlert = useDeleteAlert();
   const setFlagMutation = useSetFlagMutation();
   const removeSymbolMutation = useRemoveSymbolMutation();
-  const { data: brokers = [], defaults, openLogin } = useBrokers();
 
   const theme = useLayoutStore((s) => s.theme);
   const isDark = theme === "dark";
@@ -240,7 +232,7 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
     const map = new Map<string, Alert[]>();
 
     for (const alert of allAlerts) {
-      const key = `${alert.lhs_exchange}:${alert.lhs_tradingsymbol}`.toUpperCase();
+      const key = alert.symbol.toUpperCase();
       const existing = map.get(key);
       if (existing) {
         existing.push(alert);
@@ -340,98 +332,38 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
     rowVirtualizer.measure();
   }, [gridRowHeight, rowVirtualizer, defaultsMerged.gridColumns]);
 
-  const resolveProvider = async (
-    symbol: string,
-  ): Promise<{ providerId: string; market: "india" | "us" } | null> => {
-    const market = inferMarketFromSymbol(symbol);
 
-    const connected = brokers.filter(
-      (broker) =>
-        broker.connected &&
-        broker.capabilities.includes("alerts") &&
-        broker.markets.includes(market),
-    );
-
-    const defaultProviderId =
-      defaults.find((item) => item.capability === "alerts" && item.market === market)
-        ?.provider_id ?? null;
-
-    if (defaultProviderId) {
-      const preferred = connected.find((broker) => broker.provider_id === defaultProviderId);
-      if (preferred) {
-        return { providerId: preferred.provider_id, market };
-      }
-    }
-
-    if (connected.length > 0) {
-      return { providerId: connected[0].provider_id, market };
-    }
-
-    const anyConnected = brokers.find(
-      (broker) => broker.connected && broker.capabilities.includes("alerts"),
-    );
-
-    if (anyConnected) {
-      return { providerId: anyConnected.provider_id, market };
-    }
-
-    const loginTarget =
-      brokers.find(
-        (broker) =>
-          broker.capabilities.includes("alerts") && broker.markets.includes(market),
-      ) ?? brokers.find((broker) => broker.capabilities.includes("alerts"));
-
-    if (loginTarget) {
-      await openLogin(loginTarget.provider_id);
-      toast.info("Connect your broker account to create alerts.");
-    } else {
-      toast.error("No alert-capable broker is configured.");
-    }
-
-    return null;
-  };
 
   const handleCreateAlert = (symbol: string, price: number, operator: string) => {
-    resolveProvider(symbol)
-      .then((resolved) => {
-        if (!resolved) return;
+    const shortName = symbol.includes(":") ? symbol.split(":")[1] : symbol;
+    const op = operator === "<" ? "<" : operator === ">" ? ">" : operator;
+    const opLabel = op === ">=" ? "≥" : op === "<=" ? "≤" : op;
 
-        const [exchange, tradingsymbol] = symbol.includes(":")
-          ? symbol.split(":")
-          : ["NSE", symbol];
-
-        const op = operator === "<" ? "<=" : operator === ">" ? ">=" : operator;
-        const opLabel = op === ">=" ? "≥" : op;
-
-        createAlert.mutate(
-          {
-            provider_id: resolved.providerId,
-            name: `${tradingsymbol} ${opLabel} ${price.toFixed(2)}`,
-            lhs_exchange: exchange,
-            lhs_tradingsymbol: tradingsymbol,
-            lhs_attribute: "LastTradedPrice",
-            operator: op,
-            rhs_type: "constant",
-            rhs_constant: Number(price.toFixed(2)),
-            type: "simple",
-          },
-          {
-            onSuccess: () => toast.success("Alert created"),
-            onError: () => toast.error("Failed to create alert"),
-          },
-        );
-      })
-      .catch(() => {
-        toast.error("Failed to resolve alert provider");
-      });
+    createAlert.mutate(
+      {
+        name: `${shortName} ${opLabel} ${price.toFixed(2)}`,
+        symbol: symbol,
+        alert_type: "formula",
+        trigger_condition: { formula: `C ${op} ${price.toFixed(2)}` },
+        frequency: "once",
+      },
+      {
+        onSuccess: () => toast.success("Alert created"),
+        onError: () => toast.error("Failed to create alert"),
+      },
+    );
   };
 
   const handleModifyAlert = (alert: Alert, price: number) => {
-    modifyAlert.mutate(
+    const op = (alert.trigger_condition as any)?.formula?.includes(">")
+      ? ">"
+      : "<";
+    updateAlert.mutate(
       {
-        id: alert.uuid,
-        provider_id: alert.provider_id,
-        rhs_constant: Number(price.toFixed(2)),
+        id: alert.id,
+        data: {
+          trigger_condition: { formula: `C ${op} ${price.toFixed(2)}` },
+        },
       },
       {
         onError: () => toast.error("Failed to update alert"),
@@ -440,15 +372,9 @@ export function MiniChartWidget({ instanceId, settings, onSettingsChange }: Widg
   };
 
   const handleDeleteAlert = (alert: Alert) => {
-    deleteAlert.mutate(
-      {
-        provider_id: alert.provider_id,
-        uuids: [alert.uuid],
-      },
-      {
-        onError: () => toast.error("Failed to delete alert"),
-      },
-    );
+    deleteAlert.mutate(alert.id, {
+      onError: () => toast.error("Failed to delete alert"),
+    });
   };
 
   const handleHeaderToggle = (colId: string) => {

@@ -8,11 +8,12 @@ import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
 import { getCustomIndicators } from "@/lib/custom-indicators";
 import { useAddSymbolMutation, useListsQuery } from "@/queries/use-lists";
 import {
-  useAlertsQuery,
-  useCreateAlertMutation,
-  useModifyAlertMutation,
-  useDeleteAlertMutation,
+  useAlerts,
+  useCreateAlert,
+  useUpdateAlert,
+  useDeleteAlertsByDrawing,
 } from "@/queries/use-alerts";
+import type { Alert } from "@/types/alert";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { List as ListIcon, X } from "lucide-react";
@@ -62,10 +63,10 @@ export function ChartWidget({
 
   const addSymbol = useAddSymbolMutation();
   const { data: lists = [] } = useListsQuery();
-  const { data: alerts = [] } = useAlertsQuery();
-  const createAlert = useCreateAlertMutation();
-  const modifyAlert = useModifyAlertMutation();
-  const deleteAlert = useDeleteAlertMutation();
+  const { data: alerts = [] } = useAlerts();
+  const createAlert = useCreateAlert();
+  const updateAlert = useUpdateAlert();
+  const deleteAlertsByDrawing = useDeleteAlertsByDrawing();
 
   // Stable refs so closures always see latest data
   const listsRef = useRef(lists);
@@ -76,10 +77,10 @@ export function ChartWidget({
   alertsRef.current = alerts;
   const createAlertRef = useRef(createAlert);
   createAlertRef.current = createAlert;
-  const modifyAlertRef = useRef(modifyAlert);
-  modifyAlertRef.current = modifyAlert;
-  const deleteAlertRef = useRef(deleteAlert);
-  deleteAlertRef.current = deleteAlert;
+  const updateAlertRef = useRef(updateAlert);
+  updateAlertRef.current = updateAlert;
+  const deleteAlertsByDrawingRef = useRef(deleteAlertsByDrawing);
+  deleteAlertsByDrawingRef.current = deleteAlertsByDrawing;
 
   // Track order line objects for cleanup
   const alertOrderLinesRef = useRef<Map<string, any>>(new Map());
@@ -90,28 +91,22 @@ export function ChartWidget({
       const symbol = currentSymbolRef.current;
       if (!symbol) return;
 
-      const [exchange, tradingsymbol] = symbol.includes(":")
-        ? symbol.split(":")
-        : ["NSE", symbol];
-
+      const shortName = symbol.includes(":") ? symbol.split(":")[1] : symbol;
       const opLabel = operator === ">=" ? "≥" : "≤";
+      const formulaOp = operator === ">=" ? ">" : "<";
 
       createAlertRef.current.mutate(
         {
-          provider_id: "kite",
-          name: `${tradingsymbol} ${opLabel} ${price.toFixed(2)}`,
-          lhs_exchange: exchange,
-          lhs_tradingsymbol: tradingsymbol,
-          lhs_attribute: "LastTradedPrice",
-          operator,
-          rhs_type: "constant",
-          rhs_constant: price,
-          type: "simple",
+          name: `${shortName} ${opLabel} ${price.toFixed(2)}`,
+          symbol,
+          alert_type: "formula",
+          trigger_condition: { formula: `C ${formulaOp} ${price.toFixed(2)}` },
+          frequency: "once",
         },
         {
           onSuccess: () =>
             toast.success(
-              `Alert created: ${tradingsymbol} ${opLabel} ${price.toFixed(2)}`,
+              `Alert created: ${shortName} ${opLabel} ${price.toFixed(2)}`,
             ),
           onError: () => toast.error("Failed to create alert"),
         },
@@ -226,6 +221,125 @@ export function ChartWidget({
           },
         ];
       });
+
+      // ── Drawing ↔ Alert wiring ──────────────────────────────────
+      tvWidget.subscribe(
+        "drawing_event" as any,
+        (drawingId: string, eventType: string) => {
+          const chart = tvWidget.activeChart();
+
+          if (eventType === "remove") {
+            // Drawing deleted → delete all linked alerts
+            const linked = alertsRef.current.filter(
+              (a: Alert) => a.drawing_id === drawingId,
+            );
+            if (linked.length > 0) {
+              deleteAlertsByDrawingRef.current.mutate(drawingId, {
+                onSuccess: () =>
+                  toast.info(
+                    `Removed ${linked.length} alert(s) linked to deleted drawing`,
+                  ),
+              });
+            }
+            return;
+          }
+
+          if (
+            eventType === "points_changed" ||
+            eventType === "move" ||
+            eventType === "properties_changed"
+          ) {
+            // Drawing moved/resized → update linked alerts
+            const linked = alertsRef.current.filter(
+              (a: Alert) => a.drawing_id === drawingId,
+            );
+            if (linked.length === 0) return;
+
+            let shape: any;
+            try {
+              shape = chart.getShapeById(drawingId as any);
+            } catch {
+              return;
+            }
+            if (!shape) return;
+
+            const points = shape.getPoints() as Array<{
+              price: number;
+              time: number;
+            }>;
+            if (!points || points.length === 0) return;
+
+            // Determine drawing type from shapes list
+            const shapeInfo = chart
+              .getAllShapes()
+              .find((s: any) => s.id === drawingId);
+            const shapeName = shapeInfo?.name || "";
+
+            let triggerCondition: Record<string, unknown> | null = null;
+
+            if (
+              shapeName === "horizontal_line" ||
+              shapeName === "horizontal_ray"
+            ) {
+              triggerCondition = {
+                drawing_type: "hline",
+                trigger_when:
+                  (linked[0].trigger_condition as any)?.trigger_when ||
+                  "crosses_above",
+                price: points[0].price,
+              };
+            } else if (
+              shapeName === "trend_line" ||
+              shapeName === "extended" ||
+              shapeName === "ray"
+            ) {
+              triggerCondition = {
+                drawing_type: "trendline",
+                trigger_when:
+                  (linked[0].trigger_condition as any)?.trigger_when ||
+                  "crosses_above",
+                points: points.slice(0, 2).map((p) => ({
+                  time: p.time,
+                  price: p.price,
+                })),
+              };
+            } else if (shapeName === "rectangle") {
+              if (points.length >= 2) {
+                const prices = points.map((p) => p.price);
+                const times = points.map((p) => p.time);
+                triggerCondition = {
+                  drawing_type: "rectangle",
+                  trigger_when:
+                    (linked[0].trigger_condition as any)?.trigger_when ||
+                    "enters",
+                  top: Math.max(...prices),
+                  bottom: Math.min(...prices),
+                  left: Math.min(...times),
+                  right: Math.max(...times),
+                };
+              }
+            }
+
+            if (!triggerCondition) return;
+
+            // Update each linked alert with new trigger condition
+            for (const alert of linked) {
+              updateAlertRef.current.mutate(
+                {
+                  id: alert.id,
+                  data: { trigger_condition: triggerCondition },
+                },
+                {
+                  onSuccess: () =>
+                    toast.success(
+                      `Alert "${alert.name}" updated with new drawing position`,
+                    ),
+                },
+              );
+            }
+          }
+        },
+      );
 
       // ── Option+W: save current symbol to last-used screener list ──
       tvWidget.onShortcut(["alt", 87], () => {
@@ -351,32 +465,37 @@ export function ChartWidget({
     alertOrderLinesRef.current.clear();
 
     // Filter alerts matching the current chart symbol
-    const matchingAlerts = alerts.filter((alert) => {
-      if (alert.status !== "enabled") return false;
-      if (alert.rhs_type !== "constant" || alert.rhs_constant == null)
-        return false;
-      const alertSymbol =
-        `${alert.lhs_exchange}:${alert.lhs_tradingsymbol}`.toUpperCase();
-      return alertSymbol === currentSymbol.toUpperCase();
+    const matchingAlerts = alerts.filter((alert: Alert) => {
+      if (alert.status !== "active") return false;
+      return alert.symbol.toUpperCase() === currentSymbol.toUpperCase();
     });
+
+    // Extract price from formula-based alerts (e.g. "C > 1500.00")
+    const extractPrice = (alert: Alert): number | null => {
+      if (alert.alert_type === "formula") {
+        const formula = (alert.trigger_condition as { formula?: string }).formula || "";
+        const match = formula.match(/(?:C|CLOSE)\s*[><]=?\s*([\d.]+)/i);
+        return match ? parseFloat(match[1]) : null;
+      }
+      if (alert.alert_type === "drawing") {
+        const cond = alert.trigger_condition as Record<string, unknown>;
+        if (cond.drawing_type === "hline") return cond.price as number;
+      }
+      return null;
+    };
 
     // Draw horizontal lines for matching alerts
     for (const alert of matchingAlerts) {
-      const opLabel =
-        alert.operator === ">="
-          ? "≥"
-          : alert.operator === "<="
-            ? "≤"
-            : alert.operator;
-      const label = alert.name || `Alert ${opLabel} ${alert.rhs_constant}`;
-      // Green for above, red for below
-      const lineColor =
-        alert.operator === "<=" || alert.operator === "<"
-          ? "#EF4444"
-          : "#22C55E";
+      const price = extractPrice(alert);
+      if (price == null) continue;
+
+      const formula = (alert.trigger_condition as { formula?: string }).formula || "";
+      const isBelow = /[<]/.test(formula);
+      const label = alert.name || `Alert @ ${price.toFixed(2)}`;
+      const lineColor = isBelow ? "#EF4444" : "#22C55E";
 
       chart
-        .createShape({ price: alert.rhs_constant! }, {
+        .createShape({ price }, {
           shape: "horizontal_line",
           lock: true,
           disableSelection: true,
@@ -395,7 +514,7 @@ export function ChartWidget({
         } as any)
         .then((entityId: any) => {
           if (entityId) {
-            alertOrderLinesRef.current.set(alert.uuid, entityId);
+            alertOrderLinesRef.current.set(alert.id, entityId);
           }
         })
         .catch(() => {

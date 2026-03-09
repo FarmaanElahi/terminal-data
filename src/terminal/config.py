@@ -84,6 +84,12 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 24  # 1 day
     min_password_length: int = 8
 
+    # Notifications
+    telegram_bot_token: str = ""
+    vapid_private_key: str = ""
+    vapid_public_key: str = ""
+    vapid_claims_email: str = ""
+
     @field_validator("secret_key", mode="after")
     @classmethod
     def check_secret_key(cls, v: str, info) -> str:

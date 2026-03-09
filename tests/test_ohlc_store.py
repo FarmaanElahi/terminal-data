@@ -30,7 +30,7 @@ def test_load_history():
     df = store.get_data("AAPL")
     assert len(df) == 50
     # Verify columns — should have exactly 5 columns, no aliases
-    assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+    assert list(df.columns) == ["open", "high", "low", "close", "volume", "timestamp"]
     # Verify float32 dtype
     assert df["close"].dtype == np.float32
 

@@ -55,6 +55,29 @@ async def lifespan(application: FastAPI):
     logger.info("Preloading symbols...")
     await symbols_service.init(get_fs(), get_settings())
 
+    # ── Alert Engine ─────────────────────────────────────────────────
+    from terminal.alerts.engine import AlertEngine
+    from terminal.notifications.dispatcher import NotificationDispatcher
+    from terminal.dependencies import set_alert_engine
+
+    dispatcher = NotificationDispatcher(
+        telegram_bot_token=settings.telegram_bot_token,
+        vapid_private_key=settings.vapid_private_key,
+        vapid_claims_email=settings.vapid_claims_email,
+    )
+
+    alert_engine = AlertEngine(manager)
+    alert_engine.set_dispatcher(dispatcher)
+    set_alert_engine(alert_engine)
+
+    # Start after a short delay to let MarketDataManager load first
+    async def _start_alert_engine():
+        await asyncio.sleep(5)  # Let market data load
+        await alert_engine.start()
+
+    ae_task = asyncio.create_task(_start_alert_engine())
+    ae_task.add_done_callback(lambda t: handle_startup_task(t, "AlertEngine"))
+    application.state.alert_engine_task = ae_task
 
     yield
 
@@ -69,9 +92,12 @@ async def lifespan(application: FastAPI):
 
     await connection_manager.close_all(timeout=10.0)
 
-    # 3. Stop MarketDataManager polling
-    await manager.stop_realtime_streaming()
+    # 3. Stop AlertEngine
+    await alert_engine.stop()
+    await dispatcher.close()
 
+    # 4. Stop MarketDataManager polling
+    await manager.stop_realtime_streaming()
 
     logger.info("Shutdown complete.")
 

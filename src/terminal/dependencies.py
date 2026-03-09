@@ -85,3 +85,21 @@ async def get_candle_manager() -> CandleManager:
     Provides the global CandleManager instance.
     """
     return _get_candle_manager_instance()
+
+
+# ── Alert Engine ─────────────────────────────────────────────────────────
+
+# The AlertEngine singleton is created in the lifespan (main.py)
+# and stored here so the dependency can provide it.
+_alert_engine_instance = None
+
+
+def set_alert_engine(engine) -> None:
+    """Store the AlertEngine singleton (called from lifespan)."""
+    global _alert_engine_instance
+    _alert_engine_instance = engine
+
+
+def get_alert_engine():
+    """Provides the global AlertEngine instance (may be None if not started)."""
+    return _alert_engine_instance

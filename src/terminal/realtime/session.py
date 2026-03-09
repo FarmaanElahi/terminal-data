@@ -55,6 +55,12 @@ class RealtimeSession:
         # Provider IDs this session currently holds refs for in feed_registry.
         self._feed_refs: set[str] = set()
 
+        # Register with AlertEngine for in-app alert push
+        from terminal.dependencies import get_alert_engine
+        self._alert_engine = get_alert_engine()
+        if self._alert_engine:
+            self._alert_engine.register_session(self)
+
     def cleanup(self) -> None:
         """Stop all active sub-sessions. Call on WebSocket disconnect."""
         self._closed = True
@@ -69,6 +75,10 @@ class RealtimeSession:
         for chart in self._charts.values():
             chart.stop()
         self._charts.clear()
+
+        # Unregister from AlertEngine
+        if self._alert_engine:
+            self._alert_engine.unregister_session(self)
 
     # ------------------------------------------------------------------
     # Message dispatch

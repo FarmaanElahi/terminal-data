@@ -9,5 +9,6 @@ try:
     from terminal.preferences.models import UserPreferences  # noqa: F401
     from terminal.charts.models import UserChart, UserStudyTemplate  # noqa: F401
     from terminal.broker.models import BrokerCredential, BrokerDefault  # noqa: F401
+    from terminal.alerts.models import Alert, AlertLog, UserNotificationChannel  # noqa: F401
 except Exception:
     traceback.print_exc()

@@ -404,6 +404,25 @@ class ChartUpdateResponse(ServerMessage):
 
 
 # ------------------------------------------------------------------
+# Alert responses
+# ------------------------------------------------------------------
+
+
+class AlertTriggeredResponse(ServerMessage):
+    """Broadcasted when an alert fires."""
+
+    m: Literal["alert_triggered"] = "alert_triggered"
+    p: tuple[dict]  # alert_data dict
+
+
+class AlertStatusChangedResponse(ServerMessage):
+    """Broadcasted when an alert's status changes (e.g. auto-deactivation)."""
+
+    m: Literal["alert_status_changed"] = "alert_status_changed"
+    p: tuple[dict]  # {alert_id, new_status}
+
+
+# ------------------------------------------------------------------
 # Dispatch helper
 # ------------------------------------------------------------------
 

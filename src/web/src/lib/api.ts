@@ -29,8 +29,10 @@ import type { BrokerDefault, BrokerInfo, BrokerStatus } from "@/types/broker";
 import type {
   Alert,
   AlertCreateParams,
-  AlertModifyParams,
-  AlertDeleteParams,
+  AlertUpdateParams,
+  AlertLogsResponse,
+  NotificationChannel,
+  NotificationChannelCreate,
 } from "@/types/alert";
 
 // ─── Axios Instance ────────────────────────────────────────────────
@@ -248,12 +250,41 @@ export const brokerApi = {
 // ─── Alerts API ────────────────────────────────────────────────────
 
 export const alertsApi = {
-  list: () => api.get<Alert[]>("/alerts"),
+  list: (params?: { status?: string; symbol?: string }) =>
+    api.get<Alert[]>("/alerts", { params }),
   create: (data: AlertCreateParams) => api.post<Alert>("/alerts", data),
-  modify: (id: string, data: AlertModifyParams) =>
+  update: (id: string, data: AlertUpdateParams) =>
     api.put<Alert>(`/alerts/${id}`, data),
-  remove: (data: AlertDeleteParams) =>
-    api.delete<{ status: string }>("/alerts", { data }),
+  remove: (id: string) => api.delete<{ status: string }>(`/alerts/${id}`),
+  activate: (id: string) =>
+    api.post<Alert>(`/alerts/${id}/activate`),
+  pause: (id: string) =>
+    api.post<Alert>(`/alerts/${id}/pause`),
+  removeByDrawing: (drawingId: string) =>
+    api.delete<{ deleted: number }>(`/alerts/by-drawing/${drawingId}`),
+
+  // Alert logs
+  logs: (params?: {
+    alert_id?: string;
+    symbol?: string;
+    limit?: number;
+    offset?: number;
+  }) => api.get<AlertLogsResponse>("/alerts/logs", { params }),
+  markLogsRead: (logIds: string[]) =>
+    api.post<{ marked_read: number }>("/alerts/logs/read", logIds),
+};
+
+// ─── Notifications API ─────────────────────────────────────────────
+
+export const notificationsApi = {
+  listChannels: () =>
+    api.get<NotificationChannel[]>("/notifications/channels"),
+  createChannel: (data: NotificationChannelCreate) =>
+    api.post<NotificationChannel>("/notifications/channels", data),
+  deleteChannel: (id: string) =>
+    api.delete<{ status: string }>(`/notifications/channels/${id}`),
+  getVapidKey: () =>
+    api.get<{ public_key: string }>("/notifications/vapid-key"),
 };
 
 export default api;
