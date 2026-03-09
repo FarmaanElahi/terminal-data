@@ -561,9 +561,13 @@ class TradingViewClient:
 
                 if item["type"] == "bar":
                     ticker = item["ticker"]
-                    bars_accumulator[ticker] = item["data"] + bars_accumulator.get(
+                    # Bars arrive oldest-first within each batch.
+                    # When TradingView sends multiple batches for the same
+                    # symbol, earlier batches contain *older* data.
+                    # Correct order: existing (older) + new (newer).
+                    bars_accumulator[ticker] = bars_accumulator.get(
                         ticker, []
-                    )
+                    ) + item["data"]
                 elif item["type"] == "series_completed":
                     ticker = item["ticker"]
                     if ticker in bars_accumulator:

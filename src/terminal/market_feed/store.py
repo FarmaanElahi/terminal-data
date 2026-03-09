@@ -66,13 +66,22 @@ class OHLCStore:
         key = self._key(symbol, timeframe)
         self._ensure_key(key)
 
+        if history is None or len(history) == 0:
+            return
+
+        # Defensive: ensure chronological order and deduplicate timestamps
+        if not history.index.is_monotonic_increasing:
+            history = history.sort_index()
+        # Drop duplicate timestamps, keeping the last (most recent) value
+        history = history[~history.index.duplicated(keep="last")]
+
         n = min(len(history), self.capacity)
         if n == 0:
             return
 
         # Take the last `n` rows if history exceeds capacity
         if len(history) > self.capacity:
-            history = history.iloc[-self.capacity :]
+            history = history.iloc[-self.capacity:]
 
         # Extract timestamps from index
         ts = history.index.values
@@ -143,6 +152,10 @@ class OHLCStore:
             columns=list(_OHLCV_COLS),
             index=pd.Index(ts, name="timestamp"),
         )
+        # Expose timestamp as a regular column too, so formula fields
+        # like T / TIMESTAMP can reference it with full capabilities
+        # (shifting, comparisons, arithmetic).
+        df["timestamp"] = ts.astype(np.float64)
         return df
 
     def get_all_data(

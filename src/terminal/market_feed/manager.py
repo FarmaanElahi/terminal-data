@@ -441,7 +441,7 @@ class MarketDataManager:
             return df
 
         # Resample logic using pandas
-        df_to_resample = df.copy()
+        df_to_resample = df.drop(columns=["timestamp"], errors="ignore").copy()
 
         # Convert index to datetime for resampling
         if not isinstance(df_to_resample.index, pd.DatetimeIndex):
@@ -479,7 +479,7 @@ class MarketDataManager:
             return None
 
         # Prepare for series output: [timestamp, open, high, low, close, volume]
-        export_df = df.reset_index()[
+        export_df = df.drop(columns=["timestamp"], errors="ignore").reset_index()[
             ["timestamp", "open", "high", "low", "close", "volume"]
         ]
 

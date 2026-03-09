@@ -165,12 +165,13 @@ def field_help() -> str:
 # Built-in registrations
 # ---------------------------------------------------------------------------
 
-# Column fields — OHLCV
+# Column fields — OHLCV + Timestamp
 register_column("C", "close", aliases=["CLOSE"], shorthand=True)
 register_column("O", "open", aliases=["OPEN"], shorthand=True)
 register_column("H", "high", aliases=["HIGH"], shorthand=True)
 register_column("L", "low", aliases=["LOW"], shorthand=True)
 register_column("V", "volume", aliases=["VOLUME"], shorthand=True)
+register_column("T", "timestamp", aliases=["TIMESTAMP"])
 
 
 # Derived fields
