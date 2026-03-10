@@ -228,6 +228,31 @@ def mark_logs_read(session: Session, user_id: str, log_ids: list[str]) -> int:
     return count
 
 
+def delete_alert_log(session: Session, user_id: str, log_id: str) -> bool:
+    """Delete a specific alert log. Returns True if deleted."""
+    log = session.execute(
+        select(AlertLog).where(
+            AlertLog.id == log_id, AlertLog.user_id == user_id
+        )
+    ).scalars().first()
+    if log:
+        session.delete(log)
+        session.flush()
+        return True
+    return False
+
+
+def clear_alert_logs(session: Session, user_id: str) -> int:
+    """Delete all alert logs for a user. Returns count deleted."""
+    from sqlalchemy import delete
+    result = session.execute(
+        delete(AlertLog).where(AlertLog.user_id == user_id)
+    )
+    count = result.rowcount
+    session.flush()
+    return count
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Notification Channel CRUD
 # ═══════════════════════════════════════════════════════════════════════════

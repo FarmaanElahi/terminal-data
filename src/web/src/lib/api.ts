@@ -272,6 +272,10 @@ export const alertsApi = {
   }) => api.get<AlertLogsResponse>("/alerts/logs", { params }),
   markLogsRead: (logIds: string[]) =>
     api.post<{ marked_read: number }>("/alerts/logs/read", logIds),
+  removeLog: (id: string) =>
+    api.delete<{ success: boolean }>(`/alerts/logs/${id}`),
+  clearLogs: () =>
+    api.delete<{ deleted: number }>("/alerts/logs"),
 };
 
 // ─── Notifications API ─────────────────────────────────────────────

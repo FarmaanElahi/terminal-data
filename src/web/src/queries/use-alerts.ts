@@ -134,6 +134,26 @@ export function useMarkLogsRead() {
   });
 }
 
+export function useDeleteLog() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => alertsApi.removeLog(id).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["alerts", "logs"] });
+    },
+  });
+}
+
+export function useClearLogs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => alertsApi.clearLogs().then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["alerts", "logs"] });
+    },
+  });
+}
+
 // ── Notification Channel Mutations ─────────────────────────────────
 
 export function useCreateChannel() {

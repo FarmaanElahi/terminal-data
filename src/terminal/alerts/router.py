@@ -68,6 +68,31 @@ def mark_logs_read(
     return {"marked_read": count}
 
 
+@router.delete("/logs")
+def clear_alert_logs(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    """Clear all alert logs for the current user."""
+    count = alerts_service.clear_alert_logs(session, current_user.id)
+    return {"deleted": count}
+
+
+@router.delete("/logs/{log_id}")
+def delete_alert_log(
+    log_id: str,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, bool]:
+    """Delete a specific alert log."""
+    success = alerts_service.delete_alert_log(session, current_user.id, log_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Log not found"
+        )
+    return {"success": success}
+
+
 # ── Drawing-linked operations (static path) ──────────────────────────
 
 

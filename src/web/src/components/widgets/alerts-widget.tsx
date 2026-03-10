@@ -23,7 +23,10 @@ import {
   useActivateAlert,
   usePauseAlert,
   useMarkLogsRead,
+  useDeleteLog,
+  useClearLogs,
 } from "@/queries/use-alerts";
+import { useWidget } from "@/hooks/use-widget";
 import { toast } from "sonner";
 import { CreateAlertDialog } from "./create-alert-dialog";
 
@@ -43,8 +46,7 @@ const FREQ_LABELS: Record<string, string> = {
   end_of_day: "EOD",
 };
 
-export function AlertsWidget(props: WidgetProps) {
-  void props;
+export function AlertsWidget({ instanceId }: WidgetProps) {
   const [tab, setTab] = useState<Tab>("alerts");
   const [showCreate, setShowCreate] = useState(false);
   const [editingAlert, setEditingAlert] = useState<Alert | undefined>(undefined);
@@ -97,7 +99,11 @@ export function AlertsWidget(props: WidgetProps) {
       </div>
 
       {/* Tab content */}
-      {tab === "alerts" ? <AlertsTab onEdit={handleEdit} /> : <LogsTab />}
+      {tab === "alerts" ? (
+        <AlertsTab instanceId={instanceId} onEdit={handleEdit} />
+      ) : (
+        <LogsTab instanceId={instanceId} />
+      )}
 
       {/* Create alert dialog */}
       <CreateAlertDialog
@@ -111,8 +117,15 @@ export function AlertsWidget(props: WidgetProps) {
 
 // ── Alerts Tab ──────────────────────────────────────────────────────
 
-function AlertsTab({ onEdit }: { onEdit: (alert: Alert) => void }) {
+function AlertsTab({
+  instanceId,
+  onEdit,
+}: {
+  instanceId: string;
+  onEdit: (alert: Alert) => void;
+}) {
   const { data: alerts = [], isLoading } = useAlerts();
+  const { setChannelSymbol } = useWidget(instanceId);
   const deleteAlert = useDeleteAlert();
   const activateAlert = useActivateAlert();
   const pauseAlert = usePauseAlert();
@@ -187,10 +200,11 @@ function AlertsTab({ onEdit }: { onEdit: (alert: Alert) => void }) {
           return (
             <div
               key={alert.id}
-              className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 transition-colors ${
+              onClick={() => setChannelSymbol(alert.symbol)}
+              className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2 transition-all cursor-pointer hover:border-primary/50 group ${
                 isActive
-                  ? "border-border bg-card/80"
-                  : "border-border/40 bg-card/40 opacity-60"
+                  ? "border-border bg-card/80 shadow-sm"
+                  : "border-border/40 bg-card/40 opacity-60 hover:opacity-100"
               }`}
             >
               <div className="flex items-center gap-2.5 min-w-0">
@@ -283,11 +297,14 @@ function AlertsTab({ onEdit }: { onEdit: (alert: Alert) => void }) {
 
 // ── Logs Tab ────────────────────────────────────────────────────────
 
-function LogsTab() {
+function LogsTab({ instanceId }: { instanceId: string }) {
   const { data, isLoading } = useAlertLogs({ limit: 50 });
+  const { setChannelSymbol } = useWidget(instanceId);
   const markRead = useMarkLogsRead();
-  const logs = data?.logs ?? [];
+  const deleteLog = useDeleteLog();
+  const clearLogs = useClearLogs();
 
+  const logs = data?.logs ?? [];
   const unreadCount = logs.filter((l) => !l.read).length;
 
   const handleMarkAllRead = () => {
@@ -296,6 +313,32 @@ function LogsTab() {
     markRead.mutate(unreadIds, {
       onSuccess: () => toast.success("All logs marked as read"),
     });
+  };
+
+  const handleClearAll = () => {
+    if (!window.confirm("Delete all alert logs? This cannot be undone.")) return;
+    clearLogs.mutate(undefined, {
+      onSuccess: (res: any) => toast.success(`Cleared ${res.deleted} logs`),
+      onError: () => toast.error("Failed to clear logs"),
+    });
+  };
+
+  const handleDeleteLog = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    deleteLog.mutate(id, {
+      onSuccess: () => toast.success("Log deleted"),
+    });
+  };
+
+  const handleLogClick = (log: any) => {
+    // 1. Link symbol
+    if (log.symbol) {
+      setChannelSymbol(log.symbol);
+    }
+    // 2. Mark as read
+    if (!log.read) {
+      markRead.mutate([log.id]);
+    }
   };
 
   if (isLoading) {
@@ -322,51 +365,80 @@ function LogsTab() {
 
   return (
     <div className="flex-1 flex flex-col">
-      {unreadCount > 0 && (
-        <div className="px-2 py-1 border-b border-border flex items-center justify-between">
-          <span className="text-[10px] text-muted-foreground">
-            {unreadCount} unread
+      <div className="px-2 py-1 border-b border-border flex items-center justify-between bg-muted/20">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-tight">
+            History
           </span>
+          {unreadCount > 0 && (
+            <Badge variant="secondary" className="text-[9px] px-1 h-3.5">
+              {unreadCount} new
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {unreadCount > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 text-[9px] px-1.5 hover:text-primary"
+              onClick={handleMarkAllRead}
+            >
+              Mark all read
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
-            className="h-5 text-[10px] px-1.5"
-            onClick={handleMarkAllRead}
+            className="h-5 w-5 p-0 text-muted-foreground hover:text-destructive"
+            onClick={handleClearAll}
+            title="Clear all logs"
           >
-            Mark all read
+            <Trash2 className="w-2.5 h-2.5" />
           </Button>
         </div>
-      )}
+      </div>
       <ScrollArea className="flex-1">
         <div className="p-2 space-y-1">
           {logs.map((log) => (
             <div
               key={log.id}
-              className={`rounded-md border px-3 py-2 ${
+              onClick={() => handleLogClick(log)}
+              className={`group relative rounded-md border px-3 py-2 cursor-pointer transition-all ${
                 log.read
-                  ? "border-border/40 bg-card/40"
-                  : "border-border bg-card/80"
+                  ? "border-border/40 bg-card/20 grayscale-[0.5] opacity-70"
+                  : "border-border bg-card shadow-sm hover:border-primary/50"
               }`}
             >
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 min-w-0">
                   {!log.read && (
-                    <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                    <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse shrink-0" />
                   )}
-                  <span className="text-xs font-medium font-mono truncate">
+                  <span className="text-xs font-semibold font-mono truncate">
                     {log.symbol}
                   </span>
                   {log.trigger_value != null && (
-                    <span className="text-[10px] font-mono text-amber-500">
+                    <span className="text-[10px] font-mono text-amber-500 font-medium">
                       {log.trigger_value.toFixed(2)}
                     </span>
                   )}
                 </div>
-                <span className="text-[9px] text-muted-foreground shrink-0">
-                  {_formatTime(log.triggered_at)}
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[9px] text-muted-foreground font-mono">
+                    {_formatTime(log.triggered_at)}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive"
+                    onClick={(e) => handleDeleteLog(e, log.id)}
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </Button>
+                </div>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">
+              <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1 group-hover:line-clamp-none transition-all">
                 {log.message}
               </p>
             </div>

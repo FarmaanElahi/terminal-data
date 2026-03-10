@@ -35,7 +35,7 @@ export function useAlertNotifications() {
         // Show toast
         toast.info(title, {
           description,
-          duration: 10000,
+          duration: Infinity,
         });
 
         // Play sound if enabled
