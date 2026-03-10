@@ -45,7 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <BrowserRouter>
         <TooltipProvider>
           <AuthLoader>{children}</AuthLoader>
-          <Toaster position="top-right" richColors />
+          <Toaster position="bottom-left" richColors />
         </TooltipProvider>
       </BrowserRouter>
     </QueryClientProvider>

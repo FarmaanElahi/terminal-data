@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import type { WSMessage } from "@/types/ws";
 import type { AlertTriggeredPayload, AlertStatusChangedPayload } from "@/types/alert";
 
+import { playBeep } from "@/lib/audio";
+
 export function useAlertNotifications() {
   const ws = useWebSocket();
   const qc = useQueryClient();
@@ -23,11 +25,23 @@ export function useAlertNotifications() {
         const payload = (msg.p as unknown[])?.[0] as AlertTriggeredPayload | undefined;
         if (!payload) return;
 
+        // Better message formatting
+        const symbol = payload.symbol.includes(":")
+          ? payload.symbol.split(":")[1]
+          : payload.symbol;
+        const title = `🔔 ${symbol} - ${payload.alert_name || "Alert"}`;
+        const description = `${payload.message} (Value: ${payload.trigger_value?.toFixed(2)})`;
+
         // Show toast
-        toast.info(`🔔 ${payload.alert_name || "Alert"}`, {
-          description: payload.message,
-          duration: 8000,
+        toast.info(title, {
+          description,
+          duration: 10000,
         });
+
+        // Play sound if enabled
+        if (payload.alert_sound) {
+          playBeep(payload.alert_sound);
+        }
 
         // Invalidate alert queries to refresh lists and logs
         qc.invalidateQueries({ queryKey: alertKeys.all });

@@ -85,6 +85,9 @@ class Alert(Base, PrimaryKeyModel, TimeStampMixin):
         JSONB, nullable=True, default=None
     )
 
+    # In-app notification settings
+    alert_sound: Mapped[str | None] = mapped_column(String, nullable=True, default="beep")
+
     # TradingView drawing ID — links alert to a chart drawing
     drawing_id: Mapped[str | None] = mapped_column(
         String, nullable=True, default=None, index=True
@@ -180,6 +183,7 @@ class AlertCreate(TerminalBase):
     frequency_interval: int = 60  # seconds
     expiry: datetime | None = None
     notification_channels: list[str] | None = None  # channel IDs or null
+    alert_sound: str | None = "beep"
     drawing_id: str | None = None
 
 
@@ -192,6 +196,7 @@ class AlertUpdate(TerminalBase):
     frequency_interval: int | None = None
     expiry: datetime | None = None
     notification_channels: list[str] | None = None
+    alert_sound: str | None = None
     drawing_id: str | None = None
 
 
@@ -211,6 +216,7 @@ class AlertPublic(TerminalBase):
     trigger_count: int
     last_triggered_at: datetime | None = None
     notification_channels: list[str] | None = None
+    alert_sound: str | None
     drawing_id: str | None = None
     created_at: datetime
     updated_at: datetime

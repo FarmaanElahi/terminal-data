@@ -9,6 +9,7 @@ import {
   History,
   Zap,
   Plus,
+  Edit2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,17 @@ export function AlertsWidget(props: WidgetProps) {
   void props;
   const [tab, setTab] = useState<Tab>("alerts");
   const [showCreate, setShowCreate] = useState(false);
+  const [editingAlert, setEditingAlert] = useState<Alert | undefined>(undefined);
+
+  const handleEdit = (alert: Alert) => {
+    setEditingAlert(alert);
+    setShowCreate(true);
+  };
+
+  const handleClose = () => {
+    setShowCreate(false);
+    setEditingAlert(undefined);
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -85,12 +97,13 @@ export function AlertsWidget(props: WidgetProps) {
       </div>
 
       {/* Tab content */}
-      {tab === "alerts" ? <AlertsTab /> : <LogsTab />}
+      {tab === "alerts" ? <AlertsTab onEdit={handleEdit} /> : <LogsTab />}
 
       {/* Create alert dialog */}
       <CreateAlertDialog
         open={showCreate}
-        onClose={() => setShowCreate(false)}
+        onClose={handleClose}
+        editAlert={editingAlert}
       />
     </div>
   );
@@ -98,7 +111,7 @@ export function AlertsWidget(props: WidgetProps) {
 
 // ── Alerts Tab ──────────────────────────────────────────────────────
 
-function AlertsTab() {
+function AlertsTab({ onEdit }: { onEdit: (alert: Alert) => void }) {
   const { data: alerts = [], isLoading } = useAlerts();
   const deleteAlert = useDeleteAlert();
   const activateAlert = useActivateAlert();
@@ -239,6 +252,15 @@ function AlertsTab() {
                   ) : (
                     <Play className="w-3 h-3" />
                   )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => onEdit(alert)}
+                  title="Edit alert"
+                >
+                  <Edit2 className="w-3 h-3" />
                 </Button>
                 <Button
                   size="sm"

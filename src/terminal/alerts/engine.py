@@ -45,7 +45,7 @@ class _CachedAlert:
         "trigger_condition", "guard_conditions",
         "frequency", "frequency_interval",
         "trigger_count", "last_triggered_at",
-        "notification_channels", "drawing_id", "name",
+        "notification_channels", "drawing_id", "name", "alert_sound",
         "_trigger_ast", "_guard_asts",
     )
 
@@ -64,6 +64,7 @@ class _CachedAlert:
         self.notification_channels = alert.notification_channels
         self.drawing_id = alert.drawing_id
         self.name = alert.name
+        self.alert_sound = alert.alert_sound
 
         # Pre-parse formula ASTs
         self._trigger_ast: object | None = None
@@ -458,6 +459,7 @@ class AlertEngine:
                     "symbol": ca.symbol,
                     "trigger_value": trigger_value,
                     "message": message,
+                    "alert_sound": ca.alert_sound,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             ),

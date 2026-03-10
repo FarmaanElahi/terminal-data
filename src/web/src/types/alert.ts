@@ -78,6 +78,7 @@ export interface Alert {
   trigger_count: number;
   last_triggered_at: string | null;
   notification_channels: string[] | null;
+  alert_sound: string;
   drawing_id: string | null;
   created_at: string;
   updated_at: string;
@@ -95,6 +96,7 @@ export interface AlertCreateParams {
   frequency_interval?: number;
   expiry?: string | null;
   notification_channels?: string[] | null;
+  alert_sound?: string | null;
   drawing_id?: string | null;
 }
 
@@ -106,6 +108,7 @@ export interface AlertUpdateParams {
   frequency_interval?: number;
   expiry?: string | null;
   notification_channels?: string[] | null;
+  alert_sound?: string | null;
   drawing_id?: string | null;
 }
 
@@ -154,6 +157,7 @@ export interface AlertTriggeredPayload {
   symbol: string;
   trigger_value: number;
   message: string;
+  alert_sound: string | null;
   timestamp: string;
 }
 

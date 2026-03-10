@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -18,8 +18,9 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Bell, Plus, Zap, TrendingUp, Minus } from "lucide-react";
+import { Bell, Plus, Zap, TrendingUp, Minus, Music, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { playBeep } from "@/lib/audio";
 import { useCreateAlert, useUpdateAlert } from "@/queries/use-alerts";
 import type {
   Alert,
@@ -105,6 +106,14 @@ const DRAWING_TRIGGER_OPTIONS: Record<
   ],
 };
 
+const SOUND_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "beep", label: "Standard Beep" },
+  { value: "buzzer", label: "Buzzer" },
+  { value: "digital", label: "Digital" },
+  { value: "chime", label: "Chime" },
+];
+
 // ── Component ───────────────────────────────────────────────────────
 
 export function CreateAlertDialog({
@@ -131,6 +140,19 @@ export function CreateAlertDialog({
 
   // Drawing
   const [drawingTrigger, setDrawingTrigger] = useState("crosses_above");
+  const [alertSound, setAlertSound] = useState<string>("beep");
+  const initialMount = useRef(true);
+
+  // Sound preview when selection changes
+  useEffect(() => {
+    if (initialMount.current) {
+      initialMount.current = false;
+      return;
+    }
+    if (alertSound !== "none") {
+      playBeep(alertSound);
+    }
+  }, [alertSound]);
 
   // ── Initialize state ──────────────────────────────────────────
   useEffect(() => {
@@ -141,6 +163,7 @@ export function CreateAlertDialog({
       setSymbol(editAlert.symbol);
       setAlertType(editAlert.alert_type as AlertType);
       setFrequency(editAlert.frequency as AlertFrequency);
+      setAlertSound(editAlert.alert_sound || "none");
 
       const cond = editAlert.trigger_condition;
       if (editAlert.alert_type === "formula") {
@@ -163,6 +186,7 @@ export function CreateAlertDialog({
       setFormula("");
       setGuardFormulas([]);
       setDrawingTrigger("crosses_above");
+      setAlertSound("beep");
 
       if (drawingData) {
         setAlertType("drawing");
@@ -223,6 +247,7 @@ export function CreateAlertDialog({
         trigger_condition: triggerCondition,
         guard_conditions: guards.length > 0 ? guards : undefined,
         frequency,
+        alert_sound: alertSound,
       };
 
       try {
@@ -244,6 +269,7 @@ export function CreateAlertDialog({
         trigger_condition: triggerCondition,
         guard_conditions: guards,
         frequency,
+        alert_sound: alertSound,
         drawing_id: drawingData?.drawingId,
       };
 
@@ -492,6 +518,39 @@ export function CreateAlertDialog({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Sound Setting */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center justify-between">
+              Alert Sound
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-5 px-1.5 text-[9px] hover:text-primary"
+                onClick={() => playBeep(alertSound)}
+                disabled={alertSound === "none"}
+              >
+                <Play className="w-2.5 h-2.5 mr-1" />
+                Listen
+              </Button>
+            </Label>
+            <Select value={alertSound} onValueChange={setAlertSound}>
+              <SelectTrigger className="h-9 text-xs">
+                <Music className="w-3.5 h-3.5 mr-2 text-primary" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SOUND_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[10px] text-muted-foreground mt-1 px-1">
+              Select the audio feedback to play when this alert triggers in-app.
+            </p>
           </div>
         </div>
 
