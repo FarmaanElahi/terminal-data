@@ -389,6 +389,15 @@ export function ChartWidget({
           setChannelSymbolRef.current(newSymbol);
         });
 
+      // Draw alerts whenever the chart has loaded data for the current symbol.
+      // Using onDataLoaded imperatively avoids React's async state/effect lag.
+      tvWidget
+        .activeChart()
+        .onDataLoaded()
+        .subscribe(null, () => {
+          drawAlertsRef.current(tvWidget.activeChart());
+        });
+
       tvWidget
         .activeChart()
         .onIntervalChanged()
@@ -446,82 +455,83 @@ export function ChartWidget({
     }
   }, [theme]);
 
-  // ─── Draw alert lines on chart ─────────────────────────────────
+  // ─── Alert drawing helpers ─────────────────────────────────────
+  // Keep a stable ref to the draw function so it can be called
+  // imperatively from the onDataLoaded callback without stale closures.
+  const drawAlertsRef = useRef<(chart: IChartWidgetApi) => void>(() => {});
+
+  const extractPrice = (alert: Alert): number | null => {
+    if (alert.alert_type === "formula") {
+      const formula = (alert.trigger_condition as { formula?: string }).formula || "";
+      const match = formula.match(/(?:C|CLOSE)\s*[><]=?\s*([\d.]+)/i);
+      return match ? parseFloat(match[1]) : null;
+    }
+    if (alert.alert_type === "drawing") {
+      const cond = alert.trigger_condition as Record<string, unknown>;
+      if (cond.drawing_type === "hline") return cond.price as number;
+    }
+    return null;
+  };
+
+  // Update the ref whenever alerts change so closures always see current data.
+  useEffect(() => {
+    drawAlertsRef.current = (chart: IChartWidgetApi) => {
+      const currentSymbol = chart.symbol();
+
+      // Remove previously drawn shapes
+      alertOrderLinesRef.current.forEach((entityId) => {
+        try { chart.removeEntity(entityId as any); } catch { /* already removed */ }
+      });
+      alertOrderLinesRef.current.clear();
+
+      // Filter active alerts for this symbol
+      const matching = alerts.filter((a: Alert) =>
+        a.status === "active" &&
+        a.symbol.toUpperCase() === currentSymbol.toUpperCase(),
+      );
+
+      for (const alert of matching) {
+        const price = extractPrice(alert);
+        if (price == null) continue;
+
+        const formula = (alert.trigger_condition as { formula?: string }).formula || "";
+        const isBelow = /[<]/.test(formula);
+        const label = alert.name || `Alert @ ${price.toFixed(2)}`;
+        const lineColor = isBelow ? "#EF4444" : "#22C55E";
+
+        chart
+          .createShape({ price }, {
+            shape: "horizontal_line",
+            lock: true,
+            disableSelection: true,
+            disableSave: true,
+            disableUndo: true,
+            text: label,
+            overrides: {
+              linecolor: lineColor,
+              linestyle: 2,
+              linewidth: 1,
+              showLabel: true,
+              textcolor: lineColor,
+              horzLabelsAlign: "right",
+              showPrice: true,
+            },
+          } as any)
+          .then((entityId: any) => {
+            if (entityId) alertOrderLinesRef.current.set(alert.id, entityId);
+          })
+          .catch(() => { /* shape creation may fail */ });
+      }
+    };
+  });
+
+  // ─── Redraw when alerts list changes (add/remove/activate) ──────
   useEffect(() => {
     const tvWidget = widgetRef.current;
     if (!tvWidget || !chartReady) return;
+    drawAlertsRef.current(tvWidget.activeChart());
+  }, [alerts, chartReady]);
 
-    const chart = tvWidget.activeChart();
-    const currentSymbol = currentSymbolRef.current ?? "";
-
-    // Remove previously drawn alert shapes
-    alertOrderLinesRef.current.forEach((entityId) => {
-      try {
-        chart.removeEntity(entityId as any);
-      } catch {
-        /* shape may already be removed */
-      }
-    });
-    alertOrderLinesRef.current.clear();
-
-    // Filter alerts matching the current chart symbol
-    const matchingAlerts = alerts.filter((alert: Alert) => {
-      if (alert.status !== "active") return false;
-      return alert.symbol.toUpperCase() === currentSymbol.toUpperCase();
-    });
-
-    // Extract price from formula-based alerts (e.g. "C > 1500.00")
-    const extractPrice = (alert: Alert): number | null => {
-      if (alert.alert_type === "formula") {
-        const formula = (alert.trigger_condition as { formula?: string }).formula || "";
-        const match = formula.match(/(?:C|CLOSE)\s*[><]=?\s*([\d.]+)/i);
-        return match ? parseFloat(match[1]) : null;
-      }
-      if (alert.alert_type === "drawing") {
-        const cond = alert.trigger_condition as Record<string, unknown>;
-        if (cond.drawing_type === "hline") return cond.price as number;
-      }
-      return null;
-    };
-
-    // Draw horizontal lines for matching alerts
-    for (const alert of matchingAlerts) {
-      const price = extractPrice(alert);
-      if (price == null) continue;
-
-      const formula = (alert.trigger_condition as { formula?: string }).formula || "";
-      const isBelow = /[<]/.test(formula);
-      const label = alert.name || `Alert @ ${price.toFixed(2)}`;
-      const lineColor = isBelow ? "#EF4444" : "#22C55E";
-
-      chart
-        .createShape({ price }, {
-          shape: "horizontal_line",
-          lock: true,
-          disableSelection: true,
-          disableSave: true,
-          disableUndo: true,
-          text: label,
-          overrides: {
-            linecolor: lineColor,
-            linestyle: 2,
-            linewidth: 1,
-            showLabel: true,
-            textcolor: lineColor,
-            horzLabelsAlign: "right",
-            showPrice: true,
-          },
-        } as any)
-        .then((entityId: any) => {
-          if (entityId) {
-            alertOrderLinesRef.current.set(alert.id, entityId);
-          }
-        })
-        .catch(() => {
-          /* shape creation may fail */
-        });
-    }
-  }, [alerts, channelSymbol, chartReady]);
 
   // ─── Resize handling ───────────────────────────────────────────
   useEffect(() => {
