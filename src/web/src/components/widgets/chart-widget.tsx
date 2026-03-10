@@ -17,6 +17,7 @@ import type { Alert } from "@/types/alert";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { List as ListIcon, X } from "lucide-react";
+import { CreateAlertDialog } from "@/components/widgets/create-alert-dialog";
 
 const CONTAINER_PREFIX = "tv_chart_";
 const LAST_SCREENER_LIST_KEY = "last_screener_list_id";
@@ -60,6 +61,18 @@ export function ChartWidget({
   const initialSymbolRef = useRef(
     channelContext?.symbol || s.symbol || "NSE:RELIANCE",
   );
+
+  // ─── Drawing Alert Dialog State ────────────────────────────────
+  const [isAlertBuilderOpen, setIsAlertBuilderOpen] = useState(false);
+  const [alertBuilderData, setAlertBuilderData] = useState<any>(null);
+
+  const showAlertBuilder = useCallback((drawing: any) => {
+    setAlertBuilderData(drawing);
+    setIsAlertBuilderOpen(true);
+  }, []);
+
+  const showAlertBuilderRef = useRef(showAlertBuilder);
+  showAlertBuilderRef.current = showAlertBuilder;
 
   const addSymbol = useAddSymbolMutation();
   const { data: lists = [] } = useListsQuery();
@@ -197,6 +210,78 @@ export function ChartWidget({
       overrides: {
         "paneProperties.background": isDark ? "#09090b" : "#ffffff",
         "paneProperties.backgroundType": "solid",
+      },
+      context_menu: {
+        items_processor: async (
+          items: any[],
+          actionsFactory: any,
+          params: any,
+        ) => {
+          if (
+            params.menuName === "pane_context_menu" ||
+            params.menuName === "ObjectTreeContextMenu"
+          ) {
+            const detail = (params as any).detail;
+            if (detail?.type === "shape" && detail.id && widgetRef.current) {
+              const chart = widgetRef.current.activeChart();
+              const shape = chart.getShapeById(detail.id);
+              if (!shape) return items;
+
+              const points = shape.getPoints() as any[];
+              const shapeInfo = chart
+                .getAllShapes()
+                .find((s: any) => s.id === detail.id);
+              const shapeName = shapeInfo?.name || "";
+
+              let drawingType: any = null;
+              let drawingData: any = {
+                drawingId: detail.id,
+              };
+
+              if (
+                shapeName === "horizontal_line" ||
+                shapeName === "horizontal_ray"
+              ) {
+                drawingType = "hline";
+                drawingData.price = points[0].price;
+              } else if (
+                shapeName === "trend_line" ||
+                shapeName === "extended" ||
+                shapeName === "ray"
+              ) {
+                drawingType = "trendline";
+                drawingData.points = points.slice(0, 2).map((p) => ({
+                  time: p.time,
+                  price: p.price,
+                }));
+              } else if (shapeName === "rectangle") {
+                drawingType = "rectangle";
+                const prices = points.map((p) => p.price);
+                const times = points.map((p) => p.time);
+                drawingData.top = Math.max(...prices);
+                drawingData.bottom = Math.min(...prices);
+                drawingData.left = Math.min(...times);
+                drawingData.right = Math.max(...times);
+              }
+
+              if (drawingType) {
+                const alertAction = actionsFactory.createAction({
+                  actionId: "Terminal.AddAlertOnDrawing",
+                  label: "Add Alert on Drawing",
+                  icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="M12 2v1"/><circle cx="12" cy="12" r="3"/></svg>`,
+                  onExecute: () => {
+                    showAlertBuilderRef.current({
+                      ...drawingData,
+                      drawingType,
+                    });
+                  },
+                });
+                return [alertAction, actionsFactory.createSeparator(), ...items];
+              }
+            }
+          }
+          return items;
+        },
       },
     });
 
@@ -620,6 +705,13 @@ export function ChartWidget({
           </div>
         </div>
       )}
+
+      <CreateAlertDialog
+        open={isAlertBuilderOpen}
+        onClose={() => setIsAlertBuilderOpen(false)}
+        defaultSymbol={currentSymbolRef.current || ""}
+        drawingData={alertBuilderData}
+      />
     </div>
   );
 }
