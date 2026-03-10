@@ -102,6 +102,7 @@ export interface ColumnDef {
   display_numeric_suffix?: string | null;
   display_numeric_show_positive_sign?: boolean | null;
   display_numeric_max_decimal?: number | null;
+  display_numeric_format?: "india" | "us" | null;
 }
 
 export interface ColumnSet {

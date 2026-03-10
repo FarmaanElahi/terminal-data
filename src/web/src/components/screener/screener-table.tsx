@@ -259,7 +259,17 @@ function ScreenerRow({ ticker, rowIndex, columns, values }: ScreenerRowProps) {
           {columns.map((col) => {
             const colValues = values[col.id];
             const value = colValues?.[rowIndex];
-            return <ScreenerCell key={col.id} value={value} type={col.type} />;
+            return (
+              <ScreenerCell
+                key={col.id}
+                value={value}
+                type={col.type}
+                format={col.display_numeric_format}
+                decimals={col.display_numeric_max_decimal}
+                prefix={col.display_numeric_prefix}
+                suffix={col.display_numeric_suffix}
+              />
+            );
           })}
         </TableRow>
       </ContextMenuTrigger>
@@ -305,9 +315,20 @@ function ScreenerRow({ ticker, rowIndex, columns, values }: ScreenerRowProps) {
 interface ScreenerCellProps {
   value: unknown;
   type: string;
+  format?: "india" | "us" | null;
+  decimals?: number | null;
+  prefix?: string | null;
+  suffix?: string | null;
 }
 
-function ScreenerCell({ value, type }: ScreenerCellProps) {
+function ScreenerCell({
+  value,
+  type,
+  format,
+  decimals,
+  prefix,
+  suffix,
+}: ScreenerCellProps) {
   const prevValueRef = useRef(value);
   const [flashClass, setFlashClass] = useState("");
 
@@ -341,18 +362,51 @@ function ScreenerCell({ value, type }: ScreenerCellProps) {
     );
   }
 
-  // Numeric value
+  // Numeric value formatting
   const numValue = typeof value === "number" ? value : null;
-  const formatted =
-    numValue !== null
-      ? numValue >= 1_000_000
-        ? `${(numValue / 1_000_000).toFixed(1)}M`
-        : numValue >= 1_000
-          ? `${(numValue / 1_000).toFixed(1)}K`
-          : numValue.toFixed(2)
-      : value != null
-        ? String(value)
-        : "—";
+  let formatted = "—";
+
+  if (numValue !== null) {
+    const absVal = Math.abs(numValue);
+    const d = decimals ?? 2;
+
+    if (format === "india") {
+      if (absVal >= 10_000_000) {
+        formatted = `${(numValue / 10_000_000).toFixed(1)}Cr`;
+      } else if (absVal >= 100_000) {
+        formatted = `${(numValue / 100_000).toFixed(1)}L`;
+      } else if (absVal >= 1_000) {
+        formatted = `${(numValue / 1_000).toFixed(1)}K`;
+      } else {
+        formatted = numValue.toFixed(d);
+      }
+    } else if (format === "us") {
+      if (absVal >= 1_000_000_000) {
+        formatted = `${(numValue / 1_000_000_000).toFixed(1)}B`;
+      } else if (absVal >= 1_000_000) {
+        formatted = `${(numValue / 1_000_000).toFixed(1)}M`;
+      } else if (absVal >= 1_000) {
+        formatted = `${(numValue / 1_000).toFixed(1)}K`;
+      } else {
+        formatted = numValue.toFixed(d);
+      }
+    } else {
+      // Default formatting
+      if (absVal >= 1_000_000) {
+        formatted = `${(numValue / 1_000_000).toFixed(1)}M`;
+      } else if (absVal >= 1_000) {
+        formatted = `${(numValue / 1_000).toFixed(1)}K`;
+      } else {
+        formatted = numValue.toFixed(d);
+      }
+    }
+
+    // Apply prefix/suffix
+    if (prefix) formatted = prefix + formatted;
+    if (suffix) formatted = formatted + suffix;
+  } else if (value != null) {
+    formatted = String(value);
+  }
 
   // Color for percentage-like columns
   const isPercentage = typeof value === "number" && Math.abs(value) < 100;

@@ -53,11 +53,14 @@ class CandleManager:
         providers: dict[str, CandleProvider] | None = None,
     ) -> None:
         self._providers: dict[str, CandleProvider] = providers or {}
-        self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._stop_event = asyncio.Event()
         self._listener_tasks: dict[str, asyncio.Task] = {}
         self._aggregator = CandleAggregator()
         self._aggregator_dispatch_task: asyncio.Task | None = None
+
+        # Broadcast: list of subscriber queues that all receive every update
+        self._broadcast_subscribers: list[asyncio.Queue[dict[str, Any]]] = []
+        self._broadcast_lock = asyncio.Lock()
         # Start listeners for existing providers if loop is running
         try:
             asyncio.get_running_loop()
@@ -65,6 +68,42 @@ class CandleManager:
                 self._start_listener(market, provider)
         except RuntimeError:
             pass
+
+    # ------------------------------------------------------------------
+    # Broadcast helpers
+    # ------------------------------------------------------------------
+
+    async def _subscribe_updates(self) -> asyncio.Queue[dict[str, Any]]:
+        """Create a new subscriber queue and add it to the broadcast list."""
+        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        async with self._broadcast_lock:
+            self._broadcast_subscribers.append(q)
+        return q
+
+    async def _unsubscribe_updates(self, q: asyncio.Queue[dict[str, Any]]) -> None:
+        """Remove a subscriber queue from the broadcast list."""
+        async with self._broadcast_lock:
+            try:
+                self._broadcast_subscribers.remove(q)
+            except ValueError:
+                pass
+
+    async def _broadcast(self, update: dict[str, Any]) -> None:
+        """Send an update to all subscriber queues."""
+        async with self._broadcast_lock:
+            for q in self._broadcast_subscribers:
+                try:
+                    q.put_nowait(update)
+                except asyncio.QueueFull:
+                    # Drop oldest to keep queue flowing
+                    try:
+                        q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(update)
+                    except asyncio.QueueFull:
+                        pass
 
     def _start_listener(self, market: str, provider: CandleProvider) -> None:
         """Start a background task to listen to a provider's update stream."""
@@ -79,10 +118,10 @@ class CandleManager:
             logger.debug("No event loop running, deferring listener for %s", market)
 
     async def _listen_to_provider(self, market: str, provider: CandleProvider) -> None:
-        """Background loop piping provider updates into the manager's queue."""
+        """Background loop piping provider updates to all broadcast subscribers."""
         try:
             async for update in provider.on_update():
-                await self._update_queue.put(update)
+                await self._broadcast(update)
         except asyncio.CancelledError:
             pass
         except Exception:
@@ -134,7 +173,10 @@ class CandleManager:
             await provider.start_feed()
 
         # Start aggregator dispatch task
-        if not self._aggregator_dispatch_task or self._aggregator_dispatch_task.done():
+        if (
+            self._aggregator_dispatch_task is None
+            or self._aggregator_dispatch_task.done()
+        ):
             self._aggregator_dispatch_task = asyncio.create_task(
                 self._aggregator_dispatch_loop()
             )
@@ -160,15 +202,22 @@ class CandleManager:
     async def on_candle_update(self) -> AsyncGenerator[dict[str, Any], None]:
         """Async generator yielding real-time candle updates.
 
+        Each caller gets its own subscriber queue so updates are never
+        lost to other consumers (e.g. the aggregator dispatch loop).
+
         Each yield is a dict:
         ``{"ticker": str, "interval": str, "open": ..., "high": ..., ...}``
         """
-        while not self._stop_event.is_set():
-            try:
-                update = await asyncio.wait_for(self._update_queue.get(), timeout=1.0)
-                yield update
-            except asyncio.TimeoutError:
-                continue
+        q = await self._subscribe_updates()
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    update = await asyncio.wait_for(q.get(), timeout=1.0)
+                    yield update
+                except asyncio.TimeoutError:
+                    continue
+        finally:
+            await self._unsubscribe_updates(q)
 
     # ------------------------------------------------------------------
     # Candle Aggregation
@@ -189,13 +238,16 @@ class CandleManager:
         self._aggregator.unregister(ticker, interval)
 
     async def _aggregator_dispatch_loop(self) -> None:
-        """Feed raw candle updates from providers into the aggregator."""
+        """Feed raw candle updates from providers into the aggregator.
+
+        Uses its own broadcast subscriber queue so it doesn't steal
+        messages from other consumers.
+        """
+        q = await self._subscribe_updates()
         try:
             while not self._stop_event.is_set():
                 try:
-                    update = await asyncio.wait_for(
-                        self._update_queue.get(), timeout=1.0
-                    )
+                    update = await asyncio.wait_for(q.get(), timeout=1.0)
                     # Feed into aggregator for any subscribed higher-timeframe targets
                     self._aggregator.ingest(
                         update.get("ticker", ""),
@@ -208,6 +260,8 @@ class CandleManager:
             pass
         except Exception:
             logger.exception("Error in aggregator dispatch loop")
+        finally:
+            await self._unsubscribe_updates(q)
 
     async def close(self) -> None:
         """Clean up all resources and listeners."""

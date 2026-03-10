@@ -245,20 +245,38 @@ class PartitionedProvider:
             self._data[key] = {}
 
     def _sync_from_remote(self, timeframe: str, exchange: str) -> None:
-        """Download a remote Parquet file to local cache."""
+        """Download a remote Parquet file to local cache atomically.
+        
+        Downloads to a .tmp file first and only replaces the local cache
+        if the download completes successfully and the file is non-empty.
+        """
         remote = self._remote_path(timeframe, exchange)
         local = self._local_path(timeframe, exchange)
+        tmp = local.with_suffix(".parquet.tmp")
         max_retries = 3
 
         for attempt in range(max_retries):
             try:
-                if self.fs.exists(remote):
-                    self.fs.get(remote, str(local))
+                if not self.fs.exists(remote):
+                    logger.info("Remote file does not exist: %s", remote)
+                    return
+
+                # Download to temporary file
+                self.fs.get(remote, str(tmp))
+                
+                # Verify download: exists and size > 0
+                if tmp.exists() and tmp.stat().st_size > 0:
+                    # Atomic replacement
+                    tmp.replace(local)
                     logger.info("Synced from remote: %s", remote)
                     return
                 else:
-                    logger.info("Remote file does not exist: %s", remote)
-                    return
+                    logger.warning(
+                        "Download failed for %s: temporary file %s is empty or missing",
+                        remote, tmp
+                    )
+                    if tmp.exists():
+                        tmp.unlink()
             except Exception as e:
                 logger.warning(
                     "Remote sync attempt %d/%d failed for %s: %s",
@@ -267,6 +285,9 @@ class PartitionedProvider:
                     remote,
                     e,
                 )
+                if tmp.exists():
+                    tmp.unlink()
+                
                 if attempt == max_retries - 1:
                     if local.exists():
                         logger.warning(

@@ -289,20 +289,31 @@ class UpstoxFeed:
             return results
 
         for ohlc in market_ohlc.ohlc:
-            # ohlc.interval is a raw string from the feed (e.g. '1d', '1minute', '1week')
-            # Convert to (unit, num) via the same parser the rest of the stack uses
-            upstox_parts = tv_resolution_to_upstox(ohlc.interval)
-            if upstox_parts is None:
-                # Fallback: try stripping common suffixes
-                raw = ohlc.interval.lower()
-                if raw in ("1d", "day"):
-                    upstox_parts = ("days", "1")
-                elif raw in ("1w", "week"):
-                    upstox_parts = ("weeks", "1")
-                elif raw in ("1month", "month", "1M"):
-                    upstox_parts = ("months", "1")
-                else:
-                    upstox_parts = ("minutes", "1")  # safe default
+            # ohlc.interval is a raw string from the Upstox feed.
+            # Upstox uses: "1d" for daily, "I{N}" for intraday minutes (e.g. "I1" = 1min)
+            raw = ohlc.interval
+
+            # --- Map Upstox feed interval → (unit, num) ---
+            upstox_parts: tuple[str, str] | None = None
+
+            # Handle Upstox intraday format: "I1", "I5", "I10", "I15", "I30"
+            if raw.startswith("I") and raw[1:].isdigit():
+                upstox_parts = ("minutes", raw[1:])
+            else:
+                # Try standard parsing (handles "1d", "1w", TV formats, etc.)
+                upstox_parts = tv_resolution_to_upstox(raw)
+                if upstox_parts is None:
+                    # Fallback for edge cases
+                    low = raw.lower()
+                    if low in ("1d", "day"):
+                        upstox_parts = ("days", "1")
+                    elif low in ("1w", "week"):
+                        upstox_parts = ("weeks", "1")
+                    elif low in ("1month", "month"):
+                        upstox_parts = ("months", "1")
+                    else:
+                        logger.warning("Unknown feed interval %r, defaulting to 1m", raw)
+                        upstox_parts = ("minutes", "1")
 
             unit, num = upstox_parts
             # TV resolution string to emit with the update (normalize to our internal format)

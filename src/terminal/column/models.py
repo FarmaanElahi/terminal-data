@@ -72,6 +72,8 @@ class ColumnDef(BaseModel):
     display_numeric_prefix: str | None = None
     display_numeric_suffix: str | None = None
     display_numeric_show_positive_sign: bool | None = None
+    display_numeric_max_decimal: int | None = None
+    display_numeric_format: Literal["india", "us"] | None = None
 
 
 class ColumnSetCreate(TerminalBase):

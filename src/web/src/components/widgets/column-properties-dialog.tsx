@@ -559,26 +559,51 @@ export function ColumnPropertiesDialog({
                       Show positive (+) sign for upticks
                     </Label>
                   </div>
-                  <div className="space-y-2 pt-2">
-                    <Label className="text-[11px] text-muted-foreground">
-                      Decimal Places
-                    </Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={8}
-                      className="h-8 text-xs w-24"
-                      value={edited.display_numeric_max_decimal ?? ""}
-                      placeholder="Auto"
-                      onChange={(e) =>
-                        update({
-                          display_numeric_max_decimal:
-                            e.target.value === ""
-                              ? null
-                              : Number(e.target.value),
-                        })
-                      }
-                    />
+                  <div className="grid grid-cols-2 gap-6 pt-2">
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Decimal Places
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={8}
+                        className="h-8 text-xs w-full"
+                        value={edited.display_numeric_max_decimal ?? ""}
+                        placeholder="Auto"
+                        onChange={(e) =>
+                          update({
+                            display_numeric_max_decimal:
+                              e.target.value === ""
+                                ? null
+                                : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        Short Number Format
+                      </Label>
+                      <Select
+                        value={edited.display_numeric_format || "none"}
+                        onValueChange={(v) =>
+                          update({
+                            display_numeric_format:
+                              v === "none" ? null : (v as "india" | "us"),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          <SelectItem value="india">India (L, Cr)</SelectItem>
+                          <SelectItem value="us">US (M, B)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </SettingsSection>
               </TabsContent>
