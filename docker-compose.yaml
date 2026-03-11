@@ -1,13 +1,13 @@
 x-terminal-env: &terminal-env
   DB_SCHEME: ${DB_SCHEME:-postgresql}
   DB_DRIVER: ${DB_DRIVER:-psycopg}
-  DB_HOST: db
-  DB_PORT: 5432
-  DB_USER: ${DB_USER:-postgres}
-  DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  DB_HOST: ${DB_HOST:-db}
+  DB_PORT: ${DB_PORT:-5432}
+  DB_USER: ${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}
+  DB_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}
   DB_NAME: ${DB_NAME:-terminal}
-  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
+  SECRET_KEY: ${SECRET_KEY:-${SERVICE_PASSWORD_64}}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${SERVICE_BASE64_64}}
   ENVIRONMENT: ${ENVIRONMENT:-production}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -36,16 +36,18 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_USER: ${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}
       POSTGRES_DB: ${DB_NAME:-terminal}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-terminal}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-terminal} -p ${DB_PORT:-5432}"]
       interval: 10s
       timeout: 5s
       retries: 10
     volumes:
       - terminal_pg:/var/lib/postgresql
+    labels:
+      - coolify.managed=true
 
   app:
     image: devfarmaan/terminal:main
@@ -64,6 +66,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    labels:
+      - coolify.managed=true
+      - traefik.enable=true
+      - "traefik.http.routers.terminal.rule=Host(`${SERVICE_FQDN_APP:-localhost}`)"
+      - "traefik.http.routers.terminal.entryPoints=http"
+      - "traefik.http.services.terminal.loadbalancer.server.port=${PORT:-8000}"
 
 volumes:
   terminal_data:
