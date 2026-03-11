@@ -8,6 +8,9 @@ x-terminal-env: &terminal-env
   DB_USER: ${DB_USER:?Set DB_USER}
   DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
   DB_NAME: ${DB_NAME:?Set DB_NAME}
+  ALERT_WEBOOK_URL: ${ALERT_WEBOOK_URL:-}
+  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
   ENVIRONMENT: ${ENVIRONMENT:-production}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -15,17 +18,14 @@ x-terminal-env: &terminal-env
 
 services:
   configurator:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    image: terminal:latest
+    image: devfarmaan/terminal:main
+    pull_policy: always
+    entrypoint: ["sh", "-c"]
     env_file:
       - .env
     environment:
       <<: *terminal-env
     command: >
-      sh -c '
       attempts="$${MIGRATION_ATTEMPTS:-60}";
       delay="$${MIGRATION_DELAY_SECONDS:-2}";
       i=1;
@@ -41,15 +41,11 @@ services:
       done;
       echo "[configurator] Failed to apply migrations after $$attempts attempts.";
       exit 1
-      '
     restart: "no"
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: runtime
-    image: terminal:latest
+    image: devfarmaan/terminal:main
+    pull_policy: always
     depends_on:
       configurator:
         condition: service_completed_successfully

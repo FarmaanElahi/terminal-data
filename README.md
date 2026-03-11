@@ -9,7 +9,7 @@ This project uses a single root compose file: `docker-compose.yaml`.
    - security: `SECRET_KEY`, `ENCRYPTION_KEY`
    - OCI: `OCI_BUCKET`, `OCI_CONFIG`, `OCI_KEY`
 3. Start services:
-   `docker compose up -d --build`
+   `docker compose up -d`
 
 Startup flow:
 - `configurator` runs `database upgrade head` with retries.
