@@ -3,11 +3,11 @@ name: terminal
 x-terminal-env: &terminal-env
   DB_SCHEME: ${DB_SCHEME:-postgresql}
   DB_DRIVER: ${DB_DRIVER:-psycopg}
-  DB_HOST: ${DB_HOST:?Set DB_HOST to your external Postgres host}
-  DB_PORT: ${DB_PORT:-5432}
-  DB_USER: ${DB_USER:?Set DB_USER}
-  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
-  DB_NAME: ${DB_NAME:?Set DB_NAME}
+  DB_HOST: db
+  DB_PORT: 5432
+  DB_USER: ${DB_USER:-postgres}
+  DB_PASSWORD: ${DB_PASSWORD:-postgres}
+  DB_NAME: ${DB_NAME:-terminal}
   ALERT_WEBOOK_URL: ${ALERT_WEBOOK_URL:-}
   SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
@@ -17,36 +17,40 @@ x-terminal-env: &terminal-env
   PORT: ${PORT:-8000}
 
 services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-terminal}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-terminal}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data_internal:/var/lib/postgresql/data
+
   configurator:
     image: devfarmaan/terminal:main
     pull_policy: always
-    entrypoint: ["sh", "-c"]
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       <<: *terminal-env
-    command: >
-      attempts="$${MIGRATION_ATTEMPTS:-60}";
-      delay="$${MIGRATION_DELAY_SECONDS:-2}";
-      i=1;
-      while [ "$$i" -le "$$attempts" ]; do
-        echo "[configurator] Running migrations (attempt $$i/$$attempts)...";
-        if python -m terminal.cli database upgrade head; then
-          echo "[configurator] Migrations applied.";
-          exit 0;
-        fi;
-        echo "[configurator] Migration attempt $$i/$$attempts failed; retrying in $$delay s...";
-        i=$$((i+1));
-        sleep "$$delay";
-      done;
-      echo "[configurator] Failed to apply migrations after $$attempts attempts.";
-      exit 1
+    command: ["/app/.venv/bin/python", "-m", "terminal.cli", "database", "upgrade", "head"]
     restart: "no"
 
   app:
     image: devfarmaan/terminal:main
     pull_policy: always
     depends_on:
+      db:
+        condition: service_healthy
       configurator:
         condition: service_completed_successfully
     env_file:
@@ -67,3 +71,4 @@ services:
 
 volumes:
   terminal_data:
+  postgres_data_internal:

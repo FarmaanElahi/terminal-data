@@ -16,8 +16,8 @@ FROM python:3.13-slim AS base-builder
 
 WORKDIR /app
 
-# Install tooling needed by backend build
-RUN apt-get update && apt-get install -y --no-install-recommends binutils && \
+# Install tooling needed by backend build and DB maintenance commands
+RUN apt-get update && apt-get install -y --no-install-recommends binutils postgresql-client && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -50,6 +50,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm 
 
 # Stage 5: Final Runtime
 FROM python:3.13-slim AS runtime
+
+# Runtime dependencies used by CLI maintenance commands (pg_dump/psql)
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd --gid 1000 terminal && \

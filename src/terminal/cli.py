@@ -304,6 +304,18 @@ def health_check():
     asyncio.run(_run())
 
 
+def _get_postgres_connection():
+    from terminal.config import settings
+
+    return {
+        "host": settings.db_host,
+        "port": settings.db_port,
+        "user": settings.db_user or "postgres",
+        "password": settings.db_password or "",
+        "name": settings.db_name,
+    }
+
+
 @database_app.command("backup")
 def backup_database(
     output: str = typer.Option(
@@ -314,39 +326,39 @@ def backup_database(
     ),
 ):
     """Create a pg_dump backup of the database."""
-    import subprocess
     import os
-    from terminal.config import settings
-    from urllib.parse import urlparse
+    import subprocess
+    from pathlib import Path
 
-    parsed = urlparse(settings.database_url)
-    host = parsed.hostname or "localhost"
-    port = parsed.port or 5432
-    user = parsed.username or "postgres"
-    dbname = parsed.path.lstrip("/")
+    conn = _get_postgres_connection()
+    backup_path = Path(output).expanduser().resolve()
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
 
-    env = {**os.environ, "PGPASSWORD": parsed.password or ""}
+    env = {**os.environ, "PGPASSWORD": conn["password"]}
 
-    typer.echo(f"Backing up {dbname}@{host}:{port} to {output}...")
+    typer.echo(
+        f"Backing up {conn['name']}@{conn['host']}:{conn['port']} "
+        f"to {backup_path}..."
+    )
     try:
         subprocess.run(
             [
                 "pg_dump",
                 "-h",
-                host,
+                conn["host"],
                 "-p",
-                str(port),
+                str(conn["port"]),
                 "-U",
-                user,
+                conn["user"],
                 "-d",
-                dbname,
+                conn["name"],
                 "-f",
-                output,
+                str(backup_path),
             ],
             env=env,
             check=True,
         )
-        typer.echo(f"Backup saved to {output}")
+        typer.echo(f"Backup saved to {backup_path}")
     except subprocess.CalledProcessError as e:
         typer.echo(f"Backup failed: {e}", err=True)
         raise typer.Exit(1)
@@ -358,40 +370,51 @@ def backup_database(
 @database_app.command("restore")
 def restore_database(
     input_file: str = typer.Argument(..., help="Path to the backup file"),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip interactive confirmation prompt",
+    ),
 ):
     """Restore a database from a pg_dump backup."""
-    import subprocess
     import os
-    from terminal.config import settings
-    from urllib.parse import urlparse
+    import subprocess
+    from pathlib import Path
 
-    parsed = urlparse(settings.database_url)
-    host = parsed.hostname or "localhost"
-    port = parsed.port or 5432
-    user = parsed.username or "postgres"
-    dbname = parsed.path.lstrip("/")
+    conn = _get_postgres_connection()
+    restore_path = Path(input_file).expanduser().resolve()
 
-    env = {**os.environ, "PGPASSWORD": parsed.password or ""}
+    if not restore_path.exists():
+        typer.echo(f"Backup file not found: {restore_path}", err=True)
+        raise typer.Exit(1)
 
-    if not typer.confirm(f"This will restore {input_file} into {dbname}. Continue?"):
+    env = {**os.environ, "PGPASSWORD": conn["password"]}
+
+    if not yes and not typer.confirm(
+        f"This will restore {restore_path} into {conn['name']}. Continue?"
+    ):
         typer.echo("Cancelled.")
         return
 
-    typer.echo(f"Restoring {input_file} into {dbname}@{host}:{port}...")
+    typer.echo(
+        f"Restoring {restore_path} into "
+        f"{conn['name']}@{conn['host']}:{conn['port']}..."
+    )
     try:
         subprocess.run(
             [
                 "psql",
                 "-h",
-                host,
+                conn["host"],
                 "-p",
-                str(port),
+                str(conn["port"]),
                 "-U",
-                user,
+                conn["user"],
                 "-d",
-                dbname,
+                conn["name"],
                 "-f",
-                input_file,
+                str(restore_path),
             ],
             env=env,
             check=True,
@@ -399,6 +422,9 @@ def restore_database(
         typer.echo("Restore complete.")
     except subprocess.CalledProcessError as e:
         typer.echo(f"Restore failed: {e}", err=True)
+        raise typer.Exit(1)
+    except FileNotFoundError:
+        typer.echo("psql not found. Install PostgreSQL client tools.", err=True)
         raise typer.Exit(1)
 
 
