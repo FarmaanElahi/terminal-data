@@ -4,6 +4,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from terminal.enums import LogLevels
 import os
+from urllib.parse import quote_plus
 
 # Resolve project root: config.py is at src/terminal/config.py → parents[2] = project root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -18,8 +19,14 @@ class Settings(BaseSettings):
         env_file=str(PROJECT_ROOT / ".env"), env_file_encoding="utf-8", extra="ignore"
     )
 
-    # Database
-    database_url: str = "postgresql+psycopg2://localhost/terminal"
+    # Database parts (database_url is derived from these)
+    db_scheme: str = "postgresql"
+    db_driver: str = "psycopg"
+    db_host: str = "localhost"
+    db_port: int = 5432
+    db_user: str = "terminal"
+    db_password: str = ""
+    db_name: str = "terminal"
 
     # OCI Storage
     oci_bucket: str
@@ -101,6 +108,22 @@ class Settings(BaseSettings):
     @property
     def is_oci_configured(self) -> bool:
         return all([self.oci_config, self.oci_key, self.oci_bucket])
+
+    @property
+    def database_url(self) -> str:
+        if self.db_scheme.startswith("sqlite"):
+            if self.db_name == ":memory:":
+                return "sqlite:///:memory:"
+            return f"sqlite:///{self.db_name}"
+
+        user = quote_plus(self.db_user)
+        auth = user
+        if self.db_password:
+            auth = f"{user}:{quote_plus(self.db_password)}"
+        return (
+            f"{self.db_scheme}+{self.db_driver}://"
+            f"{auth}@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
     def abs_file_path(self, file_path: str) -> str:
         return os.path.join(self.oci_bucket, "v2", file_path)

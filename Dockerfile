@@ -11,15 +11,18 @@ COPY src/web/ ./
 # Build the production assets
 RUN npm run build
 
-# Stage 2: Build the Python Backend
-FROM python:3.13-slim AS backend-builder
+# Stage 2: Base builder (shared for backend build and devcontainer)
+FROM python:3.13-slim AS base-builder
 
 WORKDIR /app
 
-# Install uv and binutils (for strip)
+# Install tooling needed by backend build
 RUN apt-get update && apt-get install -y --no-install-recommends binutils && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Stage 3: Build the Python Backend
+FROM base-builder AS backend-builder
 
 # Copy dependency files
 COPY pyproject.toml uv.lock README.md ./
@@ -38,7 +41,14 @@ RUN uv sync --frozen --no-dev --no-editable && \
 # Copy Python source code
 COPY src/terminal src/terminal
 
-# Stage 3: Final Runtime
+# Stage 4: Dev builder (for devcontainer)
+FROM base-builder AS dev-builder
+
+# Devcontainer conveniences (kept out of backend/runtime build path)
+RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm && \
+    rm -rf /var/lib/apt/lists/*
+
+# Stage 5: Final Runtime
 FROM python:3.13-slim AS runtime
 
 # Create non-root user
@@ -58,6 +68,7 @@ COPY --from=web-builder --chown=terminal:terminal /app/src/web/dist /app/src/web
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PORT=8000
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app/src
 
 # Create data directory for local cache
 RUN mkdir -p /app/data && chown -R terminal:terminal /app/data

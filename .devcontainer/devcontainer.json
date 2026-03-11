@@ -1,8 +1,23 @@
 {
-	"name": "Terminal Data Dev",
+	"name": "Terminal Local",
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"workspaceFolder": "/app",
+	"forwardPorts": [5173, 8000],
+	"portsAttributes": {
+		"5173": {
+			"label": "Web (Vite)",
+			"onAutoForward": "notify"
+		},
+		"8000": {
+			"label": "API (FastAPI)",
+			"onAutoForward": "notify"
+		}
+	},
+	"remoteEnv": {
+		"VIRTUAL_ENV": "/app/.venv",
+		"PATH": "/app/.venv/bin:${containerEnv:PATH}"
+	},
 	"customizations": {
 		"vscode": {
 			"extensions": [
@@ -26,6 +41,7 @@
 			}
 		}
 	},
-	"remoteUser": "terminal",
-	"postCreateCommand": "uv sync"
+	"remoteUser": "root",
+	"postCreateCommand": "bash .devcontainer/post-start.sh",
+	"postStartCommand": "bash .devcontainer/post-start.sh"
 }

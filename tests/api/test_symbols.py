@@ -16,7 +16,8 @@ def mock_fs():
 def mock_settings():
     return Settings(
         env="dev",
-        database_url="sqlite:///./test.db",
+        db_scheme="sqlite",
+        db_name="./test.db",
         oci_bucket="test-bucket",
         oci_config="config",
         oci_key="key",

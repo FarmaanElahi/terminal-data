@@ -3,12 +3,27 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-      target: backend-builder # Better for dev: has uv and full context
+      target: dev-builder
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
       - ..:/app:cached
+      - web_node_modules:/app/src/web/node_modules
+    ports:
+      - "5173:5173"
+      - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+psycopg://postgres:postgres@db:5432/terminal
+      - DB_SCHEME=postgresql
+      - DB_DRIVER=psycopg
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=terminal
       - ENVIRONMENT=development
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=text
       - PYTHONPATH=/app/src
     env_file:
       - ../.env
@@ -21,8 +36,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: terminal
-    ports:
-      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -33,3 +46,4 @@ services:
 
 volumes:
   postgres_data:
+  web_node_modules:

@@ -1,3 +1,5 @@
+name: terminal
+
 services:
   db:
     image: postgres:15
@@ -34,9 +36,16 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-terminal}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-terminal}
-      ENVIRONMENT: production
-      LOG_FORMAT: json
+      DB_SCHEME: ${DB_SCHEME:-postgresql}
+      DB_DRIVER: ${DB_DRIVER:-psycopg}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-terminal}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-terminal}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: ${LOG_FORMAT:-text}
       PORT: ${PORT:-8000}
     volumes:
       - ./data:/app/data
