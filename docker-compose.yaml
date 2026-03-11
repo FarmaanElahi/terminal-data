@@ -3,12 +3,12 @@ x-terminal-env: &terminal-env
   DB_DRIVER: ${DB_DRIVER:-psycopg}
   DB_HOST: ${DB_HOST:-db}
   DB_PORT: ${DB_PORT:-5432}
-  DB_USER: ${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}
-  DB_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}
+  DB_USER: '${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}'
+  DB_PASSWORD: '${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}'
   DB_NAME: ${DB_NAME:-terminal}
-  SECRET_KEY: ${SECRET_KEY:-${SERVICE_PASSWORD_64_SECRETKEY}}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${SERVICE_BASE64_64_ENCRYPTION}}
-  BASE_URL: ${BASE_URL:-${SERVICE_URL_APP:-http://localhost:8000}}
+  SECRET_KEY: '${SECRET_KEY:-${SERVICE_PASSWORD_64_SECRETKEY}}'
+  ENCRYPTION_KEY: '${ENCRYPTION_KEY:-${SERVICE_BASE64_64_ENCRYPTION}}'
+  BASE_URL: '${BASE_URL:-${SERVICE_URL_APP:-http://localhost:8000}}'
   ENVIRONMENT: ${ENVIRONMENT:-production}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -37,8 +37,8 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}
+      POSTGRES_USER: '${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}'
+      POSTGRES_PASSWORD: '${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}'
       POSTGRES_DB: ${DB_NAME:-terminal}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-terminal} -p ${DB_PORT:-5432}"]
