@@ -51,15 +51,8 @@ services:
     image: devfarmaan/terminal:main
     depends_on:
       - db
-    user: "0:0"
     environment:
       <<: *terminal-env
-    command:
-      [
-        "sh",
-        "-lc",
-        "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*; fi; exec su -s /bin/sh terminal -c \"/app/.venv/bin/uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1\"",
-      ]
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     volumes:
