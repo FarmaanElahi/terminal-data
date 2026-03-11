@@ -14,7 +14,7 @@ x-terminal-env: &terminal-env
   # Required with defaults - prefilled in UI but can be changed
   DB_SCHEME: ${DB_SCHEME:?postgresql}
   DB_DRIVER: ${DB_DRIVER:?psycopg}
-  DB_HOST: ${DB_HOST:?db}
+  DB_HOST: ${DB_HOST:?database}
   DB_PORT: ${DB_PORT:?5432}
   DB_NAME: ${DB_NAME:?terminal}
   ENVIRONMENT: ${ENVIRONMENT:?production}
@@ -52,7 +52,7 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - terminal_pg:/var/lib/postgresql/data
+      - terminal_pg:/var/lib/postgresql
     labels:
       - coolify.managed=true
 
