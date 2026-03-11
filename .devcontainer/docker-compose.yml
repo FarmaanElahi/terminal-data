@@ -30,7 +30,7 @@ services:
     command: sleep infinity # Kept alive by devcontainer
 
   db:
-    image: postgres:15
+    image: postgres:18
     restart: always
     environment:
       POSTGRES_USER: postgres
@@ -42,7 +42,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
 
 volumes:
   postgres_data:

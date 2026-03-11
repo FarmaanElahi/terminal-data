@@ -17,7 +17,7 @@ FROM python:3.13-slim AS base-builder
 WORKDIR /app
 
 # Install tooling needed by backend build and DB maintenance commands
-RUN apt-get update && apt-get install -y --no-install-recommends binutils postgresql-client && \
+RUN apt-get update && apt-get install -y --no-install-recommends binutils postgresql-client curl && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
@@ -51,8 +51,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git nodejs npm 
 # Stage 5: Final Runtime
 FROM python:3.13-slim AS runtime
 
-# Runtime dependencies used by CLI maintenance commands (pg_dump/psql)
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && \
+# Runtime dependencies used by CLI maintenance commands and health checks
+RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -82,6 +82,6 @@ USER terminal
 EXPOSE $PORT
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; import os; port = os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')" || exit 1
+    CMD sh -c "curl -fsS http://localhost:${PORT:-8000}/health > /dev/null"
 
 CMD ["sh", "-c", "uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]

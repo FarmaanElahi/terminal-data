@@ -45,21 +45,28 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - terminal_pg:/var/lib/postgresql/data
+      - terminal_pg:/var/lib/postgresql
 
   app:
     image: devfarmaan/terminal:main
     depends_on:
       - db
+    user: "0:0"
     environment:
       <<: *terminal-env
+    command:
+      [
+        "sh",
+        "-lc",
+        "if ! command -v curl >/dev/null 2>&1; then apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*; fi; exec su -s /bin/sh terminal -c \"/app/.venv/bin/uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1\"",
+      ]
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     volumes:
       - terminal_data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request, os; port=os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${PORT:-8000}/health > /dev/null"]
       interval: 30s
       timeout: 5s
       retries: 3
