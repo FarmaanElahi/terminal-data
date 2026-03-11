@@ -6,8 +6,9 @@ x-terminal-env: &terminal-env
   DB_USER: ${DB_USER:-${SERVICE_USER_POSTGRES:-postgres}}
   DB_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_POSTGRES:-postgres}}
   DB_NAME: ${DB_NAME:-terminal}
-  SECRET_KEY: ${SECRET_KEY:-${SERVICE_PASSWORD_64}}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${SERVICE_BASE64_64}}
+  SECRET_KEY: ${SECRET_KEY:-${SERVICE_PASSWORD_64_SECRETKEY}}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-${SERVICE_BASE64_64_ENCRYPTION}}
+  BASE_URL: ${BASE_URL:-${SERVICE_URL_APP:-http://localhost:8000}}
   ENVIRONMENT: ${ENVIRONMENT:-production}
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
@@ -45,9 +46,10 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - terminal_pg:/var/lib/postgresql
+      - terminal_pg:/var/lib/postgresql/data
     labels:
       - coolify.managed=true
+      - coolify.database=true
 
   app:
     image: devfarmaan/terminal:main
@@ -69,8 +71,11 @@ services:
     labels:
       - coolify.managed=true
       - traefik.enable=true
-      - "traefik.http.routers.terminal.rule=Host(`${SERVICE_FQDN_APP:-localhost}`)"
-      - "traefik.http.routers.terminal.entryPoints=http"
+      - "traefik.http.routers.terminal-http.rule=Host(`${SERVICE_FQDN_APP:-localhost}`)"
+      - "traefik.http.routers.terminal-http.entryPoints=http"
+      - "traefik.http.routers.terminal-https.rule=Host(`${SERVICE_FQDN_APP:-localhost}`)"
+      - "traefik.http.routers.terminal-https.entryPoints=https"
+      - "traefik.http.routers.terminal-https.tls=true"
       - "traefik.http.services.terminal.loadbalancer.server.port=${PORT:-8000}"
 
 volumes:

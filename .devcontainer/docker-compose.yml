@@ -24,6 +24,7 @@ services:
       - ENVIRONMENT=development
       - LOG_LEVEL=INFO
       - LOG_FORMAT=text
+      - BASE_URL=http://localhost:8000
       - PYTHONPATH=/app/src
     env_file:
       - .env
@@ -42,7 +43,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql/data
 
 volumes:
   postgres_data:
