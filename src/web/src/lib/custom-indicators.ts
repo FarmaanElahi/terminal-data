@@ -1,33 +1,78 @@
 /**
  * Custom TradingView charting library indicators.
  *
- * Smart Candle Classifier – colors bars by volume/ADR criteria + EMA crossover.
- *
- * Conditions (priority high → low):
- *   1. High Vol Bullish   – vol ≥ mult_high × avg_vol  AND  close > open  AND  body ≥ adr_mult_strong × ADR
- *   2. High Vol Bearish   – vol ≥ mult_high × avg_vol  AND  close < open  AND  body ≥ adr_mult_strong × ADR
- *   3. Above Avg Vol Move – vol ≥ avg_vol              AND  body ≥ adr_mult_moderate × ADR (any direction)
- *   4. Price Close Above EMA – close crosses above EMA(ema_period)  (lowest priority)
- *
- * Colors are configurable in two places:
- *  • Settings tab (Inputs) – color pickers organised by group (this file)
- *  • Style tab              – palette entry colours that actually drive bar rendering
- * Both default to the same values.
+ * Smart Candle Classifier:
+ * Mirrors the provided Pine Script bar-color logic (expansion, contraction,
+ * EMA bounce, and EMA crossover marker).
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ─── Palette indices ────────────────────────────────────────────────────────
-const IDX = { HIGH_BULL: 0, HIGH_BEAR: 1, AVG_MOVE: 2, EMA_UP: 3 } as const;
+const IDX = {
+  GREAT_EXPANSION: 0,
+  DECENT_EXPANSION: 1,
+  EMA_BOUNCE: 2,
+  RMV_CONTRACTION: 3,
+  POOR_CONTRACTION: 4,
+} as const;
 
 // ─── Default colors ─────────────────────────────────────────────────────────
-const DEF_COLOR_HIGH_BULL = "#0D47A1"; // Deep Blue
-const DEF_COLOR_HIGH_BEAR = "#4E342E"; // Dark Brown
-const DEF_COLOR_AVG_MOVE = "#82B1FF"; // Light Blue
-const DEF_COLOR_EMA_UP = "#B9F6CA"; // Light Green
+const DEF_COLOR_GREAT_EXPANSION = "#0000FF"; // color.rgb(0, 0, 255)
+const DEF_COLOR_DECENT_EXPANSION = "#2196F3"; // color.rgb(33, 150, 243)
+const DEF_COLOR_EMA_BOUNCE = "#4D9650"; // color.rgb(77, 150, 80)
+const DEF_COLOR_RMV_CONTRACTION = "#787B86"; // TradingView color.gray
+const DEF_COLOR_POOR_CONTRACTION = "#550E0E"; // color.rgb(85, 14, 14)
+const DEF_COLOR_EMA_CROSS = "#FFFFFF";
 
 export function getCustomIndicators(PineJS: any): Promise<any[]> {
   return Promise.resolve([buildCandleClassifier(PineJS), buildRMV(PineJS)]);
+}
+
+function computeRmvScore(
+  PineJS: any,
+  context: any,
+  highS: any,
+  lowS: any,
+  closeS: any,
+  loopback: number,
+): number {
+  const high2 = PineJS.Std.highest(highS, 2, context);
+  const lowOfHigh2 = PineJS.Std.lowest(highS, 2, context);
+  const close2 = PineJS.Std.highest(closeS, 2, context);
+  const lowClose2 = PineJS.Std.lowest(closeS, 2, context);
+  const highOfLow2 = PineJS.Std.highest(lowS, 2, context);
+  const low2 = PineJS.Std.lowest(lowS, 2, context);
+
+  const invalid2p =
+    !Number.isFinite(lowClose2) ||
+    lowClose2 === 0 ||
+    !Number.isFinite(low2) ||
+    low2 === 0;
+  const term1_2p = invalid2p ? NaN : ((high2 - lowOfHigh2) / lowClose2) * 100;
+  const term2_2p = invalid2p ? NaN : ((close2 - lowClose2) / lowClose2) * 100;
+  const term3_2p = invalid2p ? NaN : ((highOfLow2 - low2) / low2) * 100;
+  const avg2p = (term1_2p + 1.5 * term2_2p + term3_2p) / 3;
+
+  const high3 = PineJS.Std.highest(highS, 3, context);
+  const lowOfHigh3 = PineJS.Std.lowest(highS, 3, context);
+  const close3 = PineJS.Std.highest(closeS, 3, context);
+  const lowClose3 = PineJS.Std.lowest(closeS, 3, context);
+
+  const invalid3p = !Number.isFinite(lowClose3) || lowClose3 === 0;
+  const term1_3p = invalid3p ? NaN : ((high3 - lowOfHigh3) / lowClose3) * 100;
+  const term2_3p = invalid3p ? NaN : 1.5 * ((close3 - lowClose3) / lowClose3) * 100;
+  const avg3p = (term1_3p + term2_3p) / 2;
+
+  const combinedAvg = (3 * avg2p + avg3p) / 4;
+  const combinedS = context.new_var(combinedAvg);
+  const highestCombined = PineJS.Std.highest(combinedS, loopback, context);
+  const lowestCombined = PineJS.Std.lowest(combinedS, loopback, context);
+
+  const denom = highestCombined - lowestCombined;
+  if (!Number.isFinite(denom) || denom === 0) return NaN;
+
+  return ((combinedAvg - lowestCombined) / denom) * 100;
 }
 
 // ─── Smart Candle Classifier ─────────────────────────────────────────────────
@@ -41,156 +86,138 @@ function buildCandleClassifier(PineJS: any): any {
       description: "Smart Candle Classifier",
       shortDescription: "Smart Candle",
       is_price_study: true,
+      linkedToSeries: true,
       isCustomIndicator: true,
       format: { type: "inherit" },
 
-      // ── Bar colorer (actual rendering) ──────────────────────────────
-      plots: [{ id: "plot_bar", type: "bar_colorer", palette: "barPalette" }],
+      plots: [
+        { id: "plot_bar", type: "bar_colorer", palette: "barPalette" },
+        { id: "plot_ema_cross", type: "shapes" },
+      ],
 
       palettes: {
         barPalette: {
           colors: [
-            { name: "High Vol Bullish" },
-            { name: "High Vol Bearish" },
-            { name: "Above Avg Vol Move" },
-            { name: "Price Close Above EMA" },
+            { name: "Great Expansion" },
+            { name: "Decent Expansion" },
+            { name: "EMA Bounce" },
+            { name: "RMV Contraction" },
+            { name: "Poor Contraction" },
           ],
           valToIndex: {
-            [IDX.HIGH_BULL]: IDX.HIGH_BULL,
-            [IDX.HIGH_BEAR]: IDX.HIGH_BEAR,
-            [IDX.AVG_MOVE]: IDX.AVG_MOVE,
-            [IDX.EMA_UP]: IDX.EMA_UP,
+            [IDX.GREAT_EXPANSION]: IDX.GREAT_EXPANSION,
+            [IDX.DECENT_EXPANSION]: IDX.DECENT_EXPANSION,
+            [IDX.EMA_BOUNCE]: IDX.EMA_BOUNCE,
+            [IDX.RMV_CONTRACTION]: IDX.RMV_CONTRACTION,
+            [IDX.POOR_CONTRACTION]: IDX.POOR_CONTRACTION,
           },
         },
       },
 
       defaults: {
-        // Style-tab palette colours (must match the color-input defaults below)
         palettes: {
           barPalette: {
             colors: [
-              { color: DEF_COLOR_HIGH_BULL, width: 1, style: 0 },
-              { color: DEF_COLOR_HIGH_BEAR, width: 1, style: 0 },
-              { color: DEF_COLOR_AVG_MOVE, width: 1, style: 0 },
-              { color: DEF_COLOR_EMA_UP, width: 1, style: 0 },
+              { color: DEF_COLOR_GREAT_EXPANSION, width: 1, style: 0 },
+              { color: DEF_COLOR_DECENT_EXPANSION, width: 1, style: 0 },
+              { color: DEF_COLOR_EMA_BOUNCE, width: 1, style: 0 },
+              { color: DEF_COLOR_RMV_CONTRACTION, width: 1, style: 0 },
+              { color: DEF_COLOR_POOR_CONTRACTION, width: 1, style: 0 },
             ],
           },
         },
-
-        // Settings-tab input defaults
+        styles: {
+          plot_ema_cross: {
+            color: DEF_COLOR_EMA_CROSS,
+            textColor: DEF_COLOR_EMA_CROSS,
+            plottype: "shape_circle",
+            location: "Absolute",
+            visible: true,
+            size: "tiny",
+          },
+        },
         inputs: {
-          // ── Group: High Volume ──────────────────────────────────────
-          vol_period: 20,
-          vol_mult: 1.5,
-          adr_period: 20,
-          adr_mult_strong: 1.2,
-          color_high_bull: DEF_COLOR_HIGH_BULL,
-          color_high_bear: DEF_COLOR_HIGH_BEAR,
-          // ── Group: Above Avg Volume ─────────────────────────────────
-          adr_mult_moderate: 1.1,
-          color_avg_move: DEF_COLOR_AVG_MOVE,
-          // ── Group: Price Close Above EMA ────────────────────────────
-          ema_period: 10,
-          color_ema_up: DEF_COLOR_EMA_UP,
+          price_action_color_contraction_enable: true,
+          rmv_loopback: 14,
+          rmv_min: 0,
+          rmv_enable_indices: false,
+          enable_expansion: true,
+          enable_contraction: true,
+          enable_ema_bounce: true,
+          enable_ema_cross_over: true,
         },
       },
 
-      styles: {},
+      styles: {
+        plot_ema_cross: {
+          title: "EMA Cross",
+          text: "",
+          location: "Absolute",
+          plottype: "shape_circle",
+        },
+      },
 
-      // ── Inputs (Settings tab) ──────────────────────────────────────
       inputs: [
-        // ── Group: High Volume ──────────────────────────────────────
         {
-          id: "vol_period",
-          name: "Volume Avg Period",
-          defval: 20,
+          id: "price_action_color_contraction_enable",
+          name: "Tightness",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
+        },
+        {
+          id: "rmv_loopback",
+          name: "Contraction Check Loopback",
+          defval: 14,
           type: "integer",
-          min: 1,
+          min: 2,
           max: 500,
-          group: "High Volume",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "vol_mult",
-          name: "Volume Multiplier",
-          defval: 1.5,
+          id: "rmv_min",
+          name: "Contraction Check Threshold",
+          defval: 0,
           type: "float",
-          min: 1.0,
-          max: 20.0,
+          min: -100.0,
+          max: 100.0,
           step: 0.1,
-          group: "High Volume",
-          tooltip: "Bar is colored when volume ≥ this multiple of the avg",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "adr_period",
-          name: "ADR Period",
-          defval: 20,
-          type: "integer",
-          min: 1,
-          max: 500,
-          group: "High Volume",
+          id: "rmv_enable_indices",
+          name: "Contraction enabled for indices",
+          defval: false,
+          type: "bool",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "adr_mult_strong",
-          name: "ADR Multiplier (Strong Move)",
-          defval: 1.2,
-          type: "float",
-          min: 0.1,
-          max: 20.0,
-          step: 0.1,
-          group: "High Volume",
-          tooltip: "Candle body must be ≥ this multiple of ADR",
+          id: "enable_expansion",
+          name: "Expansion",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "color_high_bull",
-          name: "Bullish Color",
-          defval: DEF_COLOR_HIGH_BULL,
-          type: "color",
-          group: "High Volume",
+          id: "enable_contraction",
+          name: "Contraction",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "color_high_bear",
-          name: "Bearish Color",
-          defval: DEF_COLOR_HIGH_BEAR,
-          type: "color",
-          group: "High Volume",
-        },
-
-        // ── Group: Above Avg Volume ─────────────────────────────────
-        {
-          id: "adr_mult_moderate",
-          name: "ADR Multiplier (Moderate Move)",
-          defval: 1.1,
-          type: "float",
-          min: 0.1,
-          max: 20.0,
-          step: 0.1,
-          group: "Above Avg Volume",
-          tooltip: "Candle body must be ≥ this multiple of ADR",
+          id: "enable_ema_bounce",
+          name: "MA Bounce",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
         },
         {
-          id: "color_avg_move",
-          name: "Color",
-          defval: DEF_COLOR_AVG_MOVE,
-          type: "color",
-          group: "Above Avg Volume",
-        },
-
-        // ── Group: Price Close Above EMA ────────────────────────────
-        {
-          id: "ema_period",
-          name: "EMA Period",
-          defval: 10,
-          type: "integer",
-          min: 1,
-          max: 500,
-          group: "Price Close Above EMA",
-        },
-        {
-          id: "color_ema_up",
-          name: "Color",
-          defval: DEF_COLOR_EMA_UP,
-          type: "color",
-          group: "Price Close Above EMA",
+          id: "enable_ema_cross_over",
+          name: "MA Cross Over",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
         },
       ],
     },
@@ -200,71 +227,136 @@ function buildCandleClassifier(PineJS: any): any {
         this._context = ctx;
         this._input = inputs;
 
-        // ── Read inputs (order matches the inputs array above) ──────
-        const volPeriod: number = this._input(0); // vol_period
-        const volMult: number = this._input(1); // vol_mult
-        const adrPeriod: number = this._input(2); // adr_period
-        const adrMultStrong: number = this._input(3); // adr_mult_strong
-        // inputs 4 & 5 → color_high_bull, color_high_bear (not used in calc)
-        const adrMultMod: number = this._input(6); // adr_mult_moderate
-        // input 7 → color_avg_move (not used in calc)
-        const emaPeriod: number = this._input(8); // ema_period
-        // input 9 → color_ema_up (not used in calc)
+        const tightnessEnabled: boolean = this._input(0);
+        const rmvLoopback: number = this._input(1);
+        const rmvMin: number = this._input(2);
+        const rmvEnableIndices: boolean = this._input(3);
+        const enableExpansion: boolean = this._input(4);
+        const enableContraction: boolean = this._input(5);
+        const enableEmaBounce: boolean = this._input(6);
+        const enableEmaCrossOver: boolean = this._input(7);
 
-        // ── Raw bar values ──────────────────────────────────────────
         const close: number = PineJS.Std.close(this._context);
         const open: number = PineJS.Std.open(this._context);
         const high: number = PineJS.Std.high(this._context);
         const low: number = PineJS.Std.low(this._context);
         const vol: number = PineJS.Std.volume(this._context);
 
-        // ── Persistent series – order must never change between bars ──
-        const closeS = this._context.new_var(close); // #1
-        const volS = this._context.new_var(vol); // #2
-        const rangeS = this._context.new_var(high - low); // #3
-
-        // ── Rolling averages ────────────────────────────────────────
-        const avgVol: number = PineJS.Std.sma(volS, volPeriod, this._context);
-        const adr: number = PineJS.Std.sma(rangeS, adrPeriod, this._context);
-        const ema: number = PineJS.Std.ema(closeS, emaPeriod, this._context);
-
-        const emaS = this._context.new_var(ema); // #4
-
-        // ── Warm-up: skip bars before averages are available ────────
-        if (isNaN(avgVol) || isNaN(adr) || isNaN(ema)) return [NaN];
-
-        const body = Math.abs(close - open);
-        const isBull = close > open;
-        const isBear = close < open;
+        const highS = this._context.new_var(high);
+        const lowS = this._context.new_var(low);
+        const closeS = this._context.new_var(close);
+        const volS = this._context.new_var(vol);
         const prevClose: number = closeS.get(1);
-        const prevEma: number = emaS.get(1);
+        const chg =
+          Number.isFinite(prevClose) && prevClose !== 0
+            ? ((close - prevClose) / prevClose) * 100
+            : NaN;
 
-        // ── Priority 1: High Vol Bullish (Deep Blue) ────────────────
-        if (vol >= volMult * avgVol && isBull && body >= adrMultStrong * adr) {
-          return [IDX.HIGH_BULL];
-        }
+        const ema10 = PineJS.Std.ema(closeS, 10, this._context);
+        const ema20 = PineJS.Std.ema(closeS, 20, this._context);
+        const ema50 = PineJS.Std.ema(closeS, 50, this._context);
+        const ema10S = this._context.new_var(ema10);
+        const ema20S = this._context.new_var(ema20);
+        const ema50S = this._context.new_var(ema50);
 
-        // ── Priority 2: High Vol Bearish (Dark Brown) ───────────────
-        if (vol >= volMult * avgVol && isBear && body >= adrMultStrong * adr) {
-          return [IDX.HIGH_BEAR];
-        }
+        const atr14 = PineJS.Std.atr(14, this._context);
+        const atrPct =
+          Number.isFinite(atr14) && close !== 0 ? (atr14 / close) * 100 : NaN;
+        const avgVol = PineJS.Std.sma(volS, 20, this._context);
+        const aboveAvgVol = Number.isFinite(avgVol) && vol > avgVol;
 
-        // ── Priority 3: Above Avg Vol + Moderate Move (Light Blue) ──
-        if (vol >= avgVol && body >= adrMultMod * adr) {
-          return [IDX.AVG_MOVE];
-        }
+        const isDecentExpansion =
+          Number.isFinite(chg) &&
+          Number.isFinite(atrPct) &&
+          chg > atrPct &&
+          aboveAvgVol;
+        const isGreatExpansion =
+          isDecentExpansion && Number.isFinite(avgVol) && vol > avgVol * 1.5;
+        const isPoorContraction =
+          Number.isFinite(chg) &&
+          Number.isFinite(atrPct) &&
+          chg < 0 &&
+          Math.abs(chg) > atrPct * 1.1 &&
+          aboveAvgVol;
 
-        // ── Priority 4: Price Close Above EMA (Light Green) ─────────
-        if (
-          !isNaN(prevClose) &&
-          !isNaN(prevEma) &&
-          close > ema &&
-          prevClose <= prevEma
+        const lowPrev = lowS.get(1);
+        const ema10Prev = ema10S.get(1);
+        const ema20Prev = ema20S.get(1);
+        const ema50Prev = ema50S.get(1);
+        const bounce10 =
+          Number.isFinite(lowPrev) &&
+          Number.isFinite(ema10Prev) &&
+          Number.isFinite(ema10) &&
+          lowPrev < ema10Prev &&
+          low <= ema10 &&
+          close > ema10 &&
+          close > open;
+        const bounce20 =
+          Number.isFinite(lowPrev) &&
+          Number.isFinite(ema20Prev) &&
+          Number.isFinite(ema20) &&
+          lowPrev < ema20Prev &&
+          low <= ema20 &&
+          close > ema20 &&
+          close > open;
+        const bounce50 =
+          Number.isFinite(lowPrev) &&
+          Number.isFinite(ema50Prev) &&
+          Number.isFinite(ema50) &&
+          lowPrev < ema50Prev &&
+          low <= ema50 &&
+          close > ema50 &&
+          close > open;
+
+        const rmvEval = computeRmvScore(
+          PineJS,
+          this._context,
+          highS,
+          lowS,
+          closeS,
+          rmvLoopback,
+        );
+
+        const symbolType = String(this._context?.symbol?.info?.type ?? "").toLowerCase();
+        const contractionAllowedForSymbol =
+          symbolType === "index" ? rmvEnableIndices : true;
+
+        let barColor = NaN;
+        if (enableExpansion && isGreatExpansion) {
+          barColor = IDX.GREAT_EXPANSION;
+        } else if (enableExpansion && isDecentExpansion) {
+          barColor = IDX.DECENT_EXPANSION;
+        } else if (enableEmaBounce && (bounce10 || bounce20 || bounce50) && aboveAvgVol) {
+          barColor = IDX.EMA_BOUNCE;
+        } else if (
+          contractionAllowedForSymbol &&
+          tightnessEnabled &&
+          Number.isFinite(rmvEval) &&
+          rmvEval <= rmvMin
         ) {
-          return [IDX.EMA_UP];
+          barColor = IDX.RMV_CONTRACTION;
+        } else if (enableContraction && isPoorContraction) {
+          barColor = IDX.POOR_CONTRACTION;
         }
 
-        return [NaN]; // no condition met → default bar color
+        const emaCross1 =
+          Number.isFinite(ema10) &&
+          Number.isFinite(ema20) &&
+          Number.isFinite(ema10Prev) &&
+          Number.isFinite(ema20Prev) &&
+          ema10 > ema20 &&
+          ema10Prev <= ema20Prev;
+        const emaCross2 =
+          Number.isFinite(ema10) &&
+          Number.isFinite(ema50) &&
+          Number.isFinite(ema10Prev) &&
+          Number.isFinite(ema50Prev) &&
+          ema10 > ema50 &&
+          ema10Prev <= ema50Prev;
+        const emaCrossValue =
+          enableEmaCrossOver && (emaCross1 || emaCross2) ? ema10 : NaN;
+
+        return [barColor, emaCrossValue];
       };
     },
   };
@@ -337,73 +429,20 @@ function buildRMV(PineJS: any): any {
         const close: number = PineJS.Std.close(this._context);
 
         // Persistent series (order must stay stable)
-        const highS = this._context.new_var(high); // #1
-        const lowS = this._context.new_var(low); // #2
-        const closeS = this._context.new_var(close); // #3
+        const highS = this._context.new_var(high);
+        const lowS = this._context.new_var(low);
+        const closeS = this._context.new_var(close);
 
-        // === 2-period Calculations ===
-        const high2 = PineJS.Std.highest(highS, 2, this._context);
-        const lowOfHigh2 = PineJS.Std.lowest(highS, 2, this._context);
-        const close2 = PineJS.Std.highest(closeS, 2, this._context);
-        const lowClose2 = PineJS.Std.lowest(closeS, 2, this._context);
-        const highOfLow2 = PineJS.Std.highest(lowS, 2, this._context);
-        const low2 = PineJS.Std.lowest(lowS, 2, this._context);
-
-        const invalid2p =
-          !isFinite(lowClose2) || lowClose2 === 0 || !isFinite(low2) || low2 === 0;
-
-        const term1_2p = invalid2p
-          ? NaN
-          : ((high2 - lowOfHigh2) / lowClose2) * 100;
-        const term2_2p = invalid2p
-          ? NaN
-          : ((close2 - lowClose2) / lowClose2) * 100;
-        const term3_2p = invalid2p
-          ? NaN
-          : ((highOfLow2 - low2) / low2) * 100;
-        const avg_2p = (term1_2p + 1.5 * term2_2p + term3_2p) / 3;
-
-        // === 3-period Calculations ===
-        const high3 = PineJS.Std.highest(highS, 3, this._context);
-        const lowOfHigh3 = PineJS.Std.lowest(highS, 3, this._context);
-        const close3 = PineJS.Std.highest(closeS, 3, this._context);
-        const lowClose3 = PineJS.Std.lowest(closeS, 3, this._context);
-
-        const invalid3p = !isFinite(lowClose3) || lowClose3 === 0;
-
-        const term1_3p = invalid3p
-          ? NaN
-          : ((high3 - lowOfHigh3) / lowClose3) * 100;
-        const term2_3p = invalid3p
-          ? NaN
-          : 1.5 * ((close3 - lowClose3) / lowClose3) * 100;
-        const avg_3p = (term1_3p + term2_3p) / 2;
-
-        // === Combine Averages ===
-        const combinedAvg = (3 * avg_2p + avg_3p) / 4;
-
-        // Persistent series for rolling normalization
-        const combinedS = this._context.new_var(combinedAvg); // #4
-
-        // === Normalization over loopback ===
-        const highestCombined = PineJS.Std.highest(
-          combinedS,
-          loopback,
-          this._context,
-        );
-        const lowestCombined = PineJS.Std.lowest(
-          combinedS,
-          loopback,
-          this._context,
-        );
-
-        const denom = highestCombined - lowestCombined;
-        if (!isFinite(denom) || denom === 0) return [NaN];
-
-        const normalizedScore =
-          ((combinedAvg - lowestCombined) / denom) * 100;
-
-        return [normalizedScore];
+        return [
+          computeRmvScore(
+            PineJS,
+            this._context,
+            highS,
+            lowS,
+            closeS,
+            loopback,
+          ),
+        ];
       };
     },
   };
