@@ -26,7 +26,7 @@ services:
       - LOG_FORMAT=text
       - PYTHONPATH=/app/src
     env_file:
-      - ../.env
+      - .env
     command: sleep infinity # Kept alive by devcontainer
 
   db:

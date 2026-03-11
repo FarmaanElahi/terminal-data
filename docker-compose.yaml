@@ -1,65 +1,73 @@
 name: terminal
 
-services:
-  db:
-    image: postgres:15
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-terminal}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-terminal}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-terminal}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: "1.0"
+x-terminal-env: &terminal-env
+  DB_SCHEME: ${DB_SCHEME:-postgresql}
+  DB_DRIVER: ${DB_DRIVER:-psycopg}
+  DB_HOST: ${DB_HOST:?Set DB_HOST to your external Postgres host}
+  DB_PORT: ${DB_PORT:-5432}
+  DB_USER: ${DB_USER:?Set DB_USER}
+  DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+  DB_NAME: ${DB_NAME:?Set DB_NAME}
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: ${LOG_FORMAT:-json}
+  PORT: ${PORT:-8000}
 
-  backend:
+services:
+  configurator:
     build:
       context: .
       dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "${PORT:-8000}:${PORT:-8000}"
+      target: runtime
+    image: terminal:latest
     env_file:
       - .env
     environment:
-      DB_SCHEME: ${DB_SCHEME:-postgresql}
-      DB_DRIVER: ${DB_DRIVER:-psycopg}
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_USER: ${POSTGRES_USER:-terminal}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_NAME: ${POSTGRES_DB:-terminal}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      LOG_FORMAT: ${LOG_FORMAT:-text}
-      PORT: ${PORT:-8000}
+      <<: *terminal-env
+    command: >
+      sh -c '
+      attempts="$${MIGRATION_ATTEMPTS:-60}";
+      delay="$${MIGRATION_DELAY_SECONDS:-2}";
+      i=1;
+      while [ "$$i" -le "$$attempts" ]; do
+        echo "[configurator] Running migrations (attempt $$i/$$attempts)...";
+        if python -m terminal.cli database upgrade head; then
+          echo "[configurator] Migrations applied.";
+          exit 0;
+        fi;
+        echo "[configurator] Migration attempt $$i/$$attempts failed; retrying in $$delay s...";
+        i=$$((i+1));
+        sleep "$$delay";
+      done;
+      echo "[configurator] Failed to apply migrations after $$attempts attempts.";
+      exit 1
+      '
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: terminal:latest
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      <<: *terminal-env
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
     volumes:
-      - ./data:/app/data
+      - terminal_data:/app/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; import os; port = os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request, os; port=os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-          cpus: "2.0"
 
 volumes:
-  postgres_data:
+  terminal_data:
