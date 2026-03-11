@@ -209,6 +209,24 @@ function shortSymbol(symbol: string): string {
   return idx >= 0 ? symbol.slice(idx + 1) : symbol;
 }
 
+function parseFormulaAlert(
+  alert: Alert,
+): { operator: string; price: number } | null {
+  if (alert.alert_type !== "formula") return null;
+
+  const formula = (alert.trigger_condition as { formula?: unknown }).formula;
+  if (typeof formula !== "string") return null;
+
+  const match = formula.match(/(?:C|CLOSE)\s*([><]=?)\s*(-?\d+(?:\.\d+)?)/i);
+  if (!match) return null;
+
+  const operator = normalizeOperator(match[1]);
+  const price = Number(match[2]);
+  if (!Number.isFinite(price)) return null;
+
+  return { operator, price };
+}
+
 function timeToMs(time: Time | null | undefined): number | null {
   if (time == null) return null;
   if (typeof time === "number") return Number(time) * 1000;
@@ -271,26 +289,29 @@ export function MiniChartTile({
 
   const effectiveAlerts = useMemo(() => {
     return alerts
-      .filter((alert) => alert.status === "enabled")
-      .filter((alert) => alert.rhs_type === "constant" && alert.rhs_constant != null)
+      .filter((alert) => alert.status === "active")
       .map((alert) => {
-        const price = alertOverrides[alert.uuid] ?? alert.rhs_constant ?? 0;
-        const op = normalizeOperator(alert.operator);
+        const parsed = parseFormulaAlert(alert);
+        if (!parsed) return null;
+
+        const price = alertOverrides[alert.id] ?? parsed.price;
+        const op = parsed.operator;
         const label = alert.name || `${shortSymbol(symbol)} ${op} ${price.toFixed(2)}`;
         return {
-          id: alert.uuid,
+          id: alert.id,
           price,
           operator: op,
           label,
           color: getAlertColor(op),
         } as UserPriceAlert;
-      });
+      })
+      .filter((alert): alert is UserPriceAlert => alert != null);
   }, [alerts, alertOverrides, symbol]);
 
   const nearestMenuAlert = useMemo(
     () =>
       chartMenuNearestAlertId
-        ? alerts.find((a) => a.uuid === chartMenuNearestAlertId) ?? null
+        ? alerts.find((a) => a.id === chartMenuNearestAlertId) ?? null
         : null,
     [alerts, chartMenuNearestAlertId],
   );
@@ -657,10 +678,11 @@ export function MiniChartTile({
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!draggingAlertId) return;
 
-    const alert = alerts.find((a) => a.uuid === draggingAlertId);
+    const alert = alerts.find((a) => a.id === draggingAlertId);
     const nextPrice = alertOverrides[draggingAlertId];
+    const currentPrice = alert ? parseFormulaAlert(alert)?.price : null;
 
-    if (alert && nextPrice != null && Math.abs((alert.rhs_constant ?? 0) - nextPrice) > 0.0001) {
+    if (alert && currentPrice != null && nextPrice != null && Math.abs(currentPrice - nextPrice) > 0.0001) {
       onModifyAlert(alert, nextPrice);
     }
 
@@ -880,7 +902,7 @@ export function MiniChartTile({
                 onDeleteAlert(nearestMenuAlert);
               }}
             >
-              Delete Alert {nearestMenuAlert.name || nearestMenuAlert.uuid.slice(0, 8)}
+              Delete Alert {nearestMenuAlert.name || nearestMenuAlert.id.slice(0, 8)}
             </ContextMenuItem>
           )}
         </ContextMenuContent>

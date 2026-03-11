@@ -5,12 +5,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { alertsApi, notificationsApi } from "@/lib/api";
 import type {
-  Alert,
   AlertCreateParams,
   AlertUpdateParams,
-  AlertLog,
-  AlertLogsResponse,
-  NotificationChannel,
   NotificationChannelCreate,
 } from "@/types/alert";
 
