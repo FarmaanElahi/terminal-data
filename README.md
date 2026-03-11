@@ -11,14 +11,17 @@ This project uses a single root compose file: `docker-compose.yaml`.
 3. Start services:
    `docker compose up -d`
 
+Coolify note:
+- Set the same env vars in Coolify UI (no `env_file` is used in compose).
+- Expose port `PORT` (default `8000`, this repo currently uses `8099` in `.env`).
+
 Startup flow:
-- `db` starts first and becomes healthy.
-- `configurator` runs `/app/.venv/bin/python -m terminal.cli database upgrade head`.
-- `app` starts only after configurator succeeds.
+- `db` starts.
+- `app` runs `/app/.venv/bin/python -m terminal.cli database upgrade head` and then starts the API.
 
 Database backup/restore:
-- `docker compose exec app terminal database backup --output /app/data/backup.sql`
-- `docker compose exec app terminal database restore /app/data/backup.sql --yes`
+- `docker compose exec app /app/.venv/bin/python -m terminal.cli database backup --output /app/data/backup.sql`
+- `docker compose exec app /app/.venv/bin/python -m terminal.cli database restore /app/data/backup.sql --yes`
 
 ## Devcontainer Env
 

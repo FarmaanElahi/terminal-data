@@ -1,5 +1,3 @@
-name: terminal
-
 x-terminal-env: &terminal-env
   DB_SCHEME: ${DB_SCHEME:-postgresql}
   DB_DRIVER: ${DB_DRIVER:-psycopg}
@@ -14,6 +12,24 @@ x-terminal-env: &terminal-env
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_FORMAT: ${LOG_FORMAT:-json}
   PORT: ${PORT:-8000}
+  ALGORITHM: ${ALGORITHM:-HS256}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+  MIN_PASSWORD_LENGTH: ${MIN_PASSWORD_LENGTH:-8}
+  ALERT_WEBOOK_URL: ${ALERT_WEBOOK_URL:-}
+  OCI_BUCKET: ${OCI_BUCKET:?Set OCI_BUCKET}
+  OCI_CONFIG: ${OCI_CONFIG:?Set OCI_CONFIG}
+  OCI_KEY: ${OCI_KEY:?Set OCI_KEY}
+  UPSTOX_ACCESS_TOKEN: ${UPSTOX_ACCESS_TOKEN:-}
+  UPSTOX_API_KEY: ${UPSTOX_API_KEY:-}
+  UPSTOX_API_SECRET: ${UPSTOX_API_SECRET:-}
+  UPSTOX_REDIRECT_URI: ${UPSTOX_REDIRECT_URI:-}
+  KITE_API_KEY: ${KITE_API_KEY:-}
+  KITE_API_SECRET: ${KITE_API_SECRET:-}
+  KITE_REDIRECT_URI: ${KITE_REDIRECT_URI:-}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_CLAIMS_EMAIL: ${VAPID_CLAIMS_EMAIL:-}
 
 services:
   db:
@@ -29,33 +45,20 @@ services:
       timeout: 5s
       retries: 10
     volumes:
-      - postgres_data_internal:/var/lib/postgresql/data
-
-  configurator:
-    image: devfarmaan/terminal:main
-    pull_policy: always
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      <<: *terminal-env
-    command: ["/app/.venv/bin/python", "-m", "terminal.cli", "database", "upgrade", "head"]
-    restart: "no"
+      - terminal_pg:/var/lib/postgresql/data
 
   app:
     image: devfarmaan/terminal:main
-    pull_policy: always
     depends_on:
-      db:
-        condition: service_healthy
-      configurator:
-        condition: service_completed_successfully
-    env_file:
-      - .env
+      - db
     environment:
       <<: *terminal-env
+    command:
+      [
+        "sh",
+        "-lc",
+        "/app/.venv/bin/python -m terminal.cli database upgrade head && exec /app/.venv/bin/uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1",
+      ]
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     volumes:
@@ -70,4 +73,6 @@ services:
 
 volumes:
   terminal_data:
-  postgres_data_internal:
+    name: terminal_data
+  terminal_pg:
+    name: terminal_pg
