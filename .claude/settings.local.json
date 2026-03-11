@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(git push:*)",
+      "Bash(uv run:*)",
+      "Bash(uvx ruff:*)",
+      "Bash(uv pip:*)",
+      "WebFetch(domain:upstox.com)"
+    ]
+  },
+  "enabledPlugins": {
+    "claude-md-management@claude-plugins-official": true
+  }
+}

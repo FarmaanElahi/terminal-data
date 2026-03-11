@@ -8,7 +8,6 @@ x-terminal-env: &terminal-env
   DB_USER: ${DB_USER:-postgres}
   DB_PASSWORD: ${DB_PASSWORD:-postgres}
   DB_NAME: ${DB_NAME:-terminal}
-  ALERT_WEBOOK_URL: ${ALERT_WEBOOK_URL:-}
   SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY}
   ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY}
   ENVIRONMENT: ${ENVIRONMENT:-production}
