@@ -33,7 +33,7 @@ x-terminal-env: &terminal-env
 
 services:
   db:
-    image: postgres:15
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
@@ -53,12 +53,6 @@ services:
       - db
     environment:
       <<: *terminal-env
-    command:
-      [
-        "sh",
-        "-lc",
-        "/app/.venv/bin/python -m terminal.cli database upgrade head && exec /app/.venv/bin/uvicorn terminal.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1",
-      ]
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
     volumes:

@@ -17,7 +17,8 @@ Coolify note:
 
 Startup flow:
 - `db` starts.
-- `app` runs `/app/.venv/bin/python -m terminal.cli database upgrade head` and then starts the API.
+- `app` starts the API service.
+- Run DB migrations from your post-deployment script.
 
 Database backup/restore:
 - `docker compose exec app /app/.venv/bin/python -m terminal.cli database backup --output /app/data/backup.sql`
