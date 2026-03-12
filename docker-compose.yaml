@@ -14,7 +14,7 @@ x-terminal-env: &terminal-env
   # Required with defaults - prefilled in UI but can be changed
   DB_SCHEME: ${DB_SCHEME:?postgresql}
   DB_DRIVER: ${DB_DRIVER:?psycopg}
-  DB_HOST: ${DB_HOST:?database}
+  DB_HOST: ${DB_HOST:?postgresql}
   DB_PORT: ${DB_PORT:?5432}
   DB_NAME: ${DB_NAME:?terminal}
   ENVIRONMENT: ${ENVIRONMENT:?production}
@@ -39,7 +39,7 @@ x-terminal-env: &terminal-env
   VAPID_CLAIMS_EMAIL: ${VAPID_CLAIMS_EMAIL}
 
 services:
-  database:
+  postgresql:
     image: postgres:18
     restart: unless-stopped
     environment:
@@ -56,10 +56,10 @@ services:
     labels:
       - coolify.managed=true
 
-  app:
+  terminal:
     image: devfarmaan/terminal:main
     depends_on:
-      - database
+      - postgresql
     environment:
       <<: *terminal-env
       # Tells Coolify to proxy this service's URL to port 8000
