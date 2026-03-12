@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useWebSocket } from "./use-websocket";
 import { useWidgetState, useWidgetStateMerge } from "./use-widget-state";
 import type { ScreenerFilterRow, ScreenerValues, WSMessage } from "@/types/ws";
+import { v4 as uuidv4 } from "uuid";
 
 import type { ColumnDef } from "@/types/models";
 
@@ -53,7 +54,7 @@ export function useScreener(
   // ─── Session Stability ────────────────────────────────────────────
 
   // Session ID stays stable for the lifetime of this hook instance (normally widget mount)
-  const sessionId = useMemo(() => crypto.randomUUID(), []);
+  const sessionId = useMemo(() => uuidv4(), []);
 
   // Track functional hash to avoid restarting on UI-only changes (width, name, etc.)
   const functionalHash = useMemo(() => {

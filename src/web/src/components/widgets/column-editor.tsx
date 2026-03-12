@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ColumnPropertiesDialog } from "./column-properties-dialog";
 import { Eye, EyeOff, X, Plus, Filter, ChevronRight } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ interface ColumnEditorProps {
 }
 
 function makeId(): string {
-  return `col_${crypto.randomUUID().slice(0, 8)}`;
+  return `col_${uuidv4().slice(0, 8)}`;
 }
 
 function newValueColumn(): ColumnDef {

@@ -36,6 +36,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { v4 as uuidv4 } from "uuid";
 
 interface DisplayRow {
   rowIndex: number;
@@ -60,10 +61,7 @@ function clampGridColumns(value: number): number {
 }
 
 function createMAConfig(maType: MiniChartMAType): MiniChartMAConfig {
-  const suffix =
-    typeof crypto !== "undefined" && crypto.randomUUID
-      ? crypto.randomUUID().slice(0, 8)
-      : Math.random().toString(36).slice(2, 10);
+  const suffix = uuidv4().slice(0, 8);
   return {
     id: `${maType}-${suffix}`,
     maType,

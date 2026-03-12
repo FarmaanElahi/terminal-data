@@ -14,11 +14,12 @@ import type {
   Theme,
 } from "@/types/layout";
 import { getWidget } from "@/lib/widget-registry";
+import { v4 as uuidv4 } from "uuid";
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
 function uid(): string {
-  return crypto.randomUUID().slice(0, 8);
+  return uuidv4().slice(0, 8);
 }
 
 function createPane(

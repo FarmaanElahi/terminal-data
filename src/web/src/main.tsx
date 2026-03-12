@@ -1,4 +1,3 @@
-import "@/lib/polyfills"; // Must be first — patches crypto.randomUUID for HTTP contexts
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@/styles/globals.css";

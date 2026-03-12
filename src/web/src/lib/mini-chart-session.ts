@@ -1,6 +1,7 @@
 import { terminalWS } from "@/lib/ws";
 import type { WSMessage } from "@/types/ws";
 import type { MiniChartBar } from "@/types/mini-chart";
+import { v4 as uuidv4 } from "uuid";
 
 type BarListener = (bar: MiniChartBar) => void;
 
@@ -131,10 +132,7 @@ export class MiniChartSession {
   private unsubs: Array<() => void> = [];
 
   constructor() {
-    this.sessionId =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2);
+    this.sessionId = uuidv4();
 
     this.unsubs.push(
       terminalWS.on("chart_session_created", (msg: WSMessage) => {

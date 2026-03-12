@@ -4,6 +4,7 @@ import type {
   SymbolResolvedData,
   ChartCandleData,
 } from "@/types/ws";
+import { v4 as uuidv4 } from "uuid";
 
 // ─── Types and Interfaces ─────────────────────────────────────────
 
@@ -79,11 +80,7 @@ export class ChartSession {
   private _unsubs: Array<() => void> = [];
 
   constructor(sessionId?: string) {
-    this._sessionId =
-      sessionId ||
-      (typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : Math.random().toString(36).substring(2));
+    this._sessionId = sessionId || uuidv4();
 
     this._setupWSHandlers();
     void this.ensureSession();
