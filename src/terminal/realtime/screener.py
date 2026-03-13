@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -161,15 +162,18 @@ class ScreenerSession:
 
     async def _start(self) -> None:
         """Load data, run initial evaluation, and start background loops."""
+        t_total = time.perf_counter()
+
+        t0 = time.perf_counter()
         try:
             await self._load_data()
         except Exception:
             logger.exception("Failed to load data for screener %s", self.session_id)
             return
-
         logger.info(
-            "Screener %s loaded %d symbols, %d columns",
+            "Screener %s [load_data] %.0fms — %d symbols, %d columns",
             self.session_id,
+            (time.perf_counter() - t0) * 1000,
             len(self._symbols),
             len(self._columns),
         )
@@ -183,30 +187,53 @@ class ScreenerSession:
         self._cache_key = f"{self.params.source}:{'|'.join(col_ids)}"
         self._shared_cache = ScreenerCache.get_or_create(self._cache_key)
 
-        # Pre-parse formula ASTs and cache condition sets
+        t0 = time.perf_counter()
         self._cache_formulas()
+        logger.info(
+            "Screener %s [cache_formulas] %.0fms",
+            self.session_id,
+            (time.perf_counter() - t0) * 1000,
+        )
 
-        # Ensure exchange data is loaded before evaluating columns.
-        # The PartitionedProvider is lazy — data files must be loaded
-        # via ensure_loaded() before get_history()/get_ohlcv() will return
-        # anything.  We batch-load all exchanges needed for the screener's
-        # symbols up-front so the synchronous evaluation paths work.
+        t0 = time.perf_counter()
         try:
             await self._ensure_exchanges_loaded()
         except Exception:
             logger.exception(
                 "Failed to load exchange data for screener %s", self.session_id
             )
+        logger.info(
+            "Screener %s [ensure_exchanges] %.0fms",
+            self.session_id,
+            (time.perf_counter() - t0) * 1000,
+        )
 
-        # Initial evaluation
         try:
+            t0 = time.perf_counter()
             await self._run_filter(force=True)
+            logger.info(
+                "Screener %s [initial_eval/run_filter] %.0fms",
+                self.session_id,
+                (time.perf_counter() - t0) * 1000,
+            )
+            t0 = time.perf_counter()
             await self._run_values()
+            logger.info(
+                "Screener %s [initial_eval/run_values] %.0fms",
+                self.session_id,
+                (time.perf_counter() - t0) * 1000,
+            )
         except Exception:
             logger.exception(
                 "Initial evaluation failed for screener %s", self.session_id
             )
             return
+
+        logger.info(
+            "Screener %s [TOTAL startup] %.0fms",
+            self.session_id,
+            (time.perf_counter() - t_total) * 1000,
+        )
 
         # Report formula errors to client
         if self._formula_errors:
@@ -320,9 +347,14 @@ class ScreenerSession:
         )
 
         async with AsyncSessionLocal() as session:
-            # Load list and its symbols (handling both DB and virtual system lists)
+            t0 = time.perf_counter()
             lst = await lists_service.get_any_list(
                 session, self.params.source, user_id=user_id
+            )
+            logger.info(
+                "Screener %s [load_data/get_list] %.0fms",
+                self.session_id,
+                (time.perf_counter() - t0) * 1000,
             )
             if not lst:
                 logger.warning(
@@ -333,7 +365,7 @@ class ScreenerSession:
                 )
                 return
 
-            # Resolve symbols asynchronously (handles COMBO and SYSTEM lists)
+            t0 = time.perf_counter()
             raw_symbols = await lists_service.get_symbols_async(
                 session,
                 lst,
@@ -341,29 +373,30 @@ class ScreenerSession:
                 fs=self.realtime.manager.provider.fs,
                 settings=settings,
             )
-
             self._symbols = raw_symbols
             logger.info(
-                "Screener %s: loaded %d symbols",
+                "Screener %s [load_data/get_symbols] %.0fms — %d symbols",
                 self.session_id,
+                (time.perf_counter() - t0) * 1000,
                 len(self._symbols),
             )
 
             # Load columns directly from params
             self._columns = self.params.columns or []
             logger.info(
-                "Screener %s: loaded %d columns",
+                "Screener %s [load_data/columns] %d columns (from params, no I/O)",
                 self.session_id,
                 len(self._columns),
             )
 
-            # Fetch metadata for all symbols (only real symbols)
+            t0 = time.perf_counter()
             self._metadata = await symbols_service.get_metadata_by_tickers(
                 self.realtime.manager.provider.fs, settings, self._symbols
             )
             logger.info(
-                "Screener %s: loaded metadata for %d symbols",
+                "Screener %s [load_data/metadata] %.0fms — %d symbols",
                 self.session_id,
+                (time.perf_counter() - t0) * 1000,
                 len(self._metadata),
             )
 
@@ -416,11 +449,19 @@ class ScreenerSession:
 
         Returns True if the visible ticker set changed.
         """
+        t0 = time.perf_counter()
         if not self.params.filter_active:
             # No filtering — all symbols are visible
             new_tickers = list(self._symbols)
         else:
             new_tickers = self._evaluate_filter()
+        logger.info(
+            "Screener %s [run_filter/evaluate_filter] %.0fms — %d/%d passed",
+            self.session_id,
+            (time.perf_counter() - t0) * 1000,
+            len(new_tickers),
+            len(self._symbols),
+        )
 
         # Only emit if the set has changed or force is True
         if force or new_tickers != self._visible_tickers:
@@ -428,7 +469,15 @@ class ScreenerSession:
             self._last_values.clear()  # reset value cache on filter change
 
             # Get initial values for the "full dataframe" response
+            t0 = time.perf_counter()
             initial_values = self._evaluate_columns()
+            logger.info(
+                "Screener %s [run_filter/evaluate_columns] %.0fms — %d cols × %d rows",
+                self.session_id,
+                (time.perf_counter() - t0) * 1000,
+                len(initial_values),
+                len(self._visible_tickers),
+            )
             self._last_values.update(initial_values)
 
             rows: list[ScreenerFilterRow] = []

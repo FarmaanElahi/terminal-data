@@ -4,9 +4,15 @@ import { Loader2 } from "lucide-react";
 export function BootLoader() {
   const isBooted = useAuthStore((s) => s.isBooted);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const token = useAuthStore((s) => s.token);
 
-  // Don't show if already booted
-  if (isBooted && !isLoading) {
+  // Show only when there is an active loading operation:
+  //   - isLoading=true  → login/register form submission in progress
+  //   - token && !isBooted → page-reload boot (handled upstream by AuthLoader,
+  //                          but guard here too for safety)
+  // Critically: do NOT show when there is no token — that means the user is
+  // unauthenticated and should see the login page, not a spinner.
+  if (!isLoading && (isBooted || !token)) {
     return null;
   }
 
