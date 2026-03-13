@@ -14,6 +14,7 @@ Authentication: Bearer token required (UPSTOX_ACCESS_TOKEN env var)
 
 import asyncio
 import logging
+import time
 from datetime import date, timedelta
 from typing import Any, AsyncGenerator
 
@@ -31,6 +32,11 @@ BASE_URL = "https://api.upstox.com/v3"
 # Retry config
 MAX_RETRIES = 5
 RETRY_BACKOFF = 0.5  # seconds, doubled each retry
+
+# Candle cache TTL — results are reused for this many seconds before re-fetching.
+# Short enough to stay fresh during a session; long enough to serve N simultaneous
+# chart widgets that all open at the same time without duplicating API calls.
+CANDLE_CACHE_TTL = 60.0  # seconds
 
 # Exchange prefixes that belong to Indian markets
 INDIA_EXCHANGES = {"NSE", "BSE"}
@@ -82,6 +88,14 @@ class UpstoxClient(CandleProvider):
         self._owns_feed = owns_feed
         self._update_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._ticker_map: dict[str, str] = {}  # token -> ticker
+
+        # Candle cache: cache_key -> (candles, expires_monotonic)
+        # Keyed on raw (ticker, interval, from_date, to_date) before date expansion so
+        # two simultaneous "full range" requests share the same entry.
+        self._candle_cache: dict[str, tuple[list[Candle], float]] = {}
+        # In-flight dedup: cache_key -> Future
+        # Second caller awaits the same future instead of starting a new fetch.
+        self._candle_inflight: dict[str, asyncio.Future[list[Candle]]] = {}
 
         if self._feed:
             self._feed.on_candle(self._on_feed_update)
@@ -160,8 +174,10 @@ class UpstoxClient(CandleProvider):
                 timeout=self._timeout,
                 headers=headers,
                 limits=httpx.Limits(
-                    max_connections=20,
-                    max_keepalive_connections=10,
+                    # Each chart session fetches N chunks in parallel.
+                    # 50 connections comfortably serves ~5 simultaneous chart widgets.
+                    max_connections=50,
+                    max_keepalive_connections=20,
                 ),
             )
         return self._client
@@ -189,7 +205,56 @@ class UpstoxClient(CandleProvider):
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[Candle]:
-        """Fetch candles from Upstox V3 API.
+        """Fetch candles with TTL cache + in-flight deduplication.
+
+        Multiple simultaneous requests for the same (ticker, interval, from, to)
+        are collapsed into one Upstox API call — subsequent callers await the
+        same Future rather than firing redundant HTTP requests.  Results are then
+        cached for CANDLE_CACHE_TTL seconds so back-to-back chart opens are instant.
+        """
+        cache_key = f"{ticker}:{interval}:{from_date}:{to_date}"
+        now = time.monotonic()
+
+        # ── 1. Cache hit ──────────────────────────────────────────────────
+        entry = self._candle_cache.get(cache_key)
+        if entry is not None:
+            candles, expires_at = entry
+            if now < expires_at:
+                logger.debug("Candle cache hit for %s %s", ticker, interval)
+                return candles
+            del self._candle_cache[cache_key]
+
+        # ── 2. In-flight dedup ────────────────────────────────────────────
+        # If another coroutine is already fetching the same key, wait for it.
+        inflight = self._candle_inflight.get(cache_key)
+        if inflight is not None:
+            logger.debug("Waiting for in-flight candle fetch for %s %s", ticker, interval)
+            return await asyncio.shield(inflight)
+
+        # ── 3. New fetch — register Future so late arrivals can piggyback ─
+        loop = asyncio.get_event_loop()
+        fut: asyncio.Future[list[Candle]] = loop.create_future()
+        self._candle_inflight[cache_key] = fut
+        try:
+            candles = await self._do_get_candles(ticker, interval, from_date, to_date)
+            self._candle_cache[cache_key] = (candles, time.monotonic() + CANDLE_CACHE_TTL)
+            fut.set_result(candles)
+            return candles
+        except Exception as exc:
+            if not fut.done():
+                fut.set_exception(exc)
+            raise
+        finally:
+            self._candle_inflight.pop(cache_key, None)
+
+    async def _do_get_candles(
+        self,
+        ticker: str,
+        interval: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[Candle]:
+        """Internal implementation — always hits the Upstox API.
 
         Args:
             ticker:    e.g. ``NSE:RELIANCE``
