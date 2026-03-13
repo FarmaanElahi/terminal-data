@@ -22,6 +22,15 @@ logger = logging.getLogger(__name__)
 _OHLCV_COLS = ("open", "high", "low", "close", "volume")
 _NUM_COLS = len(_OHLCV_COLS)
 
+# Maps both short formula names (C, H, …) and long names (close, high, …)
+# to their index in the ohlcv array.  Used by get_last_field() fast path.
+_FIELD_NAME_TO_IDX: dict[str, int] = {
+    # Short names — as emitted by the formula FieldRef node
+    "O": 0, "H": 1, "L": 2, "C": 3, "V": 4,
+    # Long names — in case a formula uses full column names
+    "OPEN": 0, "HIGH": 1, "LOW": 2, "CLOSE": 3, "VOLUME": 4,
+}
+
 # Type alias for the composite key
 type StoreKey = tuple[str, str]  # (symbol, timeframe)
 
@@ -176,6 +185,60 @@ class OHLCStore:
         """Check whether a symbol is loaded at a given timeframe."""
         key = self._key(symbol, timeframe)
         return key in self._ohlcv and self._sizes.get(key, 0) > 0
+
+    def get_last_n_data(
+        self, symbol: str, n: int, timeframe: str = _DEFAULT_TF
+    ) -> pd.DataFrame | None:
+        """Return the last *n* rows as a DataFrame without allocating the full history.
+
+        Building a 50-row DataFrame for ``SMA(C, 50)`` is ~36× cheaper than
+        building the full 1825-row one and then slicing it away.  The caller
+        already knows the minimum rows it needs via the static lookback analysis,
+        so this is always safe.
+
+        Returns ``None`` if the symbol is not loaded.
+        """
+        key = self._key(symbol, timeframe)
+        if key not in self._ohlcv:
+            return None
+
+        size = self._sizes.get(key, 0)
+        if size == 0:
+            return None
+
+        actual_n = min(n, size)
+        start = size - actual_n
+
+        ts = self._timestamps[key][start:size]
+        data = self._ohlcv[key][start:size]
+
+        df = pd.DataFrame(
+            data,
+            columns=list(_OHLCV_COLS),
+            index=pd.Index(ts.copy(), name="timestamp"),
+        )
+        df["timestamp"] = ts.astype(np.float64)
+        return df
+
+    def get_last_field(
+        self, symbol: str, field_name: str, timeframe: str = _DEFAULT_TF
+    ) -> float | None:
+        """Return the last value of a single OHLCV field without allocating a DataFrame.
+
+        ``field_name`` accepts both the short formula form (``C``, ``H``, ``L``,
+        ``O``, ``V``) and the long column name (``close``, ``high``, etc.).
+
+        Returns ``None`` if the symbol is not yet loaded or the field is unknown.
+        This is an O(1) operation — a single array element read with no copies.
+        """
+        key = self._key(symbol, timeframe)
+        size = self._sizes.get(key, 0)
+        if size == 0:
+            return None
+        idx = _FIELD_NAME_TO_IDX.get(field_name.upper())
+        if idx is None:
+            return None
+        return float(self._ohlcv[key][size - 1, idx])
 
     def get_lock(self, symbol: str, timeframe: str = _DEFAULT_TF) -> asyncio.Lock:
         """Return the asyncio.Lock for a given (symbol, timeframe) pair."""

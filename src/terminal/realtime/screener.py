@@ -17,7 +17,9 @@ from terminal.column.models import ColumnDef
 from terminal.lists import service as lists_service
 from terminal.symbols import service as symbols_service
 from terminal.database.core import AsyncSessionLocal
-from terminal.formula import FormulaError, evaluate, parse
+from terminal.formula import FormulaError, can_scalar_eval, compute_lookback, evaluate, parse, scalar_last
+from terminal.formula.ast_nodes import FieldRef
+from terminal.formula.scalar import _Unsupported
 from terminal.config import settings
 from terminal.market_feed.provider import _extract_exchange
 
@@ -411,26 +413,44 @@ class ScreenerSession:
             )
 
     def _cache_formulas(self) -> None:
-        """Pre-parse all formula ASTs and inline condition formulas at start time."""
+        """Pre-parse all formula ASTs and inline condition formulas at start time.
+
+        Each parsed entry is a 3-tuple ``(col_or_cond, ast, lookback)`` where
+        ``lookback`` is the minimum number of DataFrame rows needed for the last
+        element of ``evaluate(ast, df)`` to be valid.  This is used to slice the
+        DataFrame before evaluation, avoiding CPU work on irrelevant history.
+
+        Also computes ``_max_lb_per_tf`` — the maximum lookback across all
+        non-FieldRef columns for each timeframe.  Used to build the smallest
+        possible DataFrame when populating the per-symbol df_cache.
+        """
         self._formula_errors = []
 
-        # Parse value column formulas
+        # Parse value column formulas — tuple: (col, ast, lookback, can_scalar)
+        # can_scalar=True means the formula can be evaluated by scalar_last()
+        # without allocating a DataFrame at all.
         self._parsed_columns = []
         for col in self._columns:
             if col.type == "value" and col.value_formula:
                 try:
                     ast = parse(col.value_formula)
-                    self._parsed_columns.append((col, ast))
+                    # bar_ago shifts the read index back, so add it to the lookback
+                    lb = compute_lookback(ast) + (col.value_formula_x_bar_ago or 0)
+                    # Scalar fast path: no bar_ago needed because scalar_last
+                    # handles offsets from the last element natively; bar_ago
+                    # would need a different index, so disable scalar for those.
+                    sc = can_scalar_eval(ast) and not (col.value_formula_x_bar_ago or 0)
+                    self._parsed_columns.append((col, ast, lb, sc))
                 except FormulaError as e:
                     logger.warning("Column formula parse error: %s", e.message)
-                    self._parsed_columns.append((col, None))
+                    self._parsed_columns.append((col, None, 500, False))
                     self._formula_errors.append(
                         ScreenerErrorInfo(column_id=col.id, message=e.message)
                     )
             else:
-                self._parsed_columns.append((col, None))
+                self._parsed_columns.append((col, None, 1, False))
 
-        # Parse inline condition formulas (keyed by column id)
+        # Parse inline condition formulas — tuple: (cond, ast, lookback)
         self._parsed_conditions = {}
 
         condition_columns = [
@@ -445,10 +465,35 @@ class ScreenerSession:
                 )
                 try:
                     ast = parse(formula)
-                    parsed.append((cond, ast))
+                    lb = compute_lookback(ast)
+                    parsed.append((cond, ast, lb))
                 except (FormulaError, Exception):
-                    parsed.append((cond, None))
+                    parsed.append((cond, None, 500))
             self._parsed_conditions[col.id] = parsed
+
+        # Pre-compute the maximum lookback per timeframe across all columns that
+        # actually need a DataFrame (i.e. not handled by the scalar / FieldRef
+        # fast paths).  This lets us build the smallest possible DataFrame in
+        # the df_cache rather than the full 1825-row history.
+        self._max_lb_per_tf: dict[str, int] = {}
+        for col, col_ast, col_lb, col_sc in self._parsed_columns:
+            if col.type == "value":
+                tf = col.value_formula_tf or "D"
+                bar_ago = col.value_formula_x_bar_ago or 0
+                # Both the FieldRef fast path and the scalar fast path skip
+                # DataFrame construction — only count columns that need one.
+                if col_ast is None or col_sc or (not bar_ago and isinstance(col_ast, FieldRef)):
+                    continue
+                self._max_lb_per_tf[tf] = max(self._max_lb_per_tf.get(tf, 0), col_lb)
+            elif col.type == "condition":
+                tf = col.conditions_tf or "D"
+                max_cond_lb = max(
+                    (lb for _, _, lb in self._parsed_conditions.get(col.id, [])),
+                    default=1,
+                )
+                self._max_lb_per_tf[tf] = max(
+                    self._max_lb_per_tf.get(tf, 0), max_cond_lb
+                )
 
     # ------------------------------------------------------------------
     # Filter evaluation
@@ -588,12 +633,13 @@ class ScreenerSession:
             return True
 
         results = []
-        for cond, ast in parsed:
+        for cond, ast, lb in parsed:
             if ast is None:
                 results.append(False)
                 continue
             try:
-                result = evaluate(ast, df)
+                df_slice = df.iloc[-lb:] if lb < len(df) else df
+                result = evaluate(ast, df_slice)
                 if result.dtype == bool:
                     met = bool(result[-1]) if len(result) > 0 else False
                 else:
@@ -612,6 +658,25 @@ class ScreenerSession:
     # ------------------------------------------------------------------
     # Column value evaluation
     # ------------------------------------------------------------------
+
+    def _get_df_for_eval(
+        self, manager: Any, symbol: str, tf: str
+    ) -> "pd.DataFrame | None":
+        """Return the smallest DataFrame needed to evaluate all columns for *tf*.
+
+        For the daily timeframe, reads exactly ``_max_lb_per_tf[tf]`` rows from
+        the numpy buffer — no unnecessary history is allocated.  Falls back to
+        the full ``get_ohlcv()`` path for weekly/monthly (which requires pandas
+        resampling from full daily data) and when the symbol is not yet in the
+        store.
+        """
+        max_lb = self._max_lb_per_tf.get(tf, 0)
+        if tf == "D" and max_lb > 0:
+            df = manager.store.get_last_n_data(symbol, max_lb)
+            if df is not None:
+                return df
+        # Fallback: weekly/monthly resampling or symbol not pre-loaded
+        return manager.get_ohlcv(symbol, timeframe=tf)
 
     async def _run_values(self) -> None:
         """Evaluate all column formulas for visible tickers and emit only changed columns."""
@@ -636,36 +701,79 @@ class ScreenerSession:
             )
 
     def _evaluate_columns(self) -> dict[str, list[Any]]:
-        """Compute column values for all visible tickers using cached ASTs."""
-        manager = self.realtime.manager
-        values_map: dict[str, list[Any]] = {}
+        """Compute column values for all visible tickers using cached ASTs.
 
-        for col, col_ast in self._parsed_columns:
-            col_values = []
-            for symbol in self._visible_tickers:
+        Iterates symbols in the outer loop so that a single ``get_ohlcv()``
+        call (and its ``pd.DataFrame`` construction) is shared across all
+        columns that use the same timeframe for a given symbol.
+
+        For simple ``FieldRef`` columns on the daily timeframe (e.g. ``C``,
+        ``V``) the fast path reads directly from the numpy buffer — no
+        DataFrame is allocated at all.
+        """
+        manager = self.realtime.manager
+        n = len(self._visible_tickers)
+
+        # Pre-allocate result lists — avoids repeated .append() calls
+        values_map: dict[str, list[Any]] = {
+            col.id: [None] * n for col, _, _, _ in self._parsed_columns
+        }
+
+        for i, symbol in enumerate(self._visible_tickers):
+            # One DataFrame per (symbol, timeframe) — shared across all columns
+            df_cache: dict[str, pd.DataFrame | None] = {}
+            # Raw numpy buffer for the scalar fast path (populated on first access)
+            _scalar_buf: tuple[np.ndarray, int] | None | bool = False  # False = not yet loaded
+
+            for col, col_ast, col_lb, col_sc in self._parsed_columns:
                 if col.type == "value":
                     if col.value_type == "field":
-                        # Pull from symbol metadata
                         meta = self._metadata.get(symbol, {})
-                        val = meta.get(col.id)
-                        col_values.append(val)
+                        values_map[col.id][i] = meta.get(col.id)
                         continue
 
                     if col_ast is None:
-                        col_values.append(None)
-                        continue
+                        continue  # already None in pre-allocated list
 
                     tf = col.value_formula_tf or "D"
-                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    bar_ago = col.value_formula_x_bar_ago or 0
+
+                    # ── Scalar fast path: zero DataFrame allocation ──────────
+                    # Works for any pure-arithmetic formula on daily TF fields.
+                    if col_sc and tf == "D":
+                        if _scalar_buf is False:
+                            key = (symbol, "1D")
+                            s = manager.store._sizes.get(key, 0)
+                            _scalar_buf = (manager.store._ohlcv[key], s) if s > 0 else None
+                        if _scalar_buf is not None:
+                            ohlcv_arr, sz = _scalar_buf
+                            try:
+                                val = scalar_last(col_ast, ohlcv_arr, sz)
+                                values_map[col.id][i] = val
+                                continue
+                            except _Unsupported:
+                                pass  # fall through to DataFrame path
+
+                    # ── FieldRef fast path: single O(1) numpy element read ───
+                    if not bar_ago and tf == "D" and isinstance(col_ast, FieldRef):
+                        val = manager.store.get_last_field(symbol, col_ast.name)
+                        if val is not None:
+                            values_map[col.id][i] = val
+                        continue
+
+                    # ── General path: build (minimal) DataFrame ──────────────
+                    if tf not in df_cache:
+                        df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
+                    df = df_cache[tf]
+
                     if df is None or len(df) == 0:
-                        col_values.append(None)
                         continue
 
                     try:
-                        res = evaluate(col_ast, df)
+                        df_slice = df.iloc[-col_lb:] if col_lb < len(df) else df
+                        res = evaluate(col_ast, df_slice)
                         res = np.asarray(res)
 
-                        bar_ago = col.value_formula_x_bar_ago or 0
                         if bar_ago:
                             idx = -(bar_ago + 1)
                             val = res[idx] if len(res) >= abs(idx) else None
@@ -679,13 +787,11 @@ class ScreenerSession:
                             elif isinstance(val, np.bool_):
                                 val = bool(val)
 
-                        col_values.append(val)
+                        values_map[col.id][i] = val
                     except (FormulaError, Exception) as e:
                         logger.warning(
                             "Column %s eval failed for %s: %s", col.id, symbol, e
                         )
-                        col_values.append(None)
-                        # Track runtime error (deduplicated by column_id)
                         if not any(
                             err.column_id == col.id for err in self._formula_errors
                         ):
@@ -698,19 +804,16 @@ class ScreenerSession:
 
                 elif col.type == "condition":
                     tf = col.conditions_tf or "D"
-                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if tf not in df_cache:
+                        df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
+                    df = df_cache[tf]
+
                     if df is None or len(df) == 0:
-                        col_values.append(False)
+                        values_map[col.id][i] = False
                         continue
 
                     logic = col.conditions_logic or "and"
-                    val = self._eval_conditions(col.id, df, logic)
-                    col_values.append(val)
-
-                else:
-                    col_values.append(None)
-
-            values_map[col.id] = col_values
+                    values_map[col.id][i] = self._eval_conditions(col.id, df, logic)
 
         return values_map
 
@@ -811,35 +914,65 @@ class ScreenerSession:
         """Evaluate columns only for the given symbols.
 
         Returns ``{col_id: {symbol: value}}`` — a sparse map of results.
+
+        Uses the same symbol-outer / df_cache / FieldRef fast-path optimisations
+        as ``_evaluate_columns()``.
         """
         manager = self.realtime.manager
-        result: dict[str, dict[str, Any]] = {}
+        result: dict[str, dict[str, Any]] = {
+            col.id: {} for col, _, _, _ in self._parsed_columns
+        }
 
-        for col, col_ast in self._parsed_columns:
-            col_result: dict[str, Any] = {}
-            for symbol in symbols:
+        for symbol in symbols:
+            df_cache: dict[str, pd.DataFrame | None] = {}
+            _scalar_buf: tuple[np.ndarray, int] | None | bool = False
+
+            for col, col_ast, col_lb, col_sc in self._parsed_columns:
                 if col.type == "value":
                     if col.value_type == "field":
-                        # Pull from symbol metadata
                         meta = self._metadata.get(symbol, {})
-                        col_result[symbol] = meta.get(col.id)
+                        result[col.id][symbol] = meta.get(col.id)
                         continue
 
                     if col_ast is None:
-                        col_result[symbol] = None
+                        result[col.id][symbol] = None
                         continue
 
                     tf = col.value_formula_tf or "D"
-                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    bar_ago = col.value_formula_x_bar_ago or 0
+
+                    # Scalar fast path
+                    if col_sc and tf == "D":
+                        if _scalar_buf is False:
+                            key = (symbol, "1D")
+                            s = manager.store._sizes.get(key, 0)
+                            _scalar_buf = (manager.store._ohlcv[key], s) if s > 0 else None
+                        if _scalar_buf is not None:
+                            ohlcv_arr, sz = _scalar_buf
+                            try:
+                                result[col.id][symbol] = scalar_last(col_ast, ohlcv_arr, sz)
+                                continue
+                            except _Unsupported:
+                                pass
+
+                    # FieldRef fast path
+                    if not bar_ago and tf == "D" and isinstance(col_ast, FieldRef):
+                        result[col.id][symbol] = manager.store.get_last_field(symbol, col_ast.name)
+                        continue
+
+                    if tf not in df_cache:
+                        df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
+                    df = df_cache[tf]
+
                     if df is None or len(df) == 0:
-                        col_result[symbol] = None
+                        result[col.id][symbol] = None
                         continue
 
                     try:
-                        res = evaluate(col_ast, df)
+                        df_slice = df.iloc[-col_lb:] if col_lb < len(df) else df
+                        res = evaluate(col_ast, df_slice)
                         res = np.asarray(res)
 
-                        bar_ago = col.value_formula_x_bar_ago or 0
                         if bar_ago:
                             idx = -(bar_ago + 1)
                             val = res[idx] if len(res) >= abs(idx) else None
@@ -852,28 +985,28 @@ class ScreenerSession:
                             elif isinstance(val, np.bool_):
                                 val = bool(val)
 
-                        col_result[symbol] = val
+                        result[col.id][symbol] = val
                     except (FormulaError, Exception) as e:
                         logger.warning(
                             "Column %s eval failed for %s: %s", col.id, symbol, e
                         )
-                        col_result[symbol] = None
+                        result[col.id][symbol] = None
 
                 elif col.type == "condition":
                     tf = col.conditions_tf or "D"
-                    df = manager.get_ohlcv(symbol, timeframe=tf)
+                    if tf not in df_cache:
+                        df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
+                    df = df_cache[tf]
+
                     if df is None or len(df) == 0:
-                        col_result[symbol] = False
+                        result[col.id][symbol] = False
                         continue
 
                     logic = col.conditions_logic or "and"
-                    val = self._eval_conditions(col.id, df, logic)
-                    col_result[symbol] = val
+                    result[col.id][symbol] = self._eval_conditions(col.id, df, logic)
 
                 else:
-                    col_result[symbol] = None
-
-            result[col.id] = col_result
+                    result[col.id][symbol] = None
 
         return result
 

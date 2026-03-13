@@ -6,7 +6,7 @@ import pandas as pd
 
 from pydantic import BaseModel
 from terminal.market_feed.manager import MarketDataManager
-from terminal.formula import FormulaError, evaluate, parse, preprocess
+from terminal.formula import FormulaError, compute_lookback, evaluate, parse, preprocess
 from terminal.column.models import ColumnDef
 
 logger = logging.getLogger(__name__)
@@ -113,8 +113,9 @@ def run_scan_engine(
 
     condition_tf = "D"
 
-    # Pre-parse condition formulas (cacheable ASTs)
-    parsed_conditions: list[tuple[ConditionParam, object | None]] = []
+    # Pre-parse condition formulas — tuple: (cond, ast, lookback)
+    # lookback = formula rows needed + temporal window (x_bar_ago / within_last)
+    parsed_conditions: list[tuple[ConditionParam, object | None, int]] = []
     raw_conditions = getattr(scan, "conditions", None) or []
     if raw_conditions:
         for raw_cond in raw_conditions:
@@ -123,23 +124,32 @@ def run_scan_engine(
             )
             try:
                 ast = parse(cond.formula)
-                parsed_conditions.append((cond, ast))
+                formula_lb = compute_lookback(ast)
+                if cond.true_when == "x_bar_ago":
+                    temporal_extra = cond.true_when_param or 1
+                elif cond.true_when == "within_last":
+                    # Need formula_lb + (N-1) rows so the last N results are valid
+                    temporal_extra = (cond.true_when_param or 5) - 1
+                else:
+                    temporal_extra = 0
+                parsed_conditions.append((cond, ast, formula_lb + temporal_extra))
             except FormulaError as e:
                 logger.warning(f"Formula parse error: {e.message}")
-                parsed_conditions.append((cond, None))
+                parsed_conditions.append((cond, None, 500))
 
-    # Pre-parse column expressions
-    parsed_columns: list[tuple[ColumnDef, object | None]] = []
+    # Pre-parse column expressions — tuple: (col_def, ast, lookback)
+    parsed_columns: list[tuple[ColumnDef, object | None, int]] = []
     for col_def in col_definitions:
         if col_def.type == "value" and col_def.formula:
             try:
                 ast = parse(col_def.formula)
-                parsed_columns.append((col_def, ast))
+                lb = compute_lookback(ast) + (col_def.bar_ago or 0)
+                parsed_columns.append((col_def, ast, lb))
             except FormulaError as e:
                 logger.warning(f"Column expression parse error: {e.message}")
-                parsed_columns.append((col_def, None))
+                parsed_columns.append((col_def, None, 500))
         else:
-            parsed_columns.append((col_def, None))
+            parsed_columns.append((col_def, None, 1))
 
     for symbol in symbols:
         df = market_manager.get_ohlcv(symbol, timeframe=condition_tf)
@@ -151,14 +161,15 @@ def run_scan_engine(
 
         if parsed_conditions:
             condition_results = []
-            for cond, ast in parsed_conditions:
+            for cond, ast, cond_lb in parsed_conditions:
                 if ast is None:
                     condition_results.append(False)
                     continue
                 try:
-                    bool_arr = evaluate(ast, df)
+                    df_slice = df.iloc[-cond_lb:] if cond_lb < len(df) else df
+                    bool_arr = evaluate(ast, df_slice)
                     if bool_arr.dtype != bool:
-                        tmp = np.zeros(len(df), dtype=bool)
+                        tmp = np.zeros(len(df_slice), dtype=bool)
                         if isinstance(bool_arr, np.ndarray):
                             valid = ~np.isnan(bool_arr.astype(float, copy=False))
                             tmp[valid] = bool_arr[valid].astype(bool)
@@ -184,7 +195,7 @@ def run_scan_engine(
         # 2. It passed! Build the result row
         row = []
 
-        for col_def, col_ast in parsed_columns:
+        for col_def, col_ast, col_lb in parsed_columns:
             # We must fetch data for the specific column's timeframe
             col_tf = col_def.timeframe or "D"
             if col_tf == condition_tf:
@@ -197,7 +208,8 @@ def run_scan_engine(
 
             try:
                 if col_def.type == "value" and col_ast is not None:
-                    res_arr = evaluate(col_ast, col_df)
+                    col_df_slice = col_df.iloc[-col_lb:] if col_lb < len(col_df) else col_df
+                    res_arr = evaluate(col_ast, col_df_slice)
                     res_arr = np.asarray(res_arr)
 
                     if col_def.bar_ago:
