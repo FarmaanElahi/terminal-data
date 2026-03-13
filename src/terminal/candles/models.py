@@ -105,8 +105,8 @@ def upstox_chunk_days(unit: str) -> int:
     if unit in ("minutes", "hours"):
         return 7
     if unit == "days":
-        return 3650  # 10 years
-    return 3650  # weeks / months
+        return 1825  # 5 years
+    return 1825  # weeks / months
 
 
 # ---------------------------------------------------------------------------

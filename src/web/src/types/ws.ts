@@ -98,14 +98,8 @@ export interface SymbolResolvedData {
 // m: "symbol_resolved", p: [sessionId, metadata]
 export type SymbolResolvedResponse = [string, SymbolResolvedData];
 
-export interface ChartCandleData {
-  time: number; // UTC Milliseconds
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+// Compact candle wire format: [time_ms, open, high, close, low, volume]
+export type ChartCandleData = [number, number, number, number, number, number];
 
 // m: "chart_series", p: [sessionId, symbol, interval, candles, seriesId, noData]
 export type ChartSeriesResponse = [
@@ -117,5 +111,5 @@ export type ChartSeriesResponse = [
   boolean,
 ];
 
-// m: "chart_update", p: [sessionId, symbol, candle]
-export type ChartUpdateResponse = [string, string, ChartCandleData];
+// m: "chart_update", p: [sessionId, symbol, candle, seriesId]
+export type ChartUpdateResponse = [string, string, ChartCandleData, string | null];

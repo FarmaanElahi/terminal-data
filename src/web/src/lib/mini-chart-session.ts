@@ -1,5 +1,5 @@
 import { terminalWS } from "@/lib/ws";
-import type { WSMessage } from "@/types/ws";
+import type { WSMessage, ChartCandleData } from "@/types/ws";
 import type { MiniChartBar } from "@/types/mini-chart";
 import { v4 as uuidv4 } from "uuid";
 
@@ -58,21 +58,15 @@ function mapTimeframeToInterval(timeframe: string): string {
   return map[timeframe] ?? "1d";
 }
 
-function toBar(input: {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}): MiniChartBar {
+// c = [time_ms, open, high, close, low, volume]
+function toBar(c: ChartCandleData): MiniChartBar {
   return {
-    time: input.time,
-    open: input.open,
-    high: input.high,
-    low: input.low,
-    close: input.close,
-    volume: input.volume,
+    time: c[0],
+    open: c[1],
+    high: c[2],
+    close: c[3],
+    low: c[4],
+    volume: c[5],
   };
 }
 
@@ -152,14 +146,7 @@ export class MiniChartSession {
           string,
           string,
           string,
-          Array<{
-            time: number;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
-          }>,
+          ChartCandleData[],
           string | null,
         ];
         if (sid !== this.sessionId || !requestId) return;
@@ -194,14 +181,7 @@ export class MiniChartSession {
         const [sid, symbol, candle, seriesIdFromMsg] = msg.p as [
           string,
           string,
-          {
-            time: number;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
-          },
+          ChartCandleData,
           string | null,
         ];
         if (sid !== this.sessionId) return;

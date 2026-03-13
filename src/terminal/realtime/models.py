@@ -374,15 +374,9 @@ class SymbolResolvedResponse(ServerMessage):
     p: tuple[str, SymbolResolvedData]  # session_id, metadata
 
 
-class ChartCandleData(BaseModel):
-    """A single candle in the chart series."""
-
-    time: int  # UTC Milliseconds
-    open: float
-    high: float
-    low: float
-    close: float
-    volume: int
+# Compact candle wire format: [time_ms, open, high, close, low, volume]
+# Avoids sending 6 field-name strings per bar — ~40% smaller payload.
+CandleTuple = tuple[int, float, float, float, float, int]
 
 
 class ChartSeriesResponse(ServerMessage):
@@ -390,7 +384,7 @@ class ChartSeriesResponse(ServerMessage):
 
     m: Literal["chart_series"] = "chart_series"
     p: tuple[
-        str, str, str, list[ChartCandleData], str | None, bool
+        str, str, str, list[CandleTuple], str | None, bool
     ]  # session_id, symbol, interval, candles, series_id, no_data
 
 
@@ -399,7 +393,7 @@ class ChartUpdateResponse(ServerMessage):
 
     m: Literal["chart_update"] = "chart_update"
     p: tuple[
-        str, str, ChartCandleData, str | None
+        str, str, CandleTuple, str | None
     ]  # session_id, symbol, candle, series_id
 
 

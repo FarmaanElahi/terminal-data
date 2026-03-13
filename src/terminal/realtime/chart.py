@@ -7,7 +7,7 @@ from terminal.candles.models import tv_resolution_to_upstox
 from terminal.candles.service import CandleManager
 from terminal.symbols.service import get_symbol
 from terminal.realtime.models import (
-    ChartCandleData,
+    CandleTuple,
     ChartParams,
     SymbolResolvedData,
     SymbolResolvedResponse,
@@ -170,20 +170,12 @@ class ChartSession:
             )
 
             # Emit chart_series
-            data = []
+            # Build compact tuples: [time_ms, open, high, close, low, volume]
+            data: list[CandleTuple] = []
             unit, _ = upstox
             for c in candles:
                 ts_ms = self._parse_timestamp(c.timestamp, unit)
-                data.append(
-                    ChartCandleData(
-                        time=ts_ms,
-                        open=c.open,
-                        high=c.high,
-                        low=c.low,
-                        close=c.close,
-                        volume=c.volume,
-                    )
-                )
+                data.append((ts_ms, c.open, c.high, c.close, c.low, c.volume))
 
             # Mini chart requests should honor their explicit date range window
             # so initial tile payloads stay small and fast.
@@ -217,9 +209,9 @@ class ChartSession:
                     )
 
                 if from_ms is not None:
-                    data = [d for d in data if d.time >= from_ms]
+                    data = [d for d in data if d[0] >= from_ms]
                 if to_ms is not None:
-                    data = [d for d in data if d.time <= to_ms]
+                    data = [d for d in data if d[0] <= to_ms]
 
             await self.realtime.send(
                 ChartSeriesResponse(
@@ -312,15 +304,14 @@ class ChartSession:
 
                         ts_ms = self._parse_timestamp(update["timestamp"], unit)
 
-                        candle = ChartCandleData(
-                            time=ts_ms,
-                            open=update["open"],
-                            high=update["high"],
-                            low=update["low"],
-                            close=update["close"],
-                            volume=update["volume"],
+                        candle: CandleTuple = (
+                            ts_ms,
+                            update["open"],
+                            update["high"],
+                            update["close"],
+                            update["low"],
+                            update["volume"],
                         )
-
                         await self.realtime.send(
                             ChartUpdateResponse(
                                 p=(self.session_id, ticker, candle, series_id)
@@ -335,16 +326,14 @@ class ChartSession:
                         continue
 
                     ts_ms = self._parse_timestamp(update["timestamp"], unit)
-
-                    candle = ChartCandleData(
-                        time=ts_ms,
-                        open=update["open"],
-                        high=update["high"],
-                        low=update["low"],
-                        close=update["close"],
-                        volume=update["volume"],
+                    candle: CandleTuple = (
+                        ts_ms,
+                        update["open"],
+                        update["high"],
+                        update["close"],
+                        update["low"],
+                        update["volume"],
                     )
-
                     await self.realtime.send(
                         ChartUpdateResponse(
                             p=(self.session_id, ticker, candle, series_id)

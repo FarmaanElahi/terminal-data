@@ -171,13 +171,14 @@ export class ChartSession {
         ];
         if (sid !== this._sessionId) return;
 
+        // c = [time_ms, open, high, close, low, volume]
         const bar: Bar = {
-          time: c.time,
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-          volume: c.volume,
+          time: c[0],
+          open: c[1],
+          high: c[2],
+          close: c[3],
+          low: c[4],
+          volume: c[5],
         };
 
         const targetId = seriesId || symbol;

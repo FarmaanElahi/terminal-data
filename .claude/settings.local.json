@@ -15,7 +15,9 @@
       "mcp__Claude_Preview__preview_start",
       "Bash(lsof -i :5173)",
       "Bash(npx tsc --noEmit)",
-      "Bash(node_modules/.bin/tsc --noEmit)"
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(/Users/farmaan/Public/farmaan/code/terminal/terminal-data/src/web/node_modules/.bin/tsc --noEmit -p /Users/farmaan/Public/farmaan/code/terminal/terminal-data/src/web/tsconfig.json)",
+      "Bash(/Users/farmaan/Public/farmaan/code/terminal/terminal-data/src/web/node_modules/typescript/bin/tsc --noEmit -p /Users/farmaan/Public/farmaan/code/terminal/terminal-data/src/web/tsconfig.app.json)"
     ]
   },
   "enabledPlugins": {

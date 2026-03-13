@@ -227,15 +227,15 @@ class UpstoxClient(CandleProvider):
         # Enforce minimum data windows for better "scroll back" performance
         if from_date is None:
             if unit in ("days", "weeks", "months"):
-                # 10 years back
-                from_date = effective_to - timedelta(days=3650)
+                # 5 years back
+                from_date = effective_to - timedelta(days=1825)
             else:
                 # 30 days back for intraday
                 from_date = effective_to - timedelta(days=30)
         else:
             # If from_date is provided, ensure it covers at least the minimum window if requested range is small
             if unit in ("days", "weeks", "months"):
-                min_from = effective_to - timedelta(days=3650)
+                min_from = effective_to - timedelta(days=1825)
                 from_date = min(from_date, min_from)
             else:
                 min_from = effective_to - timedelta(days=30)
