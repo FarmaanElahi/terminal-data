@@ -120,6 +120,7 @@ class ScreenerSession:
         self._formula_errors: list[ScreenerErrorInfo] = []
 
         # Background tasks
+        self._start_task: asyncio.Task | None = None
         self._filter_task: asyncio.Task | None = None
         self._values_task: asyncio.Task | None = None
         self._metadata_refresh_task: asyncio.Task | None = None
@@ -147,14 +148,24 @@ class ScreenerSession:
         _, params = msg.p
         if params is not None:
             self.params = params
-        await self._start()
+        # Fire _start() as a background task so the WebSocket message loop
+        # can immediately read and process the next message (e.g. chart setup)
+        # without waiting 3–5s for the screener to fully initialise.
+        self._start_task = asyncio.create_task(self._start_safe())
 
     async def _handle_modify_screener(self, msg: ModifyScreenerRequest) -> None:
         """Handle a modify_screener request."""
         _, params = msg.p
         self.stop()
         self.params = params
-        await self._start()
+        self._start_task = asyncio.create_task(self._start_safe())
+
+    async def _start_safe(self) -> None:
+        """Wrapper around _start() that logs unhandled exceptions from the task."""
+        try:
+            await self._start()
+        except Exception:
+            logger.exception("Screener %s startup failed", self.session_id)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -208,18 +219,14 @@ class ScreenerSession:
             (time.perf_counter() - t0) * 1000,
         )
 
+        # _run_filter(force=True) evaluates all columns and seeds _last_values.
+        # Calling _run_values right after would re-evaluate everything and diff
+        # to zero changes — pure wasted work. Skip it.
         try:
             t0 = time.perf_counter()
             await self._run_filter(force=True)
             logger.info(
                 "Screener %s [initial_eval/run_filter] %.0fms",
-                self.session_id,
-                (time.perf_counter() - t0) * 1000,
-            )
-            t0 = time.perf_counter()
-            await self._run_values()
-            logger.info(
-                "Screener %s [initial_eval/run_values] %.0fms",
                 self.session_id,
                 (time.perf_counter() - t0) * 1000,
             )
@@ -251,6 +258,9 @@ class ScreenerSession:
 
     def stop(self) -> None:
         """Cancel background tasks and release shared cache."""
+        if self._start_task and not self._start_task.done():
+            self._start_task.cancel()
+            self._start_task = None
         if self._filter_task:
             self._filter_task.cancel()
             self._filter_task = None
@@ -468,9 +478,11 @@ class ScreenerSession:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
 
-            # Get initial values for the "full dataframe" response
+            # Get initial values for the "full dataframe" response.
+            # CPU-bound — run in thread pool so the event loop stays responsive.
             t0 = time.perf_counter()
-            initial_values = self._evaluate_columns()
+            loop = asyncio.get_running_loop()
+            initial_values = await loop.run_in_executor(None, self._evaluate_columns)
             logger.info(
                 "Screener %s [run_filter/evaluate_columns] %.0fms — %d cols × %d rows",
                 self.session_id,
@@ -480,14 +492,12 @@ class ScreenerSession:
             )
             self._last_values.update(initial_values)
 
+            ticker_index = {t: i for i, t in enumerate(self._visible_tickers)}
             rows: list[ScreenerFilterRow] = []
             for t in self._visible_tickers:
                 meta = self._metadata.get(t, {})
-                # Extract values for this specific row
-                row_values = {
-                    cid: vals[self._visible_tickers.index(t)]
-                    for cid, vals in initial_values.items()
-                }
+                i = ticker_index[t]
+                row_values = {cid: vals[i] for cid, vals in initial_values.items()}
                 rows.append(
                     ScreenerFilterRow(
                         ticker=t,
@@ -608,7 +618,8 @@ class ScreenerSession:
         if not self._visible_tickers or not self._columns:
             return
 
-        values_map = self._evaluate_columns()
+        loop = asyncio.get_running_loop()
+        values_map = await loop.run_in_executor(None, self._evaluate_columns)
         if not values_map:
             return
 
