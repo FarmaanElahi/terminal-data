@@ -324,13 +324,32 @@ class ScreenerSession:
                 len(timeframes_needed),
             )
 
-            # Load individual symbol histories into the in-memory store
-            # so get_ohlcv() can serve them without round-tripping the provider.
-            for symbol in self._symbols:
-                for tf in timeframes_needed:
-                    history = manager.provider.get_history(symbol, tf)
-                    if history is not None and len(history) > 0:
-                        manager.store.load_history(symbol, history, tf)
+            # Load individual symbol histories into the in-memory store.
+            # Run in a thread so the event loop isn't blocked during bulk copy.
+            # Skip symbols already in the store — subsequent screeners with the
+            # same exchange do near-zero work.
+            symbols = self._symbols
+            store = manager.store
+
+            def _do_load() -> int:
+                loaded = 0
+                for symbol in symbols:
+                    for tf in timeframes_needed:
+                        if store._sizes.get((symbol, tf), 0) > 0:
+                            continue
+                        history = manager.provider.get_history(symbol, tf)
+                        if history is not None and len(history) > 0:
+                            store.load_history(symbol, history, tf)
+                            loaded += 1
+                return loaded
+
+            loop = asyncio.get_running_loop()
+            loaded = await loop.run_in_executor(None, _do_load)
+            logger.debug(
+                "Screener %s: loaded %d new symbol histories into store",
+                self.session_id,
+                loaded,
+            )
 
             # Kick off realtime streaming if it wasn't started at boot
             # (happens when exchanges are lazy-loaded after start()).
@@ -466,9 +485,10 @@ class ScreenerSession:
                 try:
                     ast = parse(formula)
                     lb = compute_lookback(ast)
-                    parsed.append((cond, ast, lb))
+                    sc = can_scalar_eval(ast)
+                    parsed.append((cond, ast, lb, sc))
                 except (FormulaError, Exception):
-                    parsed.append((cond, None, 500))
+                    parsed.append((cond, None, 500, False))
             self._parsed_conditions[col.id] = parsed
 
         # Pre-compute the maximum lookback per timeframe across all columns that
@@ -488,7 +508,7 @@ class ScreenerSession:
             elif col.type == "condition":
                 tf = col.conditions_tf or "D"
                 max_cond_lb = max(
-                    (lb for _, _, lb in self._parsed_conditions.get(col.id, [])),
+                    (lb for _, _, lb, _ in self._parsed_conditions.get(col.id, [])),
                     default=1,
                 )
                 self._max_lb_per_tf[tf] = max(
@@ -509,7 +529,9 @@ class ScreenerSession:
             # No filtering — all symbols are visible
             new_tickers = list(self._symbols)
         else:
-            new_tickers = self._evaluate_filter()
+            # CPU-bound — run in thread pool so the event loop stays responsive.
+            loop = asyncio.get_running_loop()
+            new_tickers = await loop.run_in_executor(None, self._evaluate_filter)
         logger.info(
             "Screener %s [run_filter/evaluate_filter] %.0fms — %d/%d passed",
             self.session_id,
@@ -598,20 +620,58 @@ class ScreenerSession:
                 _MAX_SYMBOLS_PER_CYCLE,
                 len(self._symbols),
             )
+
+        # Pre-compute which active filter columns are fully scalar-evaluable
+        # on the daily timeframe so we can skip DataFrame construction for them.
+        all_sc_cols: dict[str, bool] = {}
+        for col in active_filter_columns:
+            if (col.conditions_tf or "D") == "D":
+                all_sc_cols[col.id] = all(
+                    sc
+                    for _, _, _, sc in self._parsed_conditions.get(
+                        col.id, [(None, None, 0, False)]
+                    )
+                )
+
         for symbol in symbols_to_eval:
             passes = True
+            df_cache_f: dict[str, pd.DataFrame | None] = {}
+            _scalar_buf_f: tuple[np.ndarray, int] | None | bool = False
+
             for col in active_filter_columns:
                 if not col.conditions:
                     continue
 
                 tf = col.conditions_tf or "D"
-                df = manager.get_ohlcv(symbol, timeframe=tf)
-                if df is None or len(df) == 0:
-                    passes = False
-                    break
-
                 logic = col.conditions_logic or "and"
-                condition_results = self._eval_conditions(col.id, df, logic)
+
+                # Get ohlcv buffer for the scalar fast path
+                cond_buf_f: tuple[np.ndarray, int] | None = None
+                if tf == "D":
+                    if _scalar_buf_f is False:
+                        fkey = (symbol, "1D")
+                        fs = manager.store._sizes.get(fkey, 0)
+                        _scalar_buf_f = (
+                            (manager.store._ohlcv[fkey], fs) if fs > 0 else None
+                        )
+                    cond_buf_f = _scalar_buf_f  # type: ignore[assignment]
+
+                # If all conditions are scalar-safe, skip DataFrame entirely
+                if all_sc_cols.get(col.id) and cond_buf_f is not None:
+                    condition_results = self._eval_conditions(
+                        col.id, None, logic, cond_buf_f
+                    )
+                else:
+                    if tf not in df_cache_f:
+                        df_cache_f[tf] = self._get_df_for_eval(manager, symbol, tf)
+                    df = df_cache_f[tf]
+                    if df is None or len(df) == 0:
+                        passes = False
+                        break
+                    condition_results = self._eval_conditions(
+                        col.id, df, logic, cond_buf_f
+                    )
+
                 if not condition_results:
                     passes = False
                     break
@@ -624,17 +684,42 @@ class ScreenerSession:
     def _eval_conditions(
         self,
         col_id: str,
-        df: pd.DataFrame,
+        df: "pd.DataFrame | None",
         logic: str,
+        ohlcv_buf: "tuple[np.ndarray, int] | None" = None,
     ) -> bool:
-        """Evaluate inline conditions for a column using pre-parsed ASTs."""
+        """Evaluate inline conditions using pre-parsed ASTs.
+
+        When *ohlcv_buf* is provided and a condition is marked scalar-safe,
+        ``scalar_last`` is used instead of building/slicing a DataFrame.
+        When all conditions are scalar-safe, *df* may be ``None``.
+        """
         parsed = self._parsed_conditions.get(col_id, [])
         if not parsed:
             return True
 
         results = []
-        for cond, ast, lb in parsed:
+        for cond, ast, lb, can_sc in parsed:
             if ast is None:
+                results.append(False)
+                continue
+
+            met = False
+
+            # ── Scalar fast path: zero DataFrame access ──────────────────
+            if can_sc and ohlcv_buf is not None:
+                ohlcv_arr, sz = ohlcv_buf
+                try:
+                    val = scalar_last(ast, ohlcv_arr, sz)
+                    if val is not None:
+                        met = bool(val)
+                        results.append(met)
+                        continue
+                except Exception:
+                    pass  # fall through to DataFrame path
+
+            # ── DataFrame path ────────────────────────────────────────────
+            if df is None:
                 results.append(False)
                 continue
             try:
@@ -642,8 +727,6 @@ class ScreenerSession:
                 result = evaluate(ast, df_slice)
                 if result.dtype == bool:
                     met = bool(result[-1]) if len(result) > 0 else False
-                else:
-                    met = False
             except (FormulaError, Exception):
                 met = False
             results.append(met)
@@ -804,6 +887,29 @@ class ScreenerSession:
 
                 elif col.type == "condition":
                     tf = col.conditions_tf or "D"
+                    logic = col.conditions_logic or "and"
+
+                    # Get the ohlcv buffer for the scalar fast path
+                    cond_buf: tuple[np.ndarray, int] | None = None
+                    if tf == "D":
+                        if _scalar_buf is False:
+                            key = (symbol, "1D")
+                            s = manager.store._sizes.get(key, 0)
+                            _scalar_buf = (manager.store._ohlcv[key], s) if s > 0 else None
+                        cond_buf = _scalar_buf  # type: ignore[assignment]
+
+                    # If every condition in this column is scalar-safe, skip
+                    # DataFrame construction entirely.
+                    all_sc = cond_buf is not None and all(
+                        sc
+                        for _, _, _, sc in self._parsed_conditions.get(col.id, [(None, None, 0, False)])
+                    )
+                    if all_sc:
+                        values_map[col.id][i] = self._eval_conditions(
+                            col.id, None, logic, cond_buf
+                        )
+                        continue
+
                     if tf not in df_cache:
                         df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
                     df = df_cache[tf]
@@ -812,8 +918,9 @@ class ScreenerSession:
                         values_map[col.id][i] = False
                         continue
 
-                    logic = col.conditions_logic or "and"
-                    values_map[col.id][i] = self._eval_conditions(col.id, df, logic)
+                    values_map[col.id][i] = self._eval_conditions(
+                        col.id, df, logic, cond_buf
+                    )
 
         return values_map
 
@@ -994,6 +1101,26 @@ class ScreenerSession:
 
                 elif col.type == "condition":
                     tf = col.conditions_tf or "D"
+                    logic = col.conditions_logic or "and"
+
+                    cond_buf_s: tuple[np.ndarray, int] | None = None
+                    if tf == "D":
+                        if _scalar_buf is False:
+                            key = (symbol, "1D")
+                            s = manager.store._sizes.get(key, 0)
+                            _scalar_buf = (manager.store._ohlcv[key], s) if s > 0 else None
+                        cond_buf_s = _scalar_buf  # type: ignore[assignment]
+
+                    all_sc_s = cond_buf_s is not None and all(
+                        sc
+                        for _, _, _, sc in self._parsed_conditions.get(col.id, [(None, None, 0, False)])
+                    )
+                    if all_sc_s:
+                        result[col.id][symbol] = self._eval_conditions(
+                            col.id, None, logic, cond_buf_s
+                        )
+                        continue
+
                     if tf not in df_cache:
                         df_cache[tf] = self._get_df_for_eval(manager, symbol, tf)
                     df = df_cache[tf]
@@ -1002,8 +1129,9 @@ class ScreenerSession:
                         result[col.id][symbol] = False
                         continue
 
-                    logic = col.conditions_logic or "and"
-                    result[col.id][symbol] = self._eval_conditions(col.id, df, logic)
+                    result[col.id][symbol] = self._eval_conditions(
+                        col.id, df, logic, cond_buf_s
+                    )
 
                 else:
                     result[col.id][symbol] = None

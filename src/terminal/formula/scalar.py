@@ -1,12 +1,13 @@
-"""Zero-allocation scalar evaluation for simple arithmetic formula ASTs.
+"""Zero-allocation scalar evaluation for simple formula ASTs.
 
 For formulas that contain only arithmetic/comparisons on OHLCV field references
-(``C``, ``O``, ``H``, ``L``, ``V``) and bar-shifts (``C.1``, ``H.5``), the
+(``C``, ``O``, ``H``, ``L``, ``V``), bar-shifts (``C.1``, ``H.5``), and common
+window functions (``SMA``, ``EMA``, ``MIN``/``LOWEST``, ``MAX``/``HIGHEST``), the
 result at the last bar can be computed directly from the raw numpy arrays
 stored in ``OHLCStore`` — with **no pandas DataFrame allocation at all**.
 
-This is used as the inner fast-path in the screener column evaluator.
-Formulas that reference window functions (``SMA``, ``EMA``, ``RMV``, …) or
+This is used as the inner fast-path in the screener column and condition evaluator.
+Formulas that reference unsupported functions (``RSI``, ``RMV``, ``VWAP``, …) or
 nested shifts fall back to the standard ``evaluate()`` path.
 
 Usage
@@ -163,10 +164,92 @@ def _eval(node: Node, ohlcv: np.ndarray, size: int) -> float | None:
         raise _Unsupported(f"unknown binary op {op!r}")
 
     if isinstance(node, FuncCall):
-        # No function calls in scalar mode — they need the full numpy array.
+        name = node.name
+        args = node.args
+
+        if name in ("SMA", "MIN", "LOWEST", "MAX", "HIGHEST", "EMA") and len(args) == 2:
+            src, period_node = args
+            if not isinstance(period_node, NumberLiteral):
+                raise _Unsupported("non-literal period")
+            period = max(1, int(period_node.value))
+
+            if name == "EMA":
+                # EMA needs period*3 warmup bars (matches lookback.py _EMA_MULT=3)
+                warmup = period * 3
+                if size < warmup:
+                    return None
+                arr = _eval_array(src, ohlcv, size - warmup, size)
+            else:
+                if size < period:
+                    return None
+                arr = _eval_array(src, ohlcv, size - period, size)
+
+            # Drop NaN/Inf
+            arr = arr[np.isfinite(arr)]
+            if len(arr) == 0:
+                return None
+
+            if name == "SMA":
+                return float(np.mean(arr))
+            if name in ("MIN", "LOWEST"):
+                return float(np.min(arr))
+            if name in ("MAX", "HIGHEST"):
+                return float(np.max(arr))
+            if name == "EMA":
+                return _ema_last(arr, period)
+
         raise _Unsupported(f"function call {node.name!r}")
 
     raise _Unsupported(f"unknown node type {type(node).__name__!r}")
+
+
+def _eval_array(node: Node, ohlcv: np.ndarray, start: int, end: int) -> np.ndarray:
+    """Evaluate *node* as a float64 array over ``ohlcv[start:end]``.
+
+    Only supports simple FieldRef arithmetic — no nested window functions or
+    bar-shifts (which require additional context rows beyond the window).
+    Raises ``_Unsupported`` for anything more complex.
+    """
+    if isinstance(node, NumberLiteral):
+        return np.full(end - start, node.value, dtype=np.float64)
+
+    if isinstance(node, FieldRef):
+        idx = _FIELD_IDX.get(node.name.upper())
+        if idx is None:
+            raise _Unsupported(f"unknown field {node.name!r}")
+        return ohlcv[start:end, idx].astype(np.float64)
+
+    if isinstance(node, UnaryOp):
+        arr = _eval_array(node.operand, ohlcv, start, end)
+        if node.op == "-":
+            return -arr
+        raise _Unsupported(f"unary op {node.op!r} in array context")
+
+    if isinstance(node, BinOp):
+        left = _eval_array(node.left, ohlcv, start, end)
+        right = _eval_array(node.right, ohlcv, start, end)
+        op = node.op
+        if op == "+":
+            return left + right
+        if op == "-":
+            return left - right
+        if op == "*":
+            return left * right
+        if op == "/":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                return np.where(right != 0, left / right, np.nan)
+        raise _Unsupported(f"binary op {op!r} in array context")
+
+    raise _Unsupported(f"array eval of {type(node).__name__!r}")
+
+
+def _ema_last(data: np.ndarray, span: int) -> float:
+    """Return the EMA value at the last element using the ``adjust=False`` convention."""
+    alpha = 2.0 / (span + 1)
+    ema = float(data[0])
+    for v in data[1:]:
+        ema = alpha * float(v) + (1.0 - alpha) * ema
+    return ema
 
 
 def _check(node: Node) -> None:
@@ -184,5 +267,28 @@ def _check(node: Node) -> None:
         _check(node.left)
         _check(node.right)
         return
-    # FuncCall or unknown → not scalar-safe
+    if isinstance(node, FuncCall):
+        name = node.name
+        if name in ("SMA", "EMA", "MIN", "LOWEST", "MAX", "HIGHEST") and len(node.args) == 2:
+            src, period_node = node.args
+            if not isinstance(period_node, NumberLiteral):
+                raise _Unsupported("non-literal period")
+            # Source must be simple arithmetic — no nested window functions
+            _check_array_safe(src)
+            return
+        raise _Unsupported(f"function {name!r}")
     raise _Unsupported(f"node {type(node).__name__!r}")
+
+
+def _check_array_safe(node: Node) -> None:
+    """Verify that *node* can be passed to ``_eval_array`` (no window functions or shifts)."""
+    if isinstance(node, (NumberLiteral, FieldRef)):
+        return
+    if isinstance(node, UnaryOp):
+        _check_array_safe(node.operand)
+        return
+    if isinstance(node, BinOp):
+        _check_array_safe(node.left)
+        _check_array_safe(node.right)
+        return
+    raise _Unsupported(f"not array-safe: {type(node).__name__!r}")
