@@ -107,7 +107,7 @@ export class TerminalDatafeed {
       const matchesText =
         s.ticker.toLowerCase().includes(query) ||
         s.name.toLowerCase().includes(query);
-      const matchesMarket = !market || s.exchange.toLowerCase() === market;
+      const matchesMarket = !market || (s.exchange ?? "").toLowerCase() === market;
       return matchesText && matchesMarket;
     });
 

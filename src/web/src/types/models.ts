@@ -117,7 +117,7 @@ export interface Symbol {
   name: string;
   type: string;
   market: string;
-  exchange: string;
+  exchange: string | null;
   isin: string | null;
   logo_id: string | null;
   logo: string | null;

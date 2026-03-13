@@ -23,7 +23,6 @@ import type {
   Formula,
   ConditionSet,
   ColumnSet,
-  Symbol,
 } from "@/types/models";
 import type { BrokerDefault, BrokerInfo, BrokerStatus } from "@/types/broker";
 import type {

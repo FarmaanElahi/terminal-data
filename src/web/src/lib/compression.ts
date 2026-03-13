@@ -16,6 +16,8 @@ export interface SymbolData {
   market: string;
   type: string;
   typespecs: string[];
+  isin: string | null;
+  logo_id: string | null;
 }
 
 /**
