@@ -128,12 +128,60 @@ export class TerminalDatafeed {
     onResolve: (symbolInfo: LibrarySymbolInfo) => void,
     onError: (reason: string) => void,
   ): Promise<void> {
+    // Fast path: resolve from boot data — zero network round-trip.
+    // All symbols loaded at startup can be resolved instantly.
+    const local = this._resolveLocally(symbolName);
+    if (local) {
+      onResolve(local);
+      return;
+    }
+
+    // Slow path: unknown symbol — ask the backend via WebSocket.
     try {
       const info = await this._session.resolveSymbol(symbolName);
       onResolve(info);
     } catch (err) {
       onError(String(err));
     }
+  }
+
+  private _resolveLocally(symbolName: string): LibrarySymbolInfo | null {
+    const symbols = useAuthStore.getState().symbols;
+    const s = symbols.find((sym) => sym.ticker === symbolName);
+    if (!s) return null;
+
+    const exchange = symbolName.includes(":")
+      ? symbolName.split(":")[0]
+      : (s.exchange || "");
+
+    return {
+      name: s.name,
+      full_name: s.ticker,
+      ticker: s.ticker,
+      description: s.name,
+      type: s.type || "stock",
+      // Defaults mirror the backend SymbolResolvedData model exactly.
+      // If per-symbol session/timezone ever diverge, add those fields to boot data.
+      session: "0915-1530",
+      exchange,
+      listed_exchange: exchange,
+      timezone: "Asia/Kolkata",
+      format: "price",
+      pricescale: 100,
+      minmov: 1,
+      has_intraday: true,
+      has_daily: true,
+      has_weekly_and_monthly: true,
+      // Use the full datafeed resolution list so every toolbar option is enabled.
+      supported_resolutions: [
+        "1", "2", "3", "5", "10", "15", "20", "30", "45",
+        "60", "120", "180", "240", "1D", "1W", "1M", "3M", "6M", "12M",
+      ],
+      data_status: "streaming",
+      logo_urls: s.logo
+        ? [`https://s3-symbol-logo.tradingview.com/${s.logo}.svg`]
+        : undefined,
+    };
   }
 
   async getBars(

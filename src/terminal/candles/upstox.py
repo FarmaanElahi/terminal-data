@@ -241,24 +241,33 @@ class UpstoxClient(CandleProvider):
                 min_from = effective_to - timedelta(days=30)
                 from_date = min(from_date, min_from)
 
-        # ── 1. Historical candles ──────────────────────────────────────────
-        historical_candles = await self._fetch_all_historical(
-            encoded_token, unit, num, from_date, effective_to
-        )
+        # ── 1 & 2. Historical + intraday candles fired in parallel ────────
+        # Intraday only applies to sub-daily intervals when the window includes today.
+        need_intraday = is_intraday_unit(unit) and effective_to >= today
 
-        # ── 2. Intraday candles (today's session) ─────────────────────────
-        # Only fetch intraday when the requested window includes today AND
-        # the interval is sub-daily (minutes or hours).
-        intraday_candles: list[Candle] = []
-        if is_intraday_unit(unit) and effective_to >= today:
-            intra_path = f"/historical-candle/intraday/{encoded_token}/{unit}/{num}"
-            intraday_candles = await self._fetch_candles(intra_path)
-            if intraday_candles:
+        async def _fetch_intraday() -> list[Candle]:
+            intra_path = (
+                f"/historical-candle/intraday/{encoded_token}/{unit}/{num}"
+            )
+            candles = await self._fetch_candles(intra_path)
+            if candles:
                 logger.debug(
                     "Intraday candles fetched for %s: %d bars",
                     ticker,
-                    len(intraday_candles),
+                    len(candles),
                 )
+            return candles
+
+        historical_coro = self._fetch_all_historical(
+            encoded_token, unit, num, from_date, effective_to
+        )
+        intraday_coro = _fetch_intraday() if need_intraday else asyncio.sleep(0)
+
+        hist_result, intra_result = await asyncio.gather(
+            historical_coro, intraday_coro
+        )
+        historical_candles: list[Candle] = hist_result or []
+        intraday_candles: list[Candle] = intra_result if need_intraday else []
 
         # ── 3. Merge & deduplicate ─────────────────────────────────────────
         # We use a dict to let intraday candles overwrite historical ones for the same timestamp,
