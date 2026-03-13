@@ -12,7 +12,7 @@ export function BootLoader() {
 
   return (
     <div
-      className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center"
+      className="fixed inset-0 bg-background z-50 flex flex-col items-center justify-center"
       style={{
         pointerEvents: isBooted ? "none" : "auto",
       }}

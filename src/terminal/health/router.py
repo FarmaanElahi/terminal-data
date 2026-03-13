@@ -32,8 +32,8 @@ async def readiness(response: Response) -> dict[str, Any]:
 
     # 1. Database connectivity
     try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1"))
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
         checks["database"] = {"status": "ok"}
     except Exception as e:
         checks["database"] = {"status": "error", "detail": str(e)}

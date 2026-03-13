@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from terminal.lists.models import (
     List,
@@ -16,37 +16,36 @@ from terminal.config import Settings
 SYSTEM_LIST_PREFIX = "sys:"
 
 
-def get(session: Session, list_id: str, user_id: str | None = None) -> List | None:
+async def get(session: AsyncSession, list_id: str, user_id: str | None = None) -> List | None:
     """Get list by ID, optionally filtered by user_id."""
     statement = select(List).where(List.id == list_id)
     if user_id:
         statement = statement.where(List.user_id == user_id)
-    return session.execute(statement).scalars().first()
+    return (await session.execute(statement)).scalars().first()
 
 
-def get_any_list(
-    session: Session, list_id: str, user_id: str | None = None
+async def get_any_list(
+    session: AsyncSession, list_id: str, user_id: str | None = None
 ) -> List | ListPublic | None:
     """Get any list (database or system) by ID."""
     if list_id.startswith(SYSTEM_LIST_PREFIX):
         return get_system_list_by_id(list_id)
-    return get(session, list_id, user_id=user_id)
+    return await get(session, list_id, user_id=user_id)
 
 
-def all(session: Session, user_id: str) -> list[List]:
+async def all(session: AsyncSession, user_id: str) -> list[List]:
     """Get all lists for a user."""
     return list(
-        session.execute(select(List).where(List.user_id == user_id)).scalars().all()
+        (await session.execute(select(List).where(List.user_id == user_id))).scalars().all()
     )
 
 
-def ensure_default_lists(session: Session, user_id: str):
+async def ensure_default_lists(session: AsyncSession, user_id: str):
     """Ensure default COLOR lists exist for the user."""
-    # Check if any COLOR lists exist
     existing = (
-        session.execute(
+        (await session.execute(
             select(List).where(List.user_id == user_id, List.type == ListType.color)
-        )
+        ))
         .scalars()
         .first()
     )
@@ -67,11 +66,11 @@ def ensure_default_lists(session: Session, user_id: str):
                 color=color,
             )
             session.add(lst)
-        session.commit()
+        await session.commit()
 
 
-def create(
-    session: Session,
+async def create(
+    session: AsyncSession,
     user_id: str,
     data: ListCreate,
 ) -> List:
@@ -84,37 +83,36 @@ def create(
         source_list_ids=data.source_list_ids or [],
     )
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def update(session: Session, lst: List, data: ListUpdate) -> List:
+async def update(session: AsyncSession, lst: List, data: ListUpdate) -> List:
     """Update list attributes using schema."""
     update_data = data.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(lst, key, value)
 
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def append_symbols(
-    session: Session, lst: List, user_id: str, data: SymbolsUpdate
+async def append_symbols(
+    session: AsyncSession, lst: List, user_id: str, data: SymbolsUpdate
 ) -> List:
     """Append symbols to a list."""
-    # If it's a COLOR list, ensure symbols are removed from other COLOR lists for the same user
     if lst.type == ListType.color:
         color_lists = (
-            session.execute(
+            (await session.execute(
                 select(List).where(
                     List.type == ListType.color,
                     List.user_id == user_id,
                     List.id != lst.id,
                 )
-            )
+            ))
             .scalars()
             .all()
         )
@@ -122,35 +120,34 @@ def append_symbols(
             other_lst.symbols = [s for s in other_lst.symbols if s not in data.symbols]
             session.add(other_lst)
 
-    # Add symbols to the current list, avoiding duplicates, preserving order
     existing_set = set(lst.symbols)
     new_symbols = [s for s in data.symbols if s not in existing_set]
     lst.symbols = lst.symbols + new_symbols
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def set_symbols(session: Session, lst: List, data: SymbolsUpdate) -> List:
+async def set_symbols(session: AsyncSession, lst: List, data: SymbolsUpdate) -> List:
     """Replace the entire symbols array (order preserved exactly, ### entries allowed)."""
     lst.symbols = list(data.symbols)
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def bulk_remove_symbols(session: Session, lst: List, data: SymbolsUpdate) -> List:
+async def bulk_remove_symbols(session: AsyncSession, lst: List, data: SymbolsUpdate) -> List:
     """Bulk remove symbols."""
     lst.symbols = [s for s in lst.symbols if s not in data.symbols]
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def append_source_lists(session: Session, lst: List, data: SourceListsUpdate) -> List:
+async def append_source_lists(session: AsyncSession, lst: List, data: SourceListsUpdate) -> List:
     """Append source list IDs to a COMBO list."""
     existing_ids = set(lst.source_list_ids)
     for lid in data.source_list_ids:
@@ -158,26 +155,26 @@ def append_source_lists(session: Session, lst: List, data: SourceListsUpdate) ->
 
     lst.source_list_ids = list(existing_ids)
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def bulk_remove_source_lists(
-    session: Session, lst: List, data: SourceListsUpdate
+async def bulk_remove_source_lists(
+    session: AsyncSession, lst: List, data: SourceListsUpdate
 ) -> List:
     """Bulk remove source list IDs from a COMBO list."""
     lst.source_list_ids = [
         lid for lid in lst.source_list_ids if lid not in data.source_list_ids
     ]
     session.add(lst)
-    session.commit()
-    session.refresh(lst)
+    await session.commit()
+    await session.refresh(lst)
     return lst
 
 
-def get_symbols(
-    session: Session,
+async def get_symbols(
+    session: AsyncSession,
     lst: List | ListPublic,
     user_id: str,
     fs: AbstractFileSystem | None = None,
@@ -185,20 +182,16 @@ def get_symbols(
 ) -> list[str]:
     """Get symbols for a list, aggregating for COMBO lists or fetching for SYSTEM lists."""
     if lst.type == ListType.system:
-        # This is a bit of a hack since symbols_service.search is async
-        # We handle this in the router/service call if we want to be truly async
-        # But for now, we'll assume it's called from an async context and we might need to adjust
         return []
 
     if lst.type == ListType.combo:
-        # Aggregate symbols from all source lists owned by the same user
         all_symbols = set()
         source_lists = (
-            session.execute(
+            (await session.execute(
                 select(List).where(
                     List.id.in_(lst.source_list_ids), List.user_id == user_id
                 )
-            )
+            ))
             .scalars()
             .all()
         )
@@ -210,7 +203,7 @@ def get_symbols(
 
 
 async def get_symbols_async(
-    session: Session,
+    session: AsyncSession,
     lst: List | ListPublic,
     user_id: str,
     fs: AbstractFileSystem,
@@ -242,7 +235,7 @@ async def get_symbols_async(
 
         return [r["ticker"] for r in results]
 
-    return get_symbols(session, lst, user_id)
+    return await get_symbols(session, lst, user_id)
 
 
 async def get_all_system_lists(

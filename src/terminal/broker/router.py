@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.auth.models import User
 from terminal.auth.router import get_current_user
@@ -50,11 +50,11 @@ def _get_provider(provider_id: str):
 
 
 async def _get_active_valid_credential(
-    session: Session,
+    session: AsyncSession,
     user_id: str,
     adapter,
 ) -> tuple[BrokerCredential | None, str | None]:
-    credentials = broker_service.list_provider_credentials(
+    credentials = await broker_service.list_provider_credentials(
         session,
         user_id,
         adapter.provider_id,
@@ -91,11 +91,11 @@ async def _backfill_account_profile_if_needed(
 @router.get("", response_model=list[BrokerInfo])
 async def list_brokers(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> list[BrokerInfo]:
     brokers: list[BrokerInfo] = []
     for adapter in broker_registry.configured():
-        accounts = broker_service.list_provider_accounts(
+        accounts = await broker_service.list_provider_accounts(
             session,
             current_user.id,
             adapter.provider_id,
@@ -105,8 +105,8 @@ async def list_brokers(
         for account in accounts:
             changed = await _backfill_account_profile_if_needed(account, adapter) or changed
         if changed:
-            session.commit()
-            accounts = broker_service.list_provider_accounts(
+            await session.commit()
+            accounts = await broker_service.list_provider_accounts(
                 session,
                 current_user.id,
                 adapter.provider_id,
@@ -151,9 +151,9 @@ async def list_brokers(
 @router.get("/defaults", response_model=list[BrokerDefaultPayload])
 async def list_defaults(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> list[BrokerDefaultPayload]:
-    rows = broker_service.list_defaults(session, current_user.id)
+    rows = await broker_service.list_defaults(session, current_user.id)
     return [
         BrokerDefaultPayload(
             capability=row.capability,
@@ -168,7 +168,7 @@ async def list_defaults(
 async def set_default_broker(
     body: SetDefaultRequest,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> BrokerDefaultPayload:
     try:
         capability = Capability(body.capability)
@@ -196,7 +196,7 @@ async def set_default_broker(
             ),
         )
 
-    saved = broker_service.save_default(
+    saved = await broker_service.save_default(
         session,
         user_id=current_user.id,
         capability=capability.value,
@@ -225,7 +225,7 @@ async def provider_callback(
     provider_id: str,
     body: CallbackRequest,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
     adapter = _get_provider(provider_id)
 
@@ -240,7 +240,7 @@ async def provider_callback(
 
     account_info = await adapter.fetch_account_info(access_token)
 
-    broker_service.save_token(
+    await broker_service.save_token(
         session,
         current_user.id,
         provider_id,
@@ -274,10 +274,10 @@ async def delete_provider_account(
     provider_id: str,
     credential_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> dict[str, str]:
     adapter = _get_provider(provider_id)
-    credential = broker_service.get_credential(
+    credential = await broker_service.get_credential(
         session,
         credential_id=credential_id,
         user_id=current_user.id,
@@ -295,8 +295,8 @@ async def delete_provider_account(
         adapter,
     )
 
-    session.delete(credential)
-    session.commit()
+    await session.delete(credential)
+    await session.commit()
 
     if active_before and active_before.id == credential_id:
         next_active, next_token = await _get_active_valid_credential(
@@ -336,7 +336,7 @@ async def delete_provider_account(
 async def get_provider_status(
     provider_id: str,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ) -> BrokerStatus:
     adapter = _get_provider(provider_id)
     active_credential, _ = await _get_active_valid_credential(

@@ -125,6 +125,14 @@ class Settings(BaseSettings):
             f"{auth}@{self.db_host}:{self.db_port}/{self.db_name}"
         )
 
+    @property
+    def async_database_url(self) -> str:
+        if self.db_scheme.startswith("sqlite"):
+            return self.database_url
+        return self.database_url.replace(
+            f"+{self.db_driver}://", f"+{self.db_driver}_async://"
+        )
+
     def abs_file_path(self, file_path: str) -> str:
         return os.path.join(self.oci_bucket, "v2", file_path)
 

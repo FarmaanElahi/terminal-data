@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ class SessionTracker:
     _sessions: dict[str, dict[str, Any]] = {}
 
     @classmethod
-    def track_session(cls, session: Session, context: str | None = None) -> str:
+    def track_session(cls, session: AsyncSession, context: str | None = None) -> str:
         """Tracks a new database session."""
         session_id = str(uuid.uuid4())
         cls._sessions[session_id] = {

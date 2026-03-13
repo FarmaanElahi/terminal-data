@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from terminal.dependencies import get_session
 from terminal.auth.router import get_current_user
 from terminal.auth.models import User
@@ -10,21 +10,21 @@ router = APIRouter(prefix="/preferences", tags=["Preferences"])
 
 
 @router.get("", response_model=PreferencesPublic)
-def get_preferences(
+async def get_preferences(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
-    prefs = service.get(session, current_user.id)
+    prefs = await service.get(session, current_user.id)
     if prefs is None:
         return PreferencesPublic()
     return PreferencesPublic(layout=prefs.layout, settings=prefs.settings)
 
 
 @router.put("", response_model=PreferencesPublic)
-def update_preferences(
+async def update_preferences(
     data: PreferencesUpdate,
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
-    prefs = service.upsert(session, current_user.id, data)
+    prefs = await service.upsert(session, current_user.id, data)
     return PreferencesPublic(layout=prefs.layout, settings=prefs.settings)

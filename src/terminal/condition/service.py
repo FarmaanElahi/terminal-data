@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.condition.models import (
     ConditionSet,
@@ -12,30 +12,30 @@ from terminal.condition.models import (
 )
 
 
-def all(session: Session, user_id: str) -> list[ConditionSet]:
+async def all(session: AsyncSession, user_id: str) -> list[ConditionSet]:
     """List all condition sets for a user."""
     return list(
-        session.execute(select(ConditionSet).where(ConditionSet.user_id == user_id))
+        (await session.execute(select(ConditionSet).where(ConditionSet.user_id == user_id)))
         .scalars()
         .all()
     )
 
 
-def get(session: Session, user_id: str, condition_set_id: str) -> ConditionSet | None:
+async def get(session: AsyncSession, user_id: str, condition_set_id: str) -> ConditionSet | None:
     """Get a condition set by ID."""
     return (
-        session.execute(
+        (await session.execute(
             select(ConditionSet).where(
                 ConditionSet.user_id == user_id, ConditionSet.id == condition_set_id
             )
-        )
+        ))
         .scalars()
         .first()
     )
 
 
-def create(
-    session: Session, user_id: str, condition_set_in: ConditionSetCreate
+async def create(
+    session: AsyncSession, user_id: str, condition_set_in: ConditionSetCreate
 ) -> ConditionSet:
     """Create a new condition set."""
     condition_set = ConditionSet(
@@ -47,19 +47,19 @@ def create(
         timeframe_value=condition_set_in.timeframe_value,
     )
     session.add(condition_set)
-    session.commit()
-    session.refresh(condition_set)
+    await session.commit()
+    await session.refresh(condition_set)
     return condition_set
 
 
-def update(
-    session: Session,
+async def update(
+    session: AsyncSession,
     user_id: str,
     condition_set_id: str,
     condition_set_in: ConditionSetUpdate,
 ) -> ConditionSet | None:
     """Update an existing condition set."""
-    condition_set = get(session, user_id, condition_set_id)
+    condition_set = await get(session, user_id, condition_set_id)
     if not condition_set:
         return None
 
@@ -72,16 +72,16 @@ def update(
     for field, value in update_data.items():
         setattr(condition_set, field, value)
 
-    session.commit()
-    session.refresh(condition_set)
+    await session.commit()
+    await session.refresh(condition_set)
     return condition_set
 
 
-def delete(session: Session, user_id: str, condition_set_id: str) -> bool:
+async def delete(session: AsyncSession, user_id: str, condition_set_id: str) -> bool:
     """Delete a condition set."""
-    condition_set = get(session, user_id, condition_set_id)
+    condition_set = await get(session, user_id, condition_set_id)
     if not condition_set:
         return False
-    session.delete(condition_set)
-    session.commit()
+    await session.delete(condition_set)
+    await session.commit()
     return True

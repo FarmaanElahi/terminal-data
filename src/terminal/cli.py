@@ -267,8 +267,8 @@ def health_check():
             from terminal.database.core import engine
             from sqlalchemy import text
 
-            with engine.connect() as conn:
-                conn.execute(text("SELECT 1"))
+            async with engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
             checks["database"] = "ok"
             typer.echo("  Database: OK")
         except Exception as e:

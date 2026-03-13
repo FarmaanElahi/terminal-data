@@ -6,14 +6,14 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "fastapi", "dev", "src/terminal/main.py", "--port", "6699"],
       "port": 6699,
-      "cwd": "/app"
+      "cwd": "."
     },
     {
       "name": "Vite (Frontend)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
-      "cwd": "/app/src/web"
+      "cwd": "src/web"
     }
   ]
 }

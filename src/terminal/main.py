@@ -66,7 +66,8 @@ async def lifespan(application: FastAPI):
         vapid_claims_email=settings.vapid_claims_email,
     )
 
-    alert_engine = AlertEngine(manager)
+    from terminal.database.core import AsyncSessionLocal
+    alert_engine = AlertEngine(manager, session_factory=AsyncSessionLocal)
     alert_engine.set_dispatcher(dispatcher)
     set_alert_engine(alert_engine)
 

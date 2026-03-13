@@ -1,14 +1,14 @@
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.broker.models import BrokerCredential, BrokerDefault
 from terminal.lib.crypto import decrypt, encrypt
 from terminal.models import uuid7_str
 
 
-def get_active_token(session: Session, user_id: str, provider: str) -> str | None:
+async def get_active_token(session: AsyncSession, user_id: str, provider: str) -> str | None:
     """Return the plaintext access token for the most recently created credential."""
-    cred = get_active_credential(session, user_id, provider)
+    cred = await get_active_credential(session, user_id, provider)
     if cred is None:
         return None
     try:
@@ -17,8 +17,8 @@ def get_active_token(session: Session, user_id: str, provider: str) -> str | Non
         return None
 
 
-def save_token(
-    session: Session,
+async def save_token(
+    session: AsyncSession,
     user_id: str,
     provider: str,
     token: str,
@@ -40,8 +40,8 @@ def save_token(
         encrypted_token=encrypt(token),
     )
     session.add(cred)
-    session.commit()
-    session.refresh(cred)
+    await session.commit()
+    await session.refresh(cred)
     return cred
 
 
@@ -49,12 +49,12 @@ def credential_account_key(cred: BrokerCredential) -> str:
     return cred.account_id or f"cred:{cred.id}"
 
 
-def get_active_credential(
-    session: Session,
+async def get_active_credential(
+    session: AsyncSession,
     user_id: str,
     provider: str,
 ) -> BrokerCredential | None:
-    return session.execute(
+    return (await session.execute(
         select(BrokerCredential)
         .where(
             BrokerCredential.user_id == user_id,
@@ -62,24 +62,24 @@ def get_active_credential(
         )
         .order_by(BrokerCredential.created_at.desc())
         .limit(1)
-    ).scalars().first()
+    )).scalars().first()
 
 
-def list_provider_accounts(
-    session: Session,
+async def list_provider_accounts(
+    session: AsyncSession,
     user_id: str,
     provider: str,
 ) -> list[BrokerCredential]:
     """Return latest credential per account for this provider."""
     rows = list(
-        session.execute(
+        (await session.execute(
             select(BrokerCredential)
             .where(
                 BrokerCredential.user_id == user_id,
                 BrokerCredential.provider == provider,
             )
             .order_by(BrokerCredential.created_at.desc())
-        ).scalars()
+        )).scalars()
     )
 
     seen: set[str] = set()
@@ -94,20 +94,20 @@ def list_provider_accounts(
     return latest_accounts
 
 
-def list_provider_credentials(
-    session: Session,
+async def list_provider_credentials(
+    session: AsyncSession,
     user_id: str,
     provider: str,
 ) -> list[BrokerCredential]:
     return list(
-        session.execute(
+        (await session.execute(
             select(BrokerCredential)
             .where(
                 BrokerCredential.user_id == user_id,
                 BrokerCredential.provider == provider,
             )
             .order_by(BrokerCredential.created_at.desc())
-        ).scalars()
+        )).scalars()
     )
 
 
@@ -118,66 +118,66 @@ def get_credential_token(credential: BrokerCredential) -> str | None:
         return None
 
 
-def get_credential(
-    session: Session,
+async def get_credential(
+    session: AsyncSession,
     credential_id: str,
     user_id: str,
     provider: str,
 ) -> BrokerCredential | None:
-    return session.execute(
+    return (await session.execute(
         select(BrokerCredential).where(
             BrokerCredential.id == credential_id,
             BrokerCredential.user_id == user_id,
             BrokerCredential.provider == provider,
         )
-    ).scalars().first()
+    )).scalars().first()
 
 
-def get_default_provider(
-    session: Session,
+async def get_default_provider(
+    session: AsyncSession,
     user_id: str,
     capability: str,
     market: str,
 ) -> str | None:
-    row = session.execute(
+    row = (await session.execute(
         select(BrokerDefault.provider_id).where(
             BrokerDefault.user_id == user_id,
             BrokerDefault.capability == capability,
             BrokerDefault.market == market,
         )
-    ).scalar_one_or_none()
+    )).scalar_one_or_none()
     return row
 
 
-def get_defaults_map(session: Session, user_id: str) -> dict[tuple[str, str], str]:
-    rows = session.execute(
+async def get_defaults_map(session: AsyncSession, user_id: str) -> dict[tuple[str, str], str]:
+    rows = (await session.execute(
         select(BrokerDefault).where(BrokerDefault.user_id == user_id)
-    ).scalars()
+    )).scalars()
     return {(row.capability, row.market): row.provider_id for row in rows}
 
 
-def list_defaults(session: Session, user_id: str) -> list[BrokerDefault]:
+async def list_defaults(session: AsyncSession, user_id: str) -> list[BrokerDefault]:
     return list(
-        session.execute(
+        (await session.execute(
             select(BrokerDefault).where(BrokerDefault.user_id == user_id)
-        ).scalars()
+        )).scalars()
     )
 
 
-def save_default(
-    session: Session,
+async def save_default(
+    session: AsyncSession,
     user_id: str,
     capability: str,
     market: str,
     provider_id: str,
 ) -> BrokerDefault:
-    existing = session.execute(
+    existing = (await session.execute(
         select(BrokerDefault).where(
             BrokerDefault.user_id == user_id,
             BrokerDefault.capability == capability,
             BrokerDefault.market == market,
         )
-    ).scalars().first()
+    )).scalars().first()
 
     if existing is None:
         existing = BrokerDefault(
@@ -191,6 +191,6 @@ def save_default(
     else:
         existing.provider_id = provider_id
 
-    session.commit()
-    session.refresh(existing)
+    await session.commit()
+    await session.refresh(existing)
     return existing

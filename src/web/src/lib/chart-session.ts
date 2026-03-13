@@ -218,7 +218,7 @@ export class ChartSession {
           this._resolveCallbacks.delete(symbol);
           reject(`Symbol resolution timeout for ${symbol}`);
         }
-      }, 10000);
+      }, 30000);
     });
   }
 

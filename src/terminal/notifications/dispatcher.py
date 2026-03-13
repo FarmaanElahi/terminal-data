@@ -6,10 +6,8 @@ import asyncio
 import logging
 from typing import Any
 
-from sqlalchemy.orm import Session
-
 from terminal.alerts import service as alerts_service
-from terminal.database.core import engine as db_engine
+from terminal.database.core import AsyncSessionLocal
 from terminal.notifications.base import NotificationProvider
 from terminal.notifications.in_app import InAppProvider
 from terminal.notifications.telegram import TelegramProvider
@@ -64,8 +62,8 @@ class NotificationDispatcher:
             return {}
 
         # Fetch channel configs from DB
-        with Session(db_engine) as session:
-            channels = alerts_service.get_channels_by_ids(session, channel_ids)
+        async with AsyncSessionLocal() as session:
+            channels = await alerts_service.get_channels_by_ids(session, channel_ids)
 
         results: dict[str, bool] = {}
         tasks = []

@@ -8,7 +8,7 @@ from terminal.dependencies import (
 from terminal.market_feed.models import MarketFeedRefreshResponse
 from terminal.symbols import service as symbol_service
 from terminal.market_feed.tradingview import TradingViewDataProvider
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/market-feeds", tags=["Market Feed"])
 
@@ -51,7 +51,7 @@ async def get_ohlcv(
 async def refresh_market_feed(
     market: str = Query("india", description="Market to refresh symbols for"),
     provider: TradingViewDataProvider = Depends(get_tradingview_provider),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     Trigger a refresh of the market feed candles from TradingView.

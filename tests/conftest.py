@@ -1,8 +1,8 @@
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.orm import Session
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from terminal.database.core import Base
 from terminal.main import api
 from terminal.dependencies import get_session
@@ -21,26 +21,33 @@ def postgres_container():
         yield postgres
 
 
-@pytest.fixture(name="session")
-def session_fixture(postgres_container):
-    """Provide a SQLAlchemy session using the PostgreSQL container."""
-    # Use psycopg (v3) dialect
-    url = postgres_container.get_connection_url().replace("+psycopg2", "+psycopg")
-    engine = create_engine(url)
+@pytest_asyncio.fixture(name="session", scope="function")
+async def session_fixture(postgres_container):
+    """Provide an async SQLAlchemy session using the PostgreSQL container."""
+    sync_url = postgres_container.get_connection_url().replace("+psycopg2", "+psycopg")
+    async_url = sync_url.replace("+psycopg", "+psycopg_async")
 
-    # Use init_db to ensure all models are registered and tables created
-    init_db(engine)
+    # Use sync engine only for table creation (init_db uses sqlalchemy_utils which is sync)
+    sync_engine = create_engine(sync_url)
+    init_db(sync_engine)
+    sync_engine.dispose()
 
-    with Session(engine) as session:
+    # Use async engine for actual test operations
+    test_engine = create_async_engine(async_url)
+    TestAsyncSession = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+    async with TestAsyncSession() as session:
         yield session
-        # Cleanup: Drop all tables to ensure test isolation
-        session.rollback()  # Ensure no pending transaction
-        Base.metadata.drop_all(engine)
+        await session.rollback()
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+    await test_engine.dispose()
 
 
 @pytest_asyncio.fixture(name="client")
 async def client_fixture(session):
-    def get_session_override():
+    async def get_session_override():
         yield session
 
     # Clear auth rate limiter between tests to avoid 429s

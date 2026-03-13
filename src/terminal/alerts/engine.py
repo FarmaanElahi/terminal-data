@@ -18,11 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from terminal.alerts.drawing import evaluate_drawing_condition
 from terminal.alerts.models import Alert, AlertLog
-from terminal.database.core import engine as db_engine
 from terminal.formula import FormulaError, evaluate, parse
 
 if TYPE_CHECKING:
@@ -134,8 +133,9 @@ class AlertEngine:
         await engine.stop()
     """
 
-    def __init__(self, market_manager: "MarketDataManager") -> None:
+    def __init__(self, market_manager: "MarketDataManager", session_factory: async_sessionmaker) -> None:
         self.manager = market_manager
+        self._session_factory = session_factory
 
         # In-memory index: symbol → list of CachedAlert
         self._index: dict[str, list[_CachedAlert]] = {}
@@ -163,7 +163,7 @@ class AlertEngine:
 
     async def start(self) -> None:
         """Load all active alerts from DB and start the evaluation loop."""
-        self._load_alerts_from_db()
+        await self._load_alerts_from_db()
         total = sum(len(v) for v in self._index.values())
         logger.info(
             "AlertEngine started: %d active alerts across %d symbols",
@@ -217,14 +217,14 @@ class AlertEngine:
     # Alert index management
     # ------------------------------------------------------------------
 
-    def _load_alerts_from_db(self) -> None:
+    async def _load_alerts_from_db(self) -> None:
         """Load all active alerts from the database into the in-memory index."""
         self._index.clear()
         self._alerts_by_id.clear()
 
-        with Session(db_engine) as session:
+        async with self._session_factory() as session:
             from terminal.alerts.service import get_active_alerts_by_symbol
-            raw_index = get_active_alerts_by_symbol(session)
+            raw_index = await get_active_alerts_by_symbol(session)
 
         for symbol, alerts in raw_index.items():
             cached = []
@@ -491,15 +491,15 @@ class AlertEngine:
     async def _persist_trigger_state(self, ca: _CachedAlert) -> None:
         """Persist alert trigger state to the database."""
         try:
-            with Session(db_engine) as session:
+            async with self._session_factory() as session:
                 from terminal.alerts.models import Alert as AlertModel
-                alert = session.get(AlertModel, ca.id)
+                alert = await session.get(AlertModel, ca.id)
                 if alert:
                     alert.trigger_count = ca.trigger_count
                     alert.last_triggered_at = ca.last_triggered_at
                     if ca.frequency == "once":
                         alert.status = "triggered"
-                    session.commit()
+                    await session.commit()
         except Exception as e:
             logger.error("Failed to persist trigger state for alert %s: %s", ca.id, e)
 
@@ -535,7 +535,7 @@ class AlertEngine:
             return
 
         try:
-            with Session(db_engine) as session:
+            async with self._session_factory() as session:
                 for entry in entries:
                     log = AlertLog(
                         alert_id=entry["alert_id"],
@@ -546,7 +546,7 @@ class AlertEngine:
                         message=entry.get("message", ""),
                     )
                     session.add(log)
-                session.commit()
+                await session.commit()
             logger.debug("Flushed %d alert log entries", len(entries))
         except Exception as e:
             logger.error("Failed to flush alert logs: %s", e, exc_info=True)

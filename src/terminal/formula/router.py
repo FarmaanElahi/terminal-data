@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.auth.router import get_current_user
 from terminal.dependencies import get_market_manager, get_session
@@ -25,35 +25,35 @@ formulas = APIRouter(prefix="/formula", tags=["formulas"])
 
 
 @formulas.post("/functions", response_model=FormulaPublic)
-def create_formula(
+async def create_formula(
     req: FormulaCreate,
-    user: dict = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    user: "User" = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """Create a user-defined formula function."""
     try:
-        return service.create(session, user["sub"], req)
+        return await service.create(session, user.id, req)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @formulas.get("/functions", response_model=list[FormulaPublic])
-def list_formulas(
-    user: dict = Depends(get_current_user),
-    session: Session = Depends(get_session),
+async def list_formulas(
+    user: "User" = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """List all user-defined formula functions."""
-    return service.all(session, user["sub"])
+    return await service.all(session, user.id)
 
 
 @formulas.delete("/functions/{formula_id}")
-def delete_formula(
+async def delete_formula(
     formula_id: str,
-    user: dict = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    user: "User" = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """Delete a user-defined formula function."""
-    if not service.delete(session, user["sub"], formula_id):
+    if not await service.delete(session, user.id, formula_id):
         raise HTTPException(status_code=404, detail="Formula not found")
     return {"ok": True}
 
@@ -64,7 +64,7 @@ def delete_formula(
 
 
 @formulas.get("/editor-config")
-def formula_editor_config():
+async def formula_editor_config():
     """Return Monaco editor configuration for the formula language."""
     from terminal.formula.monaco import editor_config
 
@@ -72,9 +72,9 @@ def formula_editor_config():
 
 
 @formulas.post("/validate", response_model=FormulaValidateResponse)
-def validate_formula(
+async def validate_formula(
     req: FormulaValidateRequest,
-    user: dict = Depends(get_current_user),
+    user: "User" = Depends(get_current_user),
     market_manager: "MarketDataManager" = Depends(get_market_manager),
 ):
     """Validate a formula by parsing and evaluating it against a symbol's data."""

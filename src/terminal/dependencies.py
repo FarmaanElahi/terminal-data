@@ -1,10 +1,10 @@
-from collections.abc import Generator
+from collections.abc import AsyncGenerator
 from fsspec import AbstractFileSystem
 from functools import lru_cache
 
 from terminal.config import settings
 from terminal.database import get_session as db_get_session
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from terminal.market_feed.tradingview import TradingViewDataProvider
 from terminal.market_feed import OHLCStore, MarketDataManager
 from terminal.candles.upstox import UpstoxClient
@@ -58,11 +58,11 @@ def get_settings():
     return settings
 
 
-async def get_session() -> Generator[Session, None, None]:
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """
-    Provides a database session from the global engine.
+    Provides an async database session from the global engine.
     """
-    for session in db_get_session():
+    async for session in db_get_session():
         yield session
 
 

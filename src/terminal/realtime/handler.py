@@ -13,7 +13,7 @@ from terminal.broker.adapter import Capability
 from terminal.broker.feed_registry import feed_registry
 from terminal.broker.registry import broker_registry
 from terminal.candles.service import CandleManager
-from terminal.database.core import engine
+from terminal.database.core import AsyncSessionLocal
 from terminal.dependencies import get_market_manager
 from terminal.market_feed.manager import MarketDataManager
 
@@ -130,7 +130,7 @@ async def get_active_valid_token(
     adapter,
     broker_db,
 ) -> str | None:
-    credentials = broker_service.list_provider_credentials(
+    credentials = await broker_service.list_provider_credentials(
         broker_db,
         user_id,
         adapter.provider_id,
@@ -164,10 +164,8 @@ async def websocket_endpoint(
         await websocket.close(code=4401, reason="Invalid token")
         return
 
-    from sqlalchemy.orm import Session as SASession
-
-    with SASession(engine) as db:
-        user = auth_service.get_by_username(db, username)
+    async with AsyncSessionLocal() as db:
+        user = await auth_service.get_by_username(db, username)
     if not user:
         await websocket.close(code=4401, reason="User not found")
         return
@@ -188,8 +186,8 @@ async def websocket_endpoint(
     stored_tokens: dict[str, str | None] = {}
 
     try:
-        with SASession(engine) as broker_db:
-            defaults_map = broker_service.get_defaults_map(broker_db, user_id)
+        async with AsyncSessionLocal() as broker_db:
+            defaults_map = await broker_service.get_defaults_map(broker_db, user_id)
             for adapter in configured_adapters:
                 stored_tokens[adapter.provider_id] = await get_active_valid_token(
                     user_id=user_id,

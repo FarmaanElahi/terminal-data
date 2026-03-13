@@ -15,11 +15,10 @@ if TYPE_CHECKING:
 from terminal.column.models import ColumnDef
 from terminal.lists import service as lists_service
 from terminal.symbols import service as symbols_service
-from terminal.database.core import engine
+from terminal.database.core import AsyncSessionLocal
 from terminal.formula import FormulaError, evaluate, parse
 from terminal.config import settings
 from terminal.market_feed.provider import _extract_exchange
-from sqlalchemy.orm import Session
 
 from .models import (
     CreateScreenerRequest,
@@ -320,9 +319,9 @@ class ScreenerSession:
             self.params.source,
         )
 
-        with Session(engine) as session:
+        async with AsyncSessionLocal() as session:
             # Load list and its symbols (handling both DB and virtual system lists)
-            lst = lists_service.get_any_list(
+            lst = await lists_service.get_any_list(
                 session, self.params.source, user_id=user_id
             )
             if not lst:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.formula import fields
 from terminal.formula.functions import registered_names
@@ -12,7 +12,7 @@ from terminal.formula.parser import parse
 from terminal.formula.models import Formula, FormulaCreate
 
 
-def create(session: Session, user_id: str, req: FormulaCreate) -> Formula:
+async def create(session: AsyncSession, user_id: str, req: FormulaCreate) -> Formula:
     """Create a user-defined formula.
 
     Preprocesses the raw multi-line formula to extract body + params,
@@ -36,11 +36,11 @@ def create(session: Session, user_id: str, req: FormulaCreate) -> Formula:
 
     # Check uniqueness for this user
     existing = (
-        session.execute(
+        (await session.execute(
             select(Formula).where(
                 Formula.user_id == user_id, Formula.name == name_upper
             )
-        )
+        ))
         .scalars()
         .first()
     )
@@ -60,36 +60,36 @@ def create(session: Session, user_id: str, req: FormulaCreate) -> Formula:
         params=params,
     )
     session.add(formula)
-    session.commit()
-    session.refresh(formula)
+    await session.commit()
+    await session.refresh(formula)
     return formula
 
 
-def all(session: Session, user_id: str) -> list[Formula]:
+async def all(session: AsyncSession, user_id: str) -> list[Formula]:
     """List all user-defined formulas for a user."""
     return list(
-        session.execute(select(Formula).where(Formula.user_id == user_id))
+        (await session.execute(select(Formula).where(Formula.user_id == user_id)))
         .scalars()
         .all()
     )
 
 
-def get(session: Session, user_id: str, formula_id: str) -> Formula | None:
+async def get(session: AsyncSession, user_id: str, formula_id: str) -> Formula | None:
     """Get a formula by ID."""
     return (
-        session.execute(
+        (await session.execute(
             select(Formula).where(Formula.user_id == user_id, Formula.id == formula_id)
-        )
+        ))
         .scalars()
         .first()
     )
 
 
-def delete(session: Session, user_id: str, formula_id: str) -> bool:
+async def delete(session: AsyncSession, user_id: str, formula_id: str) -> bool:
     """Delete a user-defined formula."""
-    formula = get(session, user_id, formula_id)
+    formula = await get(session, user_id, formula_id)
     if not formula:
         return False
-    session.delete(formula)
-    session.commit()
+    await session.delete(formula)
+    await session.commit()
     return True

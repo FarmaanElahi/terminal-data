@@ -1,11 +1,16 @@
+import asyncio
+import logging
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from fsspec import AbstractFileSystem
 
+from terminal.database.core import AsyncSessionLocal
 from terminal.dependencies import get_session, get_fs, get_settings
 from terminal.auth.router import get_current_user
 from terminal.auth.models import User
 from terminal.config import Settings
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/boot", tags=["Boot"])
 
@@ -13,7 +18,7 @@ router = APIRouter(prefix="/boot", tags=["Boot"])
 @router.get("")
 async def boot(
     current_user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
     fs: AbstractFileSystem = Depends(get_fs),
     settings: Settings = Depends(get_settings),
 ):
@@ -23,41 +28,69 @@ async def boot(
     from terminal.condition import service as condition_service
     from terminal.formula import service as formula_service
     from terminal.symbols import service as symbols_service
-    from terminal.formula.monaco import editor_config
-
-    lists_service.ensure_default_lists(session, current_user.id)
-
-    # Get symbols for local search (default limit)
-    try:
-        symbols = await symbols_service.search(
-            fs=fs,
-            settings=settings,
-            market="india",
-            limit=5000,
-        )
-    except Exception as e:
-        # If symbols can't be loaded (e.g., OCI not configured), return empty list
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Could not load symbols for boot: {e}")
-        symbols = []
-
     from terminal.preferences import service as preferences_service
+    from terminal.formula.monaco import editor_config
     from terminal.utils.compression import compress_objects
 
-    prefs = preferences_service.get(session, current_user.id)
+    # Ensure default lists exist first, then commit so parallel sessions see the rows.
+    await lists_service.ensure_default_lists(session, current_user.id)
+    await session.commit()
 
-    # Filter symbols to only include needed fields
-    # ticker is the ID, plus: name, logo, exchange, market, type, typespecs
+    # Each DB coroutine opens its own session (one connection each) so all
+    # queries truly run in parallel. OCI calls share no connection at all.
+    user_id = current_user.id
+
+    async def _user_lists():
+        async with AsyncSessionLocal() as s:
+            return await lists_service.all(s, user_id)
+
+    async def _column_sets():
+        async with AsyncSessionLocal() as s:
+            return await column_service.all(s, user_id)
+
+    async def _condition_sets():
+        async with AsyncSessionLocal() as s:
+            return await condition_service.all(s, user_id)
+
+    async def _formulas():
+        async with AsyncSessionLocal() as s:
+            return await formula_service.all(s, user_id)
+
+    async def _prefs():
+        async with AsyncSessionLocal() as s:
+            return await preferences_service.get(s, user_id)
+
+    async def _symbols():
+        try:
+            return await symbols_service.search(
+                fs=fs, settings=settings, market="india", limit=5000
+            )
+        except Exception as e:
+            logger.warning("Could not load symbols for boot: %s", e)
+            return []
+
+    (
+        user_lists,
+        system_lists,
+        column_sets,
+        condition_sets,
+        formulas,
+        prefs,
+        symbols,
+    ) = await asyncio.gather(
+        _user_lists(),
+        lists_service.get_all_system_lists(fs, settings),
+        _column_sets(),
+        _condition_sets(),
+        _formulas(),
+        _prefs(),
+        _symbols(),
+    )
+
     symbols_filtered = []
     for s in symbols:
-        if isinstance(s, dict):
-            sym = s
-        else:
-            sym = s.model_dump() if hasattr(s, "model_dump") else dict(s)
-
-        # Only include specified fields
-        filtered = {
+        sym = s if isinstance(s, dict) else (s.model_dump() if hasattr(s, "model_dump") else dict(s))
+        symbols_filtered.append({
             "ticker": sym.get("ticker"),
             "name": sym.get("name"),
             "logo": sym.get("logo"),
@@ -65,8 +98,7 @@ async def boot(
             "market": sym.get("market"),
             "type": sym.get("type"),
             "typespecs": sym.get("typespecs", []),
-        }
-        symbols_filtered.append(filtered)
+        })
 
     return {
         "user": {
@@ -74,11 +106,10 @@ async def boot(
             "username": current_user.username,
             "is_active": current_user.is_active,
         },
-        "lists": lists_service.all(session, current_user.id)
-        + await lists_service.get_all_system_lists(fs, settings),
-        "column_sets": column_service.all(session, current_user.id),
-        "condition_sets": condition_service.all(session, current_user.id),
-        "formulas": formula_service.all(session, current_user.id),
+        "lists": user_lists + system_lists,
+        "column_sets": column_sets,
+        "condition_sets": condition_sets,
+        "formulas": formulas,
         "symbols": compress_objects(symbols_filtered),
         "editor_config": editor_config(),
         "preferences": {

@@ -3,7 +3,7 @@ from collections import defaultdict
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.dependencies import get_session
 from terminal.auth.models import User, UserCreate, Token, UserPublic
@@ -35,7 +35,7 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)
+    token: str = Depends(oauth2_scheme), session: AsyncSession = Depends(get_session)
 ) -> User:
     """Dependency to get the current authenticated user."""
     from fastapi import HTTPException
@@ -50,7 +50,7 @@ async def get_current_user(
     if username is None:
         raise credentials_exception
 
-    user = auth_service.get_by_username(session, username)
+    user = await auth_service.get_by_username(session, username)
     if user is None:
         raise credentials_exception
     return user
@@ -59,12 +59,12 @@ async def get_current_user(
 @auth_router.post("/register", response_model=UserPublic)
 async def register(
     data: UserCreate,
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
     """Register a new user."""
     from fastapi import HTTPException
 
-    user = auth_service.create(session, data)
+    user = await auth_service.create(session, data)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -77,7 +77,7 @@ async def register(
 async def login(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
-    session: Session = Depends(get_session),
+    session: AsyncSession = Depends(get_session),
 ):
     """Login and receive a JWT token."""
     from fastapi import HTTPException
@@ -92,7 +92,7 @@ async def login(
 
     _record_attempt(client_ip)
 
-    user = auth_service.authenticate(session, form_data.username, form_data.password)
+    user = await auth_service.authenticate(session, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

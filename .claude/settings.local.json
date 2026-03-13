@@ -6,7 +6,16 @@
       "Bash(uv run:*)",
       "Bash(uvx ruff:*)",
       "Bash(uv pip:*)",
-      "WebFetch(domain:upstox.com)"
+      "WebFetch(domain:upstox.com)",
+      "Bash(__NEW_LINE_d89d0a925405c1a2__ echo \"=== preferences/router.py ===\")",
+      "Bash(__NEW_LINE_d89d0a925405c1a2__ echo \"\")",
+      "Bash(python3 -:*)",
+      "Bash(uv sync)",
+      "Bash(grep -rn \"^def \\\\|^ def \" /Users/farmaan/Public/farmaan/code/terminal/terminal-data/src/terminal/*/router.py)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(lsof -i :5173)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit)"
     ]
   },
   "enabledPlugins": {

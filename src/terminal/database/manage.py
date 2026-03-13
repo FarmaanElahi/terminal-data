@@ -1,10 +1,18 @@
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy_utils import database_exists, create_database, drop_database
-from terminal.database.core import Base, engine
+
+from terminal.config import settings
+from terminal.database.core import Base
+
+
+def _make_sync_engine(engine_input=None):
+    if engine_input:
+        return engine_input
+    return create_engine(settings.database_url)
 
 
 def init_db(engine_input=None):
-    use_engine = engine_input or engine
+    use_engine = _make_sync_engine(engine_input)
     if not database_exists(use_engine.url):
         create_database(use_engine.url)
 
@@ -21,5 +29,6 @@ def init_db(engine_input=None):
 
 
 def drop_db():
-    if database_exists(engine.url):
-        drop_database(engine.url)
+    sync_engine = _make_sync_engine()
+    if database_exists(sync_engine.url):
+        drop_database(sync_engine.url)

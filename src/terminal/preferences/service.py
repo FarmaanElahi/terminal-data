@@ -1,18 +1,18 @@
 from datetime import datetime, timezone
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from terminal.preferences.models import UserPreferences, PreferencesUpdate
 from terminal.models import uuid7_str
 
 
-def get(session: Session, user_id: str) -> UserPreferences | None:
-    return session.execute(
+async def get(session: AsyncSession, user_id: str) -> UserPreferences | None:
+    return (await session.execute(
         select(UserPreferences).where(UserPreferences.user_id == user_id)
-    ).scalars().first()
+    )).scalars().first()
 
 
-def upsert(session: Session, user_id: str, data: PreferencesUpdate) -> UserPreferences:
+async def upsert(session: AsyncSession, user_id: str, data: PreferencesUpdate) -> UserPreferences:
     """Insert or update user preferences using PostgreSQL ON CONFLICT DO UPDATE."""
     now = datetime.now(timezone.utc)
 
@@ -32,9 +32,9 @@ def upsert(session: Session, user_id: str, data: PreferencesUpdate) -> UserPrefe
             "updated_at": stmt.excluded.updated_at,
         },
     )
-    session.execute(stmt)
-    session.commit()
+    await session.execute(stmt)
+    await session.commit()
 
-    return session.execute(
+    return (await session.execute(
         select(UserPreferences).where(UserPreferences.user_id == user_id)
-    ).scalars().first()
+    )).scalars().first()

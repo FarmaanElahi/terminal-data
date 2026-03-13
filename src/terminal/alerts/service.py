@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select, func, desc
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from terminal.alerts.models import (
     Alert,
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def create_alert(session: Session, user_id: str, data: AlertCreate) -> Alert:
+async def create_alert(session: AsyncSession, user_id: str, data: AlertCreate) -> Alert:
     """Create a new alert."""
     alert = Alert(
         user_id=user_id,
@@ -42,24 +42,24 @@ def create_alert(session: Session, user_id: str, data: AlertCreate) -> Alert:
         drawing_id=data.drawing_id,
     )
     session.add(alert)
-    session.flush()
-    session.refresh(alert)
+    await session.flush()
+    await session.refresh(alert)
     return alert
 
 
-def get_alert(session: Session, alert_id: str, user_id: str) -> Alert | None:
+async def get_alert(session: AsyncSession, alert_id: str, user_id: str) -> Alert | None:
     """Get an alert by ID, scoped to user."""
     return (
-        session.execute(
+        (await session.execute(
             select(Alert).where(Alert.id == alert_id, Alert.user_id == user_id)
-        )
+        ))
         .scalars()
         .first()
     )
 
 
-def list_alerts(
-    session: Session,
+async def list_alerts(
+    session: AsyncSession,
     user_id: str,
     *,
     status: str | None = None,
@@ -72,14 +72,13 @@ def list_alerts(
     if symbol:
         query = query.where(Alert.symbol == symbol)
     query = query.order_by(desc(Alert.created_at))
-    return list(session.execute(query).scalars().all())
+    return list((await session.execute(query)).scalars().all())
 
 
-def update_alert(session: Session, alert: Alert, data: AlertUpdate) -> Alert:
+async def update_alert(session: AsyncSession, alert: Alert, data: AlertUpdate) -> Alert:
     """Update an alert with the provided fields."""
     update_data = data.model_dump(exclude_unset=True)
 
-    # Handle guard_conditions serialization
     if "guard_conditions" in update_data and update_data["guard_conditions"] is not None:
         update_data["guard_conditions"] = [
             g if isinstance(g, dict) else g.model_dump()
@@ -90,54 +89,53 @@ def update_alert(session: Session, alert: Alert, data: AlertUpdate) -> Alert:
         setattr(alert, key, value)
 
     session.add(alert)
-    session.flush()
-    session.refresh(alert)
+    await session.flush()
+    await session.refresh(alert)
     return alert
 
 
-def delete_alert(session: Session, alert: Alert) -> None:
+async def delete_alert(session: AsyncSession, alert: Alert) -> None:
     """Delete an alert and its logs (CASCADE)."""
-    session.delete(alert)
-    session.flush()
+    await session.delete(alert)
+    await session.flush()
 
 
-def delete_alerts_by_drawing(
-    session: Session, user_id: str, drawing_id: str
+async def delete_alerts_by_drawing(
+    session: AsyncSession, user_id: str, drawing_id: str
 ) -> int:
     """Delete all alerts linked to a specific drawing. Returns count deleted."""
     alerts = (
-        session.execute(
+        (await session.execute(
             select(Alert).where(
                 Alert.user_id == user_id, Alert.drawing_id == drawing_id
             )
-        )
+        ))
         .scalars()
         .all()
     )
     count = 0
     for alert in alerts:
-        session.delete(alert)
+        await session.delete(alert)
         count += 1
-    session.flush()
+    await session.flush()
     return count
 
 
-def set_alert_status(session: Session, alert: Alert, status: str) -> Alert:
+async def set_alert_status(session: AsyncSession, alert: Alert, status: str) -> Alert:
     """Change alert status (active, paused, triggered, expired)."""
     alert.status = status
     session.add(alert)
-    session.flush()
-    session.refresh(alert)
+    await session.flush()
+    await session.refresh(alert)
     return alert
 
 
-def record_trigger(
-    session: Session, alert: Alert, trigger_value: float | None, message: str
+async def record_trigger(
+    session: AsyncSession, alert: Alert, trigger_value: float | None, message: str
 ) -> AlertLog:
     """Record that an alert was triggered and update its state."""
     now = datetime.now(timezone.utc)
 
-    # Create log entry
     log = AlertLog(
         alert_id=alert.id,
         user_id=alert.user_id,
@@ -148,24 +146,22 @@ def record_trigger(
     )
     session.add(log)
 
-    # Update alert state
     alert.trigger_count += 1
     alert.last_triggered_at = now
 
-    # Auto-deactivate "once" alerts
     if alert.frequency == "once":
         alert.status = "triggered"
 
     session.add(alert)
-    session.flush()
-    session.refresh(log)
+    await session.flush()
+    await session.refresh(log)
     return log
 
 
-def get_active_alerts_by_symbol(session: Session) -> dict[str, list[Alert]]:
+async def get_active_alerts_by_symbol(session: AsyncSession) -> dict[str, list[Alert]]:
     """Load all active alerts grouped by symbol. Used by the engine on startup."""
     alerts = (
-        session.execute(select(Alert).where(Alert.status == "active"))
+        (await session.execute(select(Alert).where(Alert.status == "active")))
         .scalars()
         .all()
     )
@@ -180,8 +176,8 @@ def get_active_alerts_by_symbol(session: Session) -> dict[str, list[Alert]]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def list_alert_logs(
-    session: Session,
+async def list_alert_logs(
+    session: AsyncSession,
     user_id: str,
     *,
     alert_id: str | None = None,
@@ -200,56 +196,56 @@ def list_alert_logs(
         query = query.where(AlertLog.symbol == symbol)
         count_query = count_query.where(AlertLog.symbol == symbol)
 
-    total = session.execute(count_query).scalar() or 0
+    total = (await session.execute(count_query)).scalar() or 0
     logs = list(
-        session.execute(
+        (await session.execute(
             query.order_by(desc(AlertLog.triggered_at)).limit(limit).offset(offset)
-        )
+        ))
         .scalars()
         .all()
     )
     return logs, total
 
 
-def mark_logs_read(session: Session, user_id: str, log_ids: list[str]) -> int:
+async def mark_logs_read(session: AsyncSession, user_id: str, log_ids: list[str]) -> int:
     """Mark alert logs as read. Returns count updated."""
     count = 0
     for log_id in log_ids:
-        log = session.execute(
+        log = (await session.execute(
             select(AlertLog).where(
                 AlertLog.id == log_id, AlertLog.user_id == user_id
             )
-        ).scalars().first()
+        )).scalars().first()
         if log and not log.read:
             log.read = True
             session.add(log)
             count += 1
-    session.flush()
+    await session.flush()
     return count
 
 
-def delete_alert_log(session: Session, user_id: str, log_id: str) -> bool:
+async def delete_alert_log(session: AsyncSession, user_id: str, log_id: str) -> bool:
     """Delete a specific alert log. Returns True if deleted."""
-    log = session.execute(
+    log = (await session.execute(
         select(AlertLog).where(
             AlertLog.id == log_id, AlertLog.user_id == user_id
         )
-    ).scalars().first()
+    )).scalars().first()
     if log:
-        session.delete(log)
-        session.flush()
+        await session.delete(log)
+        await session.flush()
         return True
     return False
 
 
-def clear_alert_logs(session: Session, user_id: str) -> int:
+async def clear_alert_logs(session: AsyncSession, user_id: str) -> int:
     """Delete all alert logs for a user. Returns count deleted."""
     from sqlalchemy import delete
-    result = session.execute(
+    result = await session.execute(
         delete(AlertLog).where(AlertLog.user_id == user_id)
     )
     count = result.rowcount
-    session.flush()
+    await session.flush()
     return count
 
 
@@ -258,8 +254,8 @@ def clear_alert_logs(session: Session, user_id: str) -> int:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def create_channel(
-    session: Session, user_id: str, data: NotificationChannelCreate
+async def create_channel(
+    session: AsyncSession, user_id: str, data: NotificationChannelCreate
 ) -> UserNotificationChannel:
     """Create a notification channel for a user."""
     channel = UserNotificationChannel(
@@ -268,59 +264,59 @@ def create_channel(
         config=data.config,
     )
     session.add(channel)
-    session.flush()
-    session.refresh(channel)
+    await session.flush()
+    await session.refresh(channel)
     return channel
 
 
-def list_channels(session: Session, user_id: str) -> list[UserNotificationChannel]:
+async def list_channels(session: AsyncSession, user_id: str) -> list[UserNotificationChannel]:
     """List all notification channels for a user."""
     return list(
-        session.execute(
+        (await session.execute(
             select(UserNotificationChannel).where(
                 UserNotificationChannel.user_id == user_id
             )
-        )
+        ))
         .scalars()
         .all()
     )
 
 
-def get_channel(
-    session: Session, channel_id: str, user_id: str
+async def get_channel(
+    session: AsyncSession, channel_id: str, user_id: str
 ) -> UserNotificationChannel | None:
     """Get a notification channel by ID."""
     return (
-        session.execute(
+        (await session.execute(
             select(UserNotificationChannel).where(
                 UserNotificationChannel.id == channel_id,
                 UserNotificationChannel.user_id == user_id,
             )
-        )
+        ))
         .scalars()
         .first()
     )
 
 
-def delete_channel(session: Session, channel: UserNotificationChannel) -> None:
+async def delete_channel(session: AsyncSession, channel: UserNotificationChannel) -> None:
     """Delete a notification channel."""
-    session.delete(channel)
-    session.flush()
+    await session.delete(channel)
+    await session.flush()
 
 
-def get_channels_by_ids(
-    session: Session, channel_ids: list[str]
+async def get_channels_by_ids(
+    session: AsyncSession, channel_ids: list[str]
 ) -> list[UserNotificationChannel]:
     """Fetch channels by their IDs (for notification dispatch)."""
     if not channel_ids:
         return []
     return list(
-        session.execute(
+        (await session.execute(
             select(UserNotificationChannel).where(
                 UserNotificationChannel.id.in_(channel_ids),
                 UserNotificationChannel.is_active == True,  # noqa: E712
             )
-        )
+        ))
         .scalars()
         .all()
     )
