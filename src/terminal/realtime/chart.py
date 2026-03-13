@@ -45,6 +45,7 @@ class ChartSession:
         self.candle_manager = candle_manager
         self._streaming_tasks: dict[str, asyncio.Task] = {}  # series_id -> task
         self._history_tasks: dict[str, asyncio.Task] = {}  # series_id -> task
+        self._load_task: asyncio.Task | None = None  # current chart load task
         self._symbol: str | None = None
 
     async def handle(self, msg: ClientMessage) -> None:
@@ -54,7 +55,9 @@ class ChartSession:
             self.session_id = session_id
             logger.debug("Create chart session: %s", session_id)
             if params:
-                await self._load_chart(params)
+                # Fire as background task — the WebSocket message loop must not
+                # block here; multiple charts must load concurrently.
+                self._queue_load(params)
         elif isinstance(msg, ResolveSymbolRequest):
             _, ticker = msg.p
             logger.debug("Resolve symbol: %s", ticker)
@@ -62,7 +65,8 @@ class ChartSession:
         elif isinstance(msg, ModifyChartRequest):
             _, params = msg.p
             logger.debug("Modify chart: %s", params)
-            await self._load_chart(params)
+            # Cancel any in-progress load before starting the new one
+            self._queue_load(params)
         elif isinstance(msg, GetBarRequest):
             _, params = msg.p
             logger.debug("Get bar: %s", params)
@@ -138,6 +142,27 @@ class ChartSession:
         task = self._streaming_tasks.pop(series_id, None)
         if task:
             task.cancel()
+
+    def _queue_load(self, params: ChartParams) -> None:
+        """Cancel any in-progress load and fire a new one as a background task.
+
+        Mirrors the screener's ``asyncio.create_task(self._start_safe())``
+        pattern so that the WebSocket message loop is never blocked while
+        candle data is being fetched.  Concurrent charts therefore load in
+        parallel rather than sequentially.
+        """
+        if self._load_task and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_task = asyncio.create_task(self._load_chart_safe(params))
+
+    async def _load_chart_safe(self, params: ChartParams) -> None:
+        """Wrapper that logs unhandled exceptions from the background load task."""
+        try:
+            await self._load_chart(params)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("Chart load failed for %s", params.symbol)
 
     async def _load_chart(self, params: ChartParams) -> None:
         """Fetch candles, emit series, and start streaming."""
@@ -353,6 +378,10 @@ class ChartSession:
 
     def stop(self) -> None:
         """Stop everything."""
+        if self._load_task and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_task = None
+
         for task in self._streaming_tasks.values():
             task.cancel()
         self._streaming_tasks.clear()
