@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 
 const apiProxyTarget =
-  process.env.VITE_API_PROXY_TARGET ?? "http://localhost:8000";
+  process.env.VITE_API_PROXY_TARGET ?? "http://localhost:6699";
 const wsProxyTarget =
   process.env.VITE_WS_PROXY_TARGET ??
   apiProxyTarget.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");

@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "FastAPI (Backend)",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "fastapi", "dev", "src/terminal/main.py", "--port", "6699"],
+      "port": 6699,
+      "cwd": "/app"
+    },
+    {
+      "name": "Vite (Frontend)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173,
+      "cwd": "/app/src/web"
+    }
+  ]
+}

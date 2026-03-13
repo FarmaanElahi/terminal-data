@@ -145,13 +145,18 @@ export interface BootPreferences {
   settings: unknown | null;
 }
 
+export interface CompressedData {
+  columns: string[];
+  values: any[][];
+}
+
 export interface BootResponse {
   user: User;
   lists: List[];
   column_sets: ColumnSet[];
   condition_sets: ConditionSet[];
   formulas: Formula[];
-  symbols: Symbol[];
+  symbols: CompressedData; // Compressed column-oriented format
   editor_config: FormulaEditorConfig;
   preferences: BootPreferences;
 }

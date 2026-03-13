@@ -6,6 +6,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { Toaster } from "@/components/ui/sonner";
 import { LayoutSync } from "@/components/layout/layout-sync";
 import { BrokerLoginDialog } from "@/components/layout/broker-login-dialog";
+import { BootLoader } from "@/components/layout/boot-loader";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -45,6 +46,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <BrowserRouter>
         <TooltipProvider>
           <AuthLoader>{children}</AuthLoader>
+          <BootLoader />
           <Toaster position="bottom-left" richColors closeButton />
         </TooltipProvider>
       </BrowserRouter>

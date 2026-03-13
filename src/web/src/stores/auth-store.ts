@@ -6,6 +6,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { QUERY_KEYS } from "@/queries/query-keys";
 import { useLayoutStore } from "@/stores/layout-store";
 import type { WorkspaceState } from "@/types/layout";
+import { decompressSymbols } from "@/lib/compression";
 
 interface AuthState {
   user: User | null;
@@ -52,6 +53,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       const { data: boot } = await bootApi.boot();
 
+      // Decompress symbols from column-oriented format
+      const decompressedSymbols = decompressSymbols(boot.symbols);
+
       // Hydrate TanStack Query caches
       queryClient.setQueryData(QUERY_KEYS.lists, boot.lists);
       queryClient.setQueryData(QUERY_KEYS.columnSets, boot.column_sets);
@@ -68,7 +72,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         token,
         user: boot.user,
-        symbols: boot.symbols,
+        symbols: decompressedSymbols,
         editorConfig: boot.editor_config,
         isAuthenticated: true,
         isBooted: true,
@@ -113,6 +117,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data: boot } = await bootApi.boot();
       terminalWS.connect(token);
 
+      // Decompress symbols from column-oriented format
+      const decompressedSymbols = decompressSymbols(boot.symbols);
+
       // Hydrate TanStack Query caches
       queryClient.setQueryData(QUERY_KEYS.lists, boot.lists);
       queryClient.setQueryData(QUERY_KEYS.columnSets, boot.column_sets);
@@ -128,7 +135,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       set({
         user: boot.user,
-        symbols: boot.symbols,
+        symbols: decompressedSymbols,
         editorConfig: boot.editor_config,
         isAuthenticated: true,
         isBooted: true,

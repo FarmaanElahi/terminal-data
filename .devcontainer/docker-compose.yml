@@ -1,44 +1,31 @@
 services:
   app:
     build:
-      context: ..
+      context: .
       dockerfile: Dockerfile
-      target: dev-builder
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ..:/app:cached
+      - py_venv:/app/.venv
       - web_node_modules:/app/src/web/node_modules
     ports:
       - "5173:5173"
-      - "8000:8000"
+      - "6699:6699"
     environment:
-      - DB_SCHEME=postgresql
-      - DB_DRIVER=psycopg
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      - DB_NAME=terminal
-      - ENVIRONMENT=development
-      - LOG_LEVEL=INFO
-      - LOG_FORMAT=text
-      - BASE_URL=http://localhost:8000
-      - PYTHONPATH=/app/src
-    env_file:
-      - .env
+      PYTHONPATH: /app/src
     command: sleep infinity # Kept alive by devcontainer
 
   db:
-    image: postgres:18
+    image: postgres:18-alpine
     restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: terminal
+      POSTGRES_DB: postgres
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U terminal"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -47,4 +34,5 @@ services:
 
 volumes:
   postgres_data:
+  py_venv:
   web_node_modules:

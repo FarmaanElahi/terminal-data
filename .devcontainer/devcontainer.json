@@ -3,7 +3,6 @@
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "app",
 	"workspaceFolder": "/app",
-	"forwardPorts": [5173, 8000],
 	"portsAttributes": {
 		"5173": {
 			"label": "Web (Vite)",
