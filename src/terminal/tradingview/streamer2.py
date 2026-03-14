@@ -583,5 +583,180 @@ class TradingViewClient:
             await worker.unregister_session(session_id)
 
 
+class PersistentQuoteSession:
+    """Long-lived quote session with dynamic add/remove symbol support.
+
+    Multiple screener sessions share one ``PersistentQuoteSession`` — each
+    unique ticker is subscribed on the TradingView WS exactly once,
+    regardless of how many screeners are watching it.
+
+    Symbols are distributed across ``qs_*`` sessions (up to CHUNK_SIZE each)
+    spread across workers.  All ticks funnel into a single ``asyncio.Queue``
+    which is yielded by :meth:`stream`.
+    """
+
+    CHUNK_SIZE = 300
+
+    def __init__(self, client: TradingViewClient, fields: List[str] | None = None):
+        self._client = client
+        self._fields = fields or [
+            "open_price",
+            "open_time",
+            "low_price",
+            "high_price",
+            "lp",
+            "lp_time",
+            "regular_close_time",
+            "regular_close",
+            "volume",
+        ]
+        self._queue: asyncio.Queue = asyncio.Queue()
+        # session_id -> worker
+        self._session_workers: Dict[str, TradingViewWorker] = {}
+        # ticker -> session_id (for O(1) lookup on remove)
+        self._ticker_to_session: Dict[str, str] = {}
+        self._lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
+
+    async def add_symbols(self, tickers: set) -> None:
+        """Subscribe to additional tickers (idempotent — skips already-subscribed)."""
+        if not tickers:
+            return
+
+        # Classify work under the lock — no I/O inside
+        add_to_existing: Dict[str, List[str]] = {}  # session_id -> chunk
+        new_sessions: List[tuple] = []  # (session_id, chunk)
+
+        async with self._lock:
+            pending = [t for t in tickers if t not in self._ticker_to_session]
+            if not pending:
+                return
+
+            # Fill existing sessions first (up to CHUNK_SIZE each)
+            for session_id, worker in list(self._session_workers.items()):
+                if not pending:
+                    break
+                current = worker._sessions.get(session_id, {}).get("tickers", [])
+                room = self.CHUNK_SIZE - len(current)
+                if room > 0:
+                    chunk = pending[:room]
+                    pending = pending[room:]
+                    add_to_existing[session_id] = chunk
+                    current.extend(chunk)
+                    worker.quote_symbols_count += len(chunk)
+                    for t in chunk:
+                        self._ticker_to_session[t] = session_id
+
+            # Allocate new session_ids for remaining tickers
+            for i in range(0, len(pending), self.CHUNK_SIZE):
+                chunk = pending[i : i + self.CHUNK_SIZE]
+                session_id = self._client._gen_session_id("qs")
+                new_sessions.append((session_id, chunk))
+                for t in chunk:
+                    self._ticker_to_session[t] = session_id
+
+        # Send WS commands outside lock
+        if not self._client._started:
+            await self._client.start()
+
+        for session_id, chunk in add_to_existing.items():
+            worker = self._session_workers[session_id]
+            await worker.send_command({"m": "quote_add_symbols", "p": [session_id, *chunk]})
+            logger.debug("[PQS] Added %d symbols to existing session %s", len(chunk), session_id)
+
+        for session_id, chunk in new_sessions:
+            worker = await self._client._get_least_loaded_worker(type="quote")
+            session_data: Dict[str, Any] = {"tickers": list(chunk), "fields": self._fields}
+            await worker.register_session(session_id, self._queue, session_data)
+            async with self._lock:
+                self._session_workers[session_id] = worker
+            await worker.send_command({"m": "quote_create_session", "p": [session_id]})
+            await worker.send_command({"m": "quote_set_fields", "p": [session_id, *self._fields]})
+            await worker.send_command({"m": "quote_add_symbols", "p": [session_id, *chunk]})
+            logger.debug("[PQS] Created new session %s with %d symbols", session_id, len(chunk))
+
+    async def remove_symbols(self, tickers: set) -> None:
+        """Unsubscribe from tickers."""
+        if not tickers:
+            return
+
+        per_session: Dict[str, List[str]] = {}
+        sessions_to_delete: set = set()
+        worker_snapshot: Dict[str, TradingViewWorker] = {}
+
+        async with self._lock:
+            for t in tickers:
+                session_id = self._ticker_to_session.pop(t, None)
+                if session_id:
+                    per_session.setdefault(session_id, []).append(t)
+
+            for session_id, removed in per_session.items():
+                worker = self._session_workers.get(session_id)
+                if not worker:
+                    continue
+                worker_snapshot[session_id] = worker
+                removed_set = set(removed)
+                current = worker._sessions.get(session_id, {}).get("tickers", [])
+                worker._sessions[session_id]["tickers"] = [
+                    x for x in current if x not in removed_set
+                ]
+                worker.quote_symbols_count -= len(removed)
+                if not worker._sessions[session_id]["tickers"]:
+                    sessions_to_delete.add(session_id)
+                    self._session_workers.pop(session_id, None)
+
+        # Send WS commands outside lock
+        for session_id, removed in per_session.items():
+            worker = worker_snapshot.get(session_id)
+            if not worker:
+                continue
+            if session_id in sessions_to_delete:
+                await worker.send_command({"m": "quote_delete_session", "p": [session_id]})
+                await worker.unregister_session(session_id)
+                logger.debug("[PQS] Deleted empty session %s", session_id)
+            else:
+                await worker.send_command(
+                    {"m": "quote_remove_symbols", "p": [session_id, *removed]}
+                )
+                logger.debug(
+                    "[PQS] Removed %d symbols from session %s", len(removed), session_id
+                )
+
+    async def stream(self) -> AsyncGenerator[dict, None]:
+        """Yield ``{ticker: quote_data}`` forever until :meth:`stop` is called."""
+        while not self._stop_event.is_set():
+            try:
+                item = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            if item is None:
+                break
+            if item.get("type") == "quote":
+                yield {item["ticker"]: item["data"]}
+
+    async def stop(self) -> None:
+        """Tear down all quote sessions and stop streaming."""
+        self._stop_event.set()
+
+        sessions: List[tuple] = []
+        async with self._lock:
+            for session_id, worker in list(self._session_workers.items()):
+                tickers = worker._sessions.get(session_id, {}).get("tickers", [])
+                sessions.append((session_id, worker, list(tickers)))
+            self._session_workers.clear()
+            self._ticker_to_session.clear()
+
+        for session_id, worker, tickers in sessions:
+            if tickers:
+                await worker.send_command(
+                    {"m": "quote_remove_symbols", "p": [session_id, *tickers]}
+                )
+            await worker.send_command({"m": "quote_delete_session", "p": [session_id]})
+            await worker.unregister_session(session_id)
+
+        await self._queue.put(None)
+        logger.info("[PQS] Stopped — %d sessions closed.", len(sessions))
+
+
 # Global instance
 streamer = TradingViewClient()

@@ -81,6 +81,15 @@ class MarketDataManager:
         self._last_successful_poll: float | None = None
         self._consecutive_failures: int = 0
 
+        # Ref-counted quote subscriptions (live stream only)
+        # screener_session_id -> set of tickers it's watching
+        self._quote_subscriptions: dict[str, set[str]] = {}
+        # ticker -> reference count across all screener sessions
+        self._quote_ref_counts: dict[str, int] = {}
+        self._subscription_lock = asyncio.Lock()
+        # Persistent WS session (created lazily on first subscription)
+        self._persistent_quotes = None
+
     @property
     def staleness_seconds(self) -> float | None:
         """Seconds since last successful poll, or None if never polled."""
@@ -95,7 +104,15 @@ class MarketDataManager:
         return staleness is not None and staleness > 60
 
     async def start(self):
-        """Starts realtime streaming.
+        """Starts the MarketDataManager.
+
+        For live-stream providers (TradingView WS): quote subscriptions are
+        managed on-demand via ``update_quote_subscription`` — no upfront
+        all-ticker subscription.
+
+        For polling providers: starts polling with whatever tickers are
+        already loaded (may be empty; ``ensure_streaming`` will kick it off
+        later once exchanges are loaded).
 
         Exchange data is NOT eagerly loaded — it will be lazy-loaded
         on first symbol access via ``get_ohlcv()`` or ``ensure_symbol_loaded()``.
@@ -103,16 +120,23 @@ class MarketDataManager:
         try:
             logger.info("Starting MarketDataManager (lazy loading mode)...")
 
-            # Discover tickers from already-loaded exchanges (may be empty at first)
-            tickers = self.provider.get_all_tickers("1D")
-
-            if tickers:
-                logger.info("Found %d pre-loaded symbols, starting streaming.", len(tickers))
-                await self.start_realtime_streaming(tickers)
+            if not getattr(self.provider, "supports_live_stream", False):
+                # Polling fallback — subscribe all tickers upfront
+                tickers = self.provider.get_all_tickers("1D")
+                if tickers:
+                    logger.info(
+                        "Found %d pre-loaded symbols, starting polling.", len(tickers)
+                    )
+                    await self.start_realtime_streaming(tickers)
+                else:
+                    logger.info(
+                        "No symbols pre-loaded (lazy mode). "
+                        "Polling will start when exchanges are loaded."
+                    )
             else:
                 logger.info(
-                    "No symbols pre-loaded (lazy mode). "
-                    "Streaming will start when exchanges are loaded."
+                    "Live-stream provider detected — quote subscriptions managed "
+                    "per-screener via update_quote_subscription."
                 )
 
             # Start the background data refresh loop
@@ -157,38 +181,49 @@ class MarketDataManager:
                 logger.error("Failed to load history for %s: %s", symbol, e)
 
     async def ensure_streaming(self) -> None:
-        """Start streaming if exchanges have been loaded but streaming wasn't started.
+        """Ensure the streaming loop is running.
 
-        This handles the lazy-loading case: ``start()`` finds no tickers
-        and skips streaming.  When the screener (or any other consumer)
-        later loads exchanges, it should call this to kick off the stream.
+        For live-stream providers (TradingView WS): quote subscriptions are
+        managed per-screener — this is a no-op (screeners call
+        ``update_quote_subscription`` directly after loading exchanges).
+
+        For polling providers: starts polling with all available tickers if
+        the polling loop is not already running.
         """
+        if getattr(self.provider, "supports_live_stream", False):
+            return  # managed by update_quote_subscription / _ensure_persistent_quotes
+
         if self._streaming_task and not self._streaming_task.done():
             return  # already running
 
         tickers = self.provider.get_all_tickers("1D")
         if tickers:
             logger.info(
-                "Deferred streaming start: %d tickers now available.",
+                "Deferred polling start: %d tickers now available.",
                 len(tickers),
             )
             await self.start_realtime_streaming(tickers)
 
     async def start_realtime_streaming(self, tickers: list[str]):
-        """Starts the background realtime task for OHLCV updates."""
+        """Starts the background polling loop (polling providers only).
+
+        For live-stream providers quote subscriptions are managed via
+        ``update_quote_subscription`` — calling this method for a live-stream
+        provider is a no-op.
+        """
+        if getattr(self.provider, "supports_live_stream", False):
+            return  # live-stream: managed by update_quote_subscription
+
         if self._streaming_task and not self._streaming_task.done():
-            logger.warning("Realtime streaming is already running.")
+            logger.warning("Polling loop is already running.")
             return
 
         self._stop_event.clear()
-        if getattr(self.provider, "supports_live_stream", False):
-            self._streaming_task = asyncio.create_task(self._stream_quote_loop(tickers))
-        else:
-            self._streaming_task = asyncio.create_task(self._stream_loop(tickers))
-        logger.info("Started realtime streaming for %d tickers", len(tickers))
+        self._streaming_task = asyncio.create_task(self._stream_loop(tickers))
+        logger.info("Started polling for %d tickers", len(tickers))
 
     async def stop_realtime_streaming(self):
-        """Stops the background streaming task."""
+        """Stops background streaming / polling and cleans up subscriptions."""
         self._stop_event.set()
         # Wake up any subscribers blocked on the broadcast condition
         async with self._broadcast._condition:
@@ -207,6 +242,11 @@ class MarketDataManager:
             except asyncio.CancelledError:
                 pass
             self._refresh_task = None
+        if self._persistent_quotes is not None:
+            await self._persistent_quotes.stop()
+            self._persistent_quotes = None
+        self._quote_subscriptions.clear()
+        self._quote_ref_counts.clear()
         logger.info("Stopped realtime streaming.")
 
     # ------------------------------------------------------------------
@@ -402,6 +442,136 @@ class MarketDataManager:
                     break
                 except asyncio.TimeoutError:
                     continue
+
+    # ------------------------------------------------------------------
+    # Ref-counted quote subscriptions (live-stream providers)
+    # ------------------------------------------------------------------
+
+    async def _ensure_persistent_quotes(self):
+        """Lazily create the PersistentQuoteSession and start the streaming loop."""
+        if self._persistent_quotes is not None and not self._persistent_quotes._stop_event.is_set():
+            return self._persistent_quotes
+
+        from terminal.tradingview.streamer2 import PersistentQuoteSession, streamer
+
+        self._persistent_quotes = PersistentQuoteSession(streamer)
+
+        if not self._streaming_task or self._streaming_task.done():
+            self._stop_event.clear()
+            self._streaming_task = asyncio.create_task(self._stream_persistent_loop())
+            logger.info("Started persistent quote streaming loop.")
+
+        return self._persistent_quotes
+
+    async def _stream_persistent_loop(self) -> None:
+        """Stream from PersistentQuoteSession, build candles, broadcast.
+
+        Runs as a long-lived background task.  On error it waits a short
+        interval and retries so the stream self-heals after transient failures.
+        """
+        build_candle = getattr(self.provider, "_build_realtime_candle", None)
+        last_candles: dict[str, tuple] = {}
+
+        try:
+            while not self._stop_event.is_set():
+                if self._persistent_quotes is None:
+                    break
+                try:
+                    async for item in self._persistent_quotes.stream():
+                        if self._stop_event.is_set():
+                            break
+                        for symbol, quote in item.items():
+                            candle = (
+                                build_candle(symbol, quote, last_candles.get(symbol))
+                                if build_candle
+                                else None
+                            )
+                            if candle is None:
+                                continue
+                            last_candles[symbol] = candle
+                            self.store.add_realtime(symbol, candle)
+                            await self._broadcast.publish(symbol, candle)
+                            self._last_successful_poll = time.time()
+                            self._consecutive_failures = 0
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    self._consecutive_failures += 1
+                    logger.error(
+                        "Persistent quote stream error (failures=%d): %s",
+                        self._consecutive_failures,
+                        e,
+                        exc_info=True,
+                    )
+                    if not self._stop_event.is_set():
+                        try:
+                            await asyncio.wait_for(
+                                self._stop_event.wait(), timeout=self.poll_interval
+                            )
+                        except asyncio.TimeoutError:
+                            pass
+        except asyncio.CancelledError:
+            pass
+
+    async def update_quote_subscription(
+        self, session_id: str, new_tickers: set[str]
+    ) -> None:
+        """Update the set of tickers a screener session is watching.
+
+        Ref-counted: a ticker is only subscribed on the TradingView WS when at
+        least one screener session wants it; unsubscribed when the count drops
+        to zero.  Safe to call from multiple concurrent screener sessions.
+        """
+        if not getattr(self.provider, "supports_live_stream", False):
+            return  # polling providers don't support dynamic subscription
+
+        to_subscribe: set[str] = set()
+        to_unsubscribe: set[str] = set()
+
+        async with self._subscription_lock:
+            old_tickers = self._quote_subscriptions.get(session_id, set())
+            added = new_tickers - old_tickers
+            removed = old_tickers - new_tickers
+
+            for t in added:
+                count = self._quote_ref_counts.get(t, 0) + 1
+                self._quote_ref_counts[t] = count
+                if count == 1:
+                    to_subscribe.add(t)
+
+            for t in removed:
+                count = self._quote_ref_counts.get(t, 1) - 1
+                if count <= 0:
+                    self._quote_ref_counts.pop(t, None)
+                    to_unsubscribe.add(t)
+                else:
+                    self._quote_ref_counts[t] = count
+
+            if new_tickers:
+                self._quote_subscriptions[session_id] = set(new_tickers)
+            else:
+                self._quote_subscriptions.pop(session_id, None)
+
+        if not to_subscribe and not to_unsubscribe:
+            return
+
+        session = await self._ensure_persistent_quotes()
+        if to_subscribe:
+            await session.add_symbols(to_subscribe)
+        if to_unsubscribe:
+            await session.remove_symbols(to_unsubscribe)
+
+        logger.info(
+            "Quote subscriptions: screener=%s +%d/-%d → %d unique tickers total",
+            session_id,
+            len(to_subscribe),
+            len(to_unsubscribe),
+            len(self._quote_ref_counts),
+        )
+
+    async def remove_quote_subscription(self, session_id: str) -> None:
+        """Remove all quote subscriptions for a screener session."""
+        await self.update_quote_subscription(session_id, set())
 
     async def subscribe(self) -> AsyncGenerator[dict, None]:
         """Allows modules to subscribe to real-time bar updates via broadcast channel.

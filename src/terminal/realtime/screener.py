@@ -276,6 +276,13 @@ class ScreenerSession:
             ScreenerCache.release(self._cache_key)
             self._cache_key = None
             self._shared_cache = None
+        # Release quote subscriptions — fire-and-forget (stop is sync)
+        try:
+            asyncio.create_task(
+                self.realtime.manager.remove_quote_subscription(self.session_id)
+            )
+        except RuntimeError:
+            pass  # no running event loop (e.g. during shutdown)
 
     # ------------------------------------------------------------------
     # Exchange preloading
@@ -544,6 +551,12 @@ class ScreenerSession:
         if force or new_tickers != self._visible_tickers:
             self._visible_tickers = new_tickers
             self._last_values.clear()  # reset value cache on filter change
+
+            # Update ref-counted quote subscriptions — only subscribe to
+            # tickers currently visible in this screener.
+            await self.realtime.manager.update_quote_subscription(
+                self.session_id, set(new_tickers)
+            )
 
             # Get initial values for the "full dataframe" response.
             # CPU-bound — run in thread pool so the event loop stays responsive.
