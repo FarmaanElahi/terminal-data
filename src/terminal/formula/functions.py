@@ -8,7 +8,7 @@ Adding a new function requires:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from difflib import get_close_matches
 from typing import Callable
 
@@ -21,6 +21,11 @@ from terminal.formula.errors import FormulaError
 # First arg is always a np.ndarray (the source), remaining are numeric params.
 FuncImpl = Callable[..., np.ndarray]
 
+# Lookback function: (source_lb, *period_args) -> int
+# source_lb  = lookback of the explicit series argument (1 when all-implicit)
+# period_args = the numeric (non-series) arguments, e.g. the rolling window size
+LookbackFn = Callable[..., int]
+
 
 @dataclass(frozen=True, slots=True)
 class FuncDef:
@@ -31,7 +36,7 @@ class FuncDef:
     impl: FuncImpl
     series_args: frozenset[int]
     implicit_series: tuple[str, ...]
-    series_args: frozenset[int]
+    lookback_fn: LookbackFn | None = None
 
 
 # Global registry — keyed by uppercase function name.
@@ -45,8 +50,19 @@ def register(
     *,
     series_args: set[int] | None = None,
     implicit_series: list[str] | tuple[str, ...] | None = None,
+    lookback: LookbackFn | None = None,
 ) -> None:
-    """Register a vectorised function for use in formulas."""
+    """Register a vectorised function for use in formulas.
+
+    ``lookback`` is an optional callable ``(source_lb, *period_args) -> int``
+    that computes the minimum number of rows needed for the last result element
+    to be valid.  When provided, ``lookback.py`` uses it automatically — no
+    manual case needs to be added there.
+
+    - ``source_lb``  : lookback of the explicit series argument (always 1 for
+                       fully-implicit functions such as RSI / RMV).
+    - ``period_args``: the numeric (non-series) arguments in declaration order.
+    """
     if series_args is None:
         series_args = {0}
     implicit = tuple(s.upper() for s in (implicit_series or ()))
@@ -64,6 +80,7 @@ def register(
         impl=impl,
         series_args=frozenset(series_args),
         implicit_series=implicit,
+        lookback_fn=lookback,
     )
 
 
@@ -186,11 +203,14 @@ def _rmv(
 
 
 # Register builtins
-register("SMA", 2, _sma)
-register("EMA", 2, _ema)
-register("MIN", 2, _min)
-register("MAX", 2, _max)
-register("HIGHEST", 2, _highest)
-register("LOWEST", 2, _lowest)
-register("RSI", 1, _rsi, series_args=set(), implicit_series=("C",))
-register("RMV", 1, _rmv, series_args=set(), implicit_series=("H", "L", "C"))
+# lookback lambda signature: (source_lb, *period_args) -> int
+register("SMA",     2, _sma,     lookback=lambda src, p: src + p - 1)
+register("EMA",     2, _ema,     lookback=lambda src, p: src + p * 3)  # 3× warmup
+register("MIN",     2, _min,     lookback=lambda src, p: src + p - 1)
+register("MAX",     2, _max,     lookback=lambda src, p: src + p - 1)
+register("HIGHEST", 2, _highest, lookback=lambda src, p: src + p - 1)
+register("LOWEST",  2, _lowest,  lookback=lambda src, p: src + p - 1)
+register("RSI", 1, _rsi, series_args=set(), implicit_series=("C",),
+         lookback=lambda _, p: p * 3)          # Wilder's EMA, 3× warmup
+register("RMV", 1, _rmv, series_args=set(), implicit_series=("H", "L", "C"),
+         lookback=lambda _, lb: lb + 3)        # rolling(2/3) internals + outer window

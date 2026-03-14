@@ -27,6 +27,8 @@ Lookup rules
 from __future__ import annotations
 
 from .ast_nodes import BinOp, FieldRef, FuncCall, Node, NumberLiteral, ShiftExpr, UnaryOp
+from .functions import get_func
+from .errors import FormulaError
 
 # Conservative fallback when lookback cannot be determined statically.
 # Even this is ~3.6× smaller than 5 years of daily data.
@@ -77,43 +79,39 @@ def _lb(node: Node) -> int:
 
 
 def _func_lb(node: FuncCall) -> int:
-    name = node.name  # always upper-cased by the parser
     args = node.args
 
-    # ── Rolling window: last value requires `period` valid source rows ───────
-    if name in ("SMA", "MIN", "MAX", "HIGHEST", "LOWEST"):
-        source_lb = _lb(args[0]) if args else 1
-        period = _literal_int(args[1]) if len(args) > 1 else None
-        if period is None:
-            return _FALLBACK
-        return source_lb + period - 1
+    # ── Look up the registered function ──────────────────────────────────────
+    try:
+        func_def = get_func(node.name)
+    except FormulaError:
+        return _FALLBACK
 
-    # ── EMA: technically needs all history but 3× period gives < 1% error ───
-    if name == "EMA":
-        source_lb = _lb(args[0]) if args else 1
-        period = _literal_int(args[1]) if len(args) > 1 else None
-        if period is None:
-            return _FALLBACK
-        return source_lb + period * _EMA_MULT
+    # ── Use the function's own lookback_fn when available ────────────────────
+    # lookback_fn signature: (source_lb, *period_args) -> int
+    # source_lb  = max lookback of all explicit series arguments (1 if all-implicit)
+    # period_args = all numeric (non-series) arguments in declaration order
+    if func_def.lookback_fn is not None:
+        # Compute source_lb from explicit series args
+        source_lb = 1
+        if func_def.series_args:
+            lbs = [_lb(args[i]) for i in func_def.series_args if i < len(args)]
+            if lbs:
+                source_lb = max(lbs)
 
-    # ── RSI: implicit C; Wilder's EMA internally — same warmup as EMA ────────
-    if name == "RSI":
-        period = _literal_int(args[0]) if args else None
-        if period is None:
-            return _FALLBACK
-        return period * _EMA_MULT
+        # Collect numeric (period) args — those NOT in series_args
+        period_args: list[int] = []
+        for i, arg in enumerate(args):
+            if i not in func_def.series_args:
+                val = _literal_int(arg)
+                if val is None:
+                    return _FALLBACK  # dynamic period — can't determine statically
+                period_args.append(val)
 
-    # ── RMV: implicit H/L/C; rolling(2/3) internals + outer rolling(lb) ─────
-    if name == "RMV":
-        loopback = _literal_int(args[0]) if args else None
-        if loopback is None:
-            return _FALLBACK
-        # rolling(3) needs 3 warm-up rows; then loopback rows of valid combined_avg
-        return loopback + 3
+        return func_def.lookback_fn(source_lb, *period_args)
 
-    # ── Unknown / user-defined function: best-effort ─────────────────────────
-    # Pick the largest numeric argument as a proxy for "period" and apply the
-    # EMA multiplier so we don't under-provision.
+    # ── Fallback for functions registered without a lookback_fn ──────────────
+    # Best-effort: use the largest numeric arg × EMA multiplier.
     if args:
         biggest = max((_literal_int(a) or 0) for a in args)
         if biggest > 0:
