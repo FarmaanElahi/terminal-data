@@ -96,6 +96,13 @@ def _func_lb(node: FuncCall) -> int:
             return _FALLBACK
         return source_lb + period * _EMA_MULT
 
+    # ── RSI: implicit C; Wilder's EMA internally — same warmup as EMA ────────
+    if name == "RSI":
+        period = _literal_int(args[0]) if args else None
+        if period is None:
+            return _FALLBACK
+        return period * _EMA_MULT
+
     # ── RMV: implicit H/L/C; rolling(2/3) internals + outer rolling(lb) ─────
     if name == "RMV":
         loopback = _literal_int(args[0]) if args else None

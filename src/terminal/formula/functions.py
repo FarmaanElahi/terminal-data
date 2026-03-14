@@ -129,6 +129,16 @@ def _lowest(source: np.ndarray, period: int) -> np.ndarray:
     return pd.Series(source).rolling(int(period)).min().to_numpy()
 
 
+def _rsi(close: np.ndarray, period: int) -> np.ndarray:
+    """Relative Strength Index — Wilder's smoothing (EMA with alpha=1/period)."""
+    p = int(period)
+    delta = pd.Series(close).diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / p, adjust=False).mean()
+    loss = (-delta).clip(lower=0).ewm(alpha=1 / p, adjust=False).mean()
+    rs = gain / loss
+    return (100 - 100 / (1 + rs)).to_numpy()
+
+
 def _rmv(
     high: np.ndarray, low: np.ndarray, close: np.ndarray, loopback: int
 ) -> np.ndarray:
@@ -182,4 +192,5 @@ register("MIN", 2, _min)
 register("MAX", 2, _max)
 register("HIGHEST", 2, _highest)
 register("LOWEST", 2, _lowest)
+register("RSI", 1, _rsi, series_args=set(), implicit_series=("C",))
 register("RMV", 1, _rmv, series_args=set(), implicit_series=("H", "L", "C"))
