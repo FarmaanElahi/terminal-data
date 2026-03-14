@@ -68,6 +68,8 @@ services:
       SERVICE_URL_APP_8000:
     volumes:
       - terminal_data:/app/data
+    ports:
+      - "${PORT}:${PORT}"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:${PORT:?8000}/health > /dev/null"]
