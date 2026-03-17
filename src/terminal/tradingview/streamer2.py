@@ -341,10 +341,11 @@ class TradingViewClient:
         self._started = False
 
     async def _handle_worker_idle(self, worker: TradingViewWorker):
-        """Called when a worker has no active sessions. Only shuts down quote-only workers."""
-        # Don't shut down workers during bar operations — they will be cleaned up
-        # explicitly by stream_bars() when the entire batch finishes.
-        pass
+        """Called when a worker has no active sessions — stop it and remove from pool."""
+        await worker.stop()
+        if worker in self.workers:
+            self.workers.remove(worker)
+        logger.debug(f"[Worker {worker.worker_id}] Idle — stopped and removed from pool.")
 
     async def _get_least_loaded_worker(self, type: str = "quote") -> TradingViewWorker:
         """
@@ -510,8 +511,8 @@ class TradingViewClient:
                     t.cancel()
             # Suppress CancelledError from tasks
             await asyncio.gather(*tasks, return_exceptions=True)
-            # Clean up all workers after the entire bar download batch is done
-            await self.stop()
+            # Workers clean themselves up via _handle_worker_idle when their
+            # session count drops to zero — no need to stop the whole client.
 
     async def _stream_bars_chunk(
         self, tickers: List[str], timeframe: str, bars: int = 1500
