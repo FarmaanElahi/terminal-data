@@ -133,10 +133,11 @@ class TradingViewWorker:
         for item in data:
             s = json.dumps(item)
             payload += f"{_MESSAGE_PREFIX}{len(s)}{_MESSAGE_PREFIX}{s}"
+        logger.debug(f"[Worker {self.worker_id}] Sending: {[item.get('m') if isinstance(item, dict) else item for item in data]}")
         try:
             await self.socket.send(payload)
         except Exception as e:
-            logger.error(f"[Worker {self.worker_id}] Send error: {e}")
+            logger.error(f"[Worker {self.worker_id}] Send error: {e} | command={[item.get('m') if isinstance(item, dict) else item for item in data]}")
 
     async def _decode(self, msg: str) -> list:
         decoded = []
