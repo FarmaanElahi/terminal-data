@@ -157,22 +157,16 @@ function formatValue(
         });
       }
     } else {
-      // Default formatting: use short form (M, K) if no specific locale is selected
-      if (absVal >= 1_000_000) {
-        formatted = `${(val / 1_000_000).toFixed(1)}M`;
-      } else if (absVal >= 1_000) {
-        formatted = `${(val / 1_000).toFixed(1)}K`;
-      } else {
-        const localeOptions: Intl.NumberFormatOptions = {
-          maximumFractionDigits: col?.display_numeric_max_decimal ?? 2,
-          minimumFractionDigits: col?.display_numeric_max_decimal ?? 2,
-        };
-        // Auto-scale decimals for small numbers
-        if (col?.display_numeric_max_decimal == null && absVal < 1 && absVal > 0) {
-          localeOptions.maximumFractionDigits = 4;
-        }
-        formatted = val.toLocaleString("en-US", localeOptions);
+      // No format set (null or undefined) — plain number, no abbreviation
+      const localeOptions: Intl.NumberFormatOptions = {
+        maximumFractionDigits: col?.display_numeric_max_decimal ?? 2,
+        minimumFractionDigits: col?.display_numeric_max_decimal ?? 2,
+      };
+      // Auto-scale decimals for small numbers
+      if (col?.display_numeric_max_decimal == null && absVal < 1 && absVal > 0) {
+        localeOptions.maximumFractionDigits = 4;
       }
+      formatted = val.toLocaleString("en-US", localeOptions);
     }
 
     // Apply show positive sign

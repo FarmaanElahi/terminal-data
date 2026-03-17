@@ -391,14 +391,8 @@ function ScreenerCell({
         formatted = numValue.toFixed(d);
       }
     } else {
-      // Default formatting
-      if (absVal >= 1_000_000) {
-        formatted = `${(numValue / 1_000_000).toFixed(1)}M`;
-      } else if (absVal >= 1_000) {
-        formatted = `${(numValue / 1_000).toFixed(1)}K`;
-      } else {
-        formatted = numValue.toFixed(d);
-      }
+      // No format set (null or undefined) — plain number, no abbreviation
+      formatted = numValue.toFixed(d);
     }
 
     // Apply prefix/suffix

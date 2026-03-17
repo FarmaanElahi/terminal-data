@@ -18,8 +18,9 @@ class TradingViewWorker:
     Manages active subscriptions (sessions) and routes messages.
     """
 
-    WSS_URL = "wss://data-wdc.tradingview.com/socket.io/websocket?type=chart"
+    WSS_URL = "wss://data.tradingview.com/socket.io/websocket?from=chart%2F&type=chart"
     ORIGIN = "https://in.tradingview.com"
+    USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36"
 
     def __init__(self, worker_id: int, on_idle: Optional[callable] = None):
         self.worker_id = worker_id
@@ -57,6 +58,7 @@ class TradingViewWorker:
                 async with connect(
                     self.WSS_URL,
                     origin=Origin(self.ORIGIN),
+                    additional_headers={"User-Agent": self.USER_AGENT},
                     max_size=None,
                     ping_timeout=60,
                 ) as socket:
@@ -137,7 +139,7 @@ class TradingViewWorker:
         try:
             await self.socket.send(payload)
         except Exception as e:
-            logger.error(f"[Worker {self.worker_id}] Send error: {e} | command={[item.get('m') if isinstance(item, dict) else item for item in data]}")
+            logger.error(f"[Worker {self.worker_id}] Send error: {e} | command={[item.get('m') if isinstance(item, dict) else item for item in data]} | payload={payload!r}")
 
     async def _decode(self, msg: str) -> list:
         decoded = []

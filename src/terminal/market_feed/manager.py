@@ -223,7 +223,7 @@ class MarketDataManager:
         logger.info("Started polling for %d tickers", len(tickers))
 
     async def stop_realtime_streaming(self):
-        """Stops background streaming / polling and cleans up subscriptions."""
+        """Stops the background streaming task."""
         self._stop_event.set()
         # Wake up any subscribers blocked on the broadcast condition
         async with self._broadcast._condition:

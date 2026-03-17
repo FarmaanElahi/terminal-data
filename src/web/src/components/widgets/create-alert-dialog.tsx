@@ -158,6 +158,9 @@ export function CreateAlertDialog({
   useEffect(() => {
     if (!open) return;
 
+    // Suppress the sound preview triggered by programmatic state resets below
+    initialMount.current = true;
+
     if (editAlert) {
       setName(editAlert.name);
       setSymbol(editAlert.symbol);
