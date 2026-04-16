@@ -289,21 +289,26 @@ class UpstoxClient(CandleProvider):
         # Never request data beyond today
         effective_to = min(effective_to, today)
 
-        # Enforce minimum data windows for better "scroll back" performance
+        # Enforce minimum data windows for better "scroll back" performance.
+        # For intraday intervals we use the chunk size (7 days) as the minimum
+        # so each request results in exactly one Upstox API call, avoiding
+        # the 4–5 parallel requests that previously caused rate-limit retries
+        # and frontend timeouts on intervals like 15m.
+        chunk_days = upstox_chunk_days(unit)
         if from_date is None:
             if unit in ("days", "weeks", "months"):
-                # 5 years back
+                # 5 years back for daily+
                 from_date = effective_to - timedelta(days=1825)
             else:
-                # 30 days back for intraday
-                from_date = effective_to - timedelta(days=30)
+                # One chunk back for intraday (7 days)
+                from_date = effective_to - timedelta(days=chunk_days)
         else:
-            # If from_date is provided, ensure it covers at least the minimum window if requested range is small
+            # Expand the window up to the minimum if the caller requested less.
             if unit in ("days", "weeks", "months"):
                 min_from = effective_to - timedelta(days=1825)
                 from_date = min(from_date, min_from)
             else:
-                min_from = effective_to - timedelta(days=30)
+                min_from = effective_to - timedelta(days=chunk_days)
                 from_date = min(from_date, min_from)
 
         # ── 1 & 2. Historical + intraday candles fired in parallel ────────

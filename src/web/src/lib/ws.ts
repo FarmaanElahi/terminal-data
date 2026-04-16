@@ -14,6 +14,8 @@ export class TerminalWebSocket {
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private token: string | null = null;
   private _isConnected = false;
+  /** True after the first successful open — used to distinguish reconnects */
+  private _hasConnectedOnce = false;
 
   /** Messages queued while the socket is still connecting */
   private pendingQueue: WSMessage[] = [];
@@ -65,13 +67,23 @@ export class TerminalWebSocket {
       // Guard: make sure this is still the active socket
       if (this.ws !== ws) return;
 
+      const wasReconnect = this._hasConnectedOnce;
       this._isConnected = true;
+      this._hasConnectedOnce = true;
       this.reconnectAttempts = 0;
       this.startPingLoop();
-      console.log("[WS] Connected");
+      console.log(`[WS] ${wasReconnect ? "Reconnected" : "Connected"}`);
 
       // Flush pending queue using this specific socket instance
       this.flushPendingQueue(ws);
+
+      // Notify listeners about reconnects so charts / sessions can reload data
+      if (wasReconnect) {
+        const handlers = this.handlers.get("ws_reconnected");
+        if (handlers) {
+          handlers.forEach((h) => h({ m: "ws_reconnected", p: [] }));
+        }
+      }
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -177,6 +189,7 @@ export class TerminalWebSocket {
   disconnect(): void {
     this.token = null;
     this.pendingQueue = [];
+    this._hasConnectedOnce = false;
     this.stopPingLoop();
     if (this.ws) {
       this.ws.onopen = null;

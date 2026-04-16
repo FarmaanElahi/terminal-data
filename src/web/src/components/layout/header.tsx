@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AddWidgetDialog } from "@/components/dashboard/add-widget-dialog";
 import { LayoutTabsList } from "@/components/dashboard/layout-tabs-bar";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { Plus, Moon, Sun } from "lucide-react";
 
 export function AppHeader() {
@@ -55,6 +56,8 @@ export function AppHeader() {
             <Plus className="w-3 h-3" />
             <span className="hidden sm:inline">Add Widget</span>
           </Button>
+
+          <NotificationBell />
 
           <Button
             variant="ghost"

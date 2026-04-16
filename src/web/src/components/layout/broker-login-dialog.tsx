@@ -17,32 +17,25 @@ export function BrokerLoginDialog() {
   const [requestedProviderId, setRequestedProviderId] = useState<string | null>(
     null,
   );
-  const [dismissedProviderIds, setDismissedProviderIds] = useState<string[]>([]);
 
+  // Only surface the dialog when the backend explicitly asks for a broker
+  // login via the `broker_login_required` WS event. We used to also pop it
+  // passively on load whenever any broker had `login_required: true`, which
+  // prompted Zerodha login on every app load even though no feature depends
+  // on it yet — removed.
   const activeBroker = useMemo((): BrokerInfo | null => {
-    const requested = requestedProviderId
-      ? brokers.find((broker) => broker.provider_id === requestedProviderId) ?? null
-      : null;
-    if (requested?.login_required) return requested;
-
-    return (
-      brokers.find(
-        (broker) =>
-          broker.login_required &&
-          !dismissedProviderIds.includes(broker.provider_id) &&
-          broker.capabilities.includes("realtime_candles"),
-      ) ?? null
-    );
-  }, [brokers, requestedProviderId, dismissedProviderIds]);
+    if (!requestedProviderId) return null;
+    const requested =
+      brokers.find((broker) => broker.provider_id === requestedProviderId) ??
+      null;
+    return requested?.login_required ? requested : null;
+  }, [brokers, requestedProviderId]);
 
   useEffect(() => {
     return terminalWS.on("broker_login_required", (msg) => {
       const payload = msg.p?.[0] as Partial<BrokerInfo> | undefined;
       if (payload?.provider_id) {
         setRequestedProviderId(payload.provider_id);
-        setDismissedProviderIds((prev) =>
-          prev.filter((providerId) => providerId !== payload.provider_id),
-        );
       }
     });
   }, []);
@@ -65,9 +58,6 @@ export function BrokerLoginDialog() {
       open={Boolean(activeBroker)}
       onOpenChange={(nextOpen) => {
         if (nextOpen || !activeBroker) return;
-        setDismissedProviderIds((prev) =>
-          Array.from(new Set([...prev, activeBroker.provider_id])),
-        );
         setRequestedProviderId(null);
       }}
     >
@@ -85,12 +75,7 @@ export function BrokerLoginDialog() {
           </Button>
           <Button
             variant="ghost"
-            onClick={() => {
-              setDismissedProviderIds((prev) =>
-                Array.from(new Set([...prev, activeBroker.provider_id])),
-              );
-              setRequestedProviderId(null);
-            }}
+            onClick={() => setRequestedProviderId(null)}
           >
             Later
           </Button>

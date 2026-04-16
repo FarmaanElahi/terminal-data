@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     def is_kite_oauth_configured(self) -> bool:
         return all([self.kite_api_key, self.kite_api_secret, self.kite_redirect_uri])
 
+    # Background refresh intervals
+    symbols_refresh_interval_hours: float = 24.0  # Daily symbols refresh (0 to disable)
+
     # Auth
     secret_key: str = "SUPER_SECRET_KEY_REPLACE_IN_PRODUCTION"
     algorithm: str = "HS256"

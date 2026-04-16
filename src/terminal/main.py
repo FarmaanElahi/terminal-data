@@ -55,6 +55,33 @@ async def lifespan(application: FastAPI):
     logger.info("Preloading symbols...")
     await symbols_service.init(get_fs(), get_settings())
 
+    # Background daily symbols refresh
+    _symbols_refresh_task: asyncio.Task | None = None
+    _symbols_refresh_interval = settings.symbols_refresh_interval_hours * 3600
+
+    if _symbols_refresh_interval > 0:
+        async def _symbols_refresh_loop():
+            while True:
+                try:
+                    await asyncio.sleep(_symbols_refresh_interval)
+                    logger.info("Running scheduled symbols refresh...")
+                    await symbols_service.refresh(get_fs(), get_settings())
+                    logger.info("Symbols refresh complete.")
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    logger.exception("Symbols refresh loop error — will retry next cycle")
+
+        _symbols_refresh_task = asyncio.create_task(_symbols_refresh_loop())
+        _symbols_refresh_task.add_done_callback(
+            lambda t: handle_startup_task(t, "SymbolsRefreshLoop")
+        )
+        logger.info(
+            "Daily symbols refresh scheduled (interval=%.1fh)", settings.symbols_refresh_interval_hours
+        )
+    else:
+        logger.info("Symbols auto-refresh disabled (symbols_refresh_interval_hours=0)")
+
     # ── Alert Engine ─────────────────────────────────────────────────
     from terminal.alerts.engine import AlertEngine
     from terminal.notifications.dispatcher import NotificationDispatcher
@@ -84,6 +111,13 @@ async def lifespan(application: FastAPI):
 
     # Graceful shutdown sequence
     logger.info("Shutting down...")
+
+    if _symbols_refresh_task and not _symbols_refresh_task.done():
+        _symbols_refresh_task.cancel()
+        try:
+            await _symbols_refresh_task
+        except asyncio.CancelledError:
+            pass
 
     # 1. Stop accepting new WebSocket connections
     application._shutting_down = True  # type: ignore[attr-defined]

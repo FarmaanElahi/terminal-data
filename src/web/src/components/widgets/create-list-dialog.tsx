@@ -61,9 +61,10 @@ export function CreateListDialog({
   const { data: lists = [] } = useListsQuery();
   const createList = useCreateListMutation();
 
-  // Non-color lists available for combo source selection
+  // Simple + color lists are valid combo sources; nested combos are not
+  // allowed (aggregation is single-level in the backend).
   const sourceLists = useMemo(
-    () => lists.filter((l) => l.type !== "color"),
+    () => lists.filter((l) => l.type === "simple" || l.type === "color"),
     [lists],
   );
 

@@ -70,6 +70,7 @@ export function CommandPalette() {
                 name: string;
                 type?: string;
                 market?: string;
+                logo?: string | null;
               }>
             ).map((symbol) => (
               <CommandItem
@@ -78,6 +79,22 @@ export function CommandPalette() {
                 onSelect={() => handleSelect(symbol.ticker)}
                 className="flex items-center gap-3 py-2"
               >
+                {symbol.logo ? (
+                  <img
+                    src={`https://s3-symbol-logo.tradingview.com/${symbol.logo}.svg`}
+                    alt=""
+                    className="w-5 h-5 rounded-full bg-muted shrink-0"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[9px] text-primary shrink-0">
+                    {symbol.ticker.includes(":")
+                      ? symbol.ticker.split(":")[1].slice(0, 1)
+                      : symbol.ticker.slice(0, 1)}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-mono text-sm font-medium">

@@ -100,6 +100,17 @@ async def update(session: AsyncSession, lst: List, data: ListUpdate) -> List:
     return lst
 
 
+async def delete(session: AsyncSession, lst: List) -> None:
+    """Delete a list.
+
+    No cascade: combo lists that reference this list's ID will continue to
+    exist, but ``get_symbols`` already skips missing IDs by filtering with
+    ``List.id.in_(source_list_ids)`` — dangling references are harmless.
+    """
+    await session.delete(lst)
+    await session.commit()
+
+
 async def append_symbols(
     session: AsyncSession, lst: List, user_id: str, data: SymbolsUpdate
 ) -> List:

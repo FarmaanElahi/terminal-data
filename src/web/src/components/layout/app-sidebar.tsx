@@ -1,9 +1,20 @@
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useListsQuery } from "@/queries/use-lists";
+import { toast } from "sonner";
+import { useListsQuery, useDeleteListMutation } from "@/queries/use-lists";
+import { listsApi } from "@/lib/api";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import type { List } from "@/types/models";
 
 interface AppSidebarProps {
   open: boolean;
@@ -12,8 +23,67 @@ interface AppSidebarProps {
 export function AppSidebar({ open }: AppSidebarProps) {
   const navigate = useNavigate();
   const { data: lists = [] } = useListsQuery();
+  const deleteList = useDeleteListMutation();
+
+  // Map of list id → list, used to compute combo symbol counts on the fly.
+  // Combo lists don't own symbols; their count is the union of their members.
+  // Because member lists mutate via the same QUERY_KEYS.lists cache, this
+  // derivation updates automatically when a member is added/removed.
+  const listsById = useMemo(() => {
+    const m = new Map<string, List>();
+    for (const l of lists) m.set(l.id, l);
+    return m;
+  }, [lists]);
+
+  const getSymbolCount = (list: List): number => {
+    if (list.type !== "combo") return list.symbols.length;
+    const seen = new Set<string>();
+    for (const id of list.source_list_ids ?? []) {
+      const member = listsById.get(id);
+      if (!member) continue;
+      for (const s of member.symbols) {
+        if (!s.startsWith("###")) seen.add(s);
+      }
+    }
+    return seen.size;
+  };
 
   if (!open) return null;
+
+  async function handleCopyTickers(list: List) {
+    try {
+      // Refetch to resolve combo members + strip "### section" placeholders
+      // server-side — listsApi.get already returns aggregated symbols.
+      const { data } = await listsApi.get(list.id);
+      const symbols = (data.symbols ?? []).filter((s) => !s.startsWith("###"));
+      if (symbols.length === 0) {
+        toast.info(`"${list.name}" has no tickers to copy`);
+        return;
+      }
+      await navigator.clipboard.writeText(symbols.join(","));
+      const preview = symbols.slice(0, 5).join(", ");
+      const overflow = symbols.length > 5 ? ` +${symbols.length - 5} more` : "";
+      toast.success(`Copied ${symbols.length} ticker${symbols.length !== 1 ? "s" : ""}`, {
+        description: preview + overflow,
+      });
+    } catch (err) {
+      console.error("Failed to copy tickers", err);
+      toast.error("Failed to copy tickers");
+    }
+  }
+
+  async function handleDelete(list: List) {
+    if (!window.confirm(`Delete list "${list.name}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteList.mutateAsync(list.id);
+      toast.success(`Deleted "${list.name}"`);
+    } catch (err) {
+      console.error("Failed to delete list", err);
+      toast.error("Failed to delete list");
+    }
+  }
 
   return (
     <aside className="w-56 border-r border-border bg-sidebar shrink-0 flex flex-col">
@@ -48,25 +118,49 @@ export function AppSidebar({ open }: AppSidebarProps) {
       {/* List items */}
       <ScrollArea className="flex-1">
         <div className="px-2 py-2 space-y-0.5">
-          {lists?.map((list) => (
-            <button
-              key={list.id}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors text-left"
-              onClick={() => navigate(`/lists/${list.id}`)}
-            >
-              {/* Color dot */}
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{
-                  backgroundColor: list.color ?? "var(--primary)",
-                }}
-              />
-              <span className="truncate flex-1">{list.name}</span>
-              <Badge variant="secondary" className="text-[10px] h-4 px-1">
-                {list.symbols.length}
-              </Badge>
-            </button>
-          ))}
+          {lists?.map((list) => {
+            const isSystem = list.id.startsWith("sys:");
+            const isColor = list.type === "color";
+            const canDelete = !isSystem && !isColor;
+            return (
+              <ContextMenu key={list.id}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors text-left"
+                    onClick={() => navigate(`/lists/${list.id}`)}
+                  >
+                    {/* Color dot */}
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{
+                        backgroundColor: list.color ?? "var(--primary)",
+                      }}
+                    />
+                    <span className="truncate flex-1">{list.name}</span>
+                    <Badge variant="secondary" className="text-[10px] h-4 px-1">
+                      {getSymbolCount(list)}
+                    </Badge>
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-44">
+                  <ContextMenuItem onSelect={() => handleCopyTickers(list)}>
+                    Copy tickers
+                  </ContextMenuItem>
+                  {canDelete && (
+                    <>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        variant="destructive"
+                        onSelect={() => handleDelete(list)}
+                      >
+                        Delete list
+                      </ContextMenuItem>
+                    </>
+                  )}
+                </ContextMenuContent>
+              </ContextMenu>
+            );
+          })}
 
           {!lists?.length && (
             <div className="px-2 py-8 text-center">

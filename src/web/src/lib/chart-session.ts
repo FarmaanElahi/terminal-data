@@ -255,13 +255,13 @@ export class ChartSession {
         ],
       });
 
-      // Timeout safety
+      // Timeout safety — 30s to accommodate intraday chunks with retry backoff
       setTimeout(() => {
         if (this._historyCallbacks.has(requestId)) {
           this._historyCallbacks.delete(requestId);
           reject("Data load timeout");
         }
-      }, 15000);
+      }, 30000);
     });
   }
 

@@ -101,6 +101,27 @@ async def update_list(
     return await lists_service.update(session, lst, data)
 
 
+@router.delete("/{id}", status_code=204)
+async def delete_list(
+    id: str,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a list. Color and system lists cannot be deleted."""
+    if id.startswith(lists_service.SYSTEM_LIST_PREFIX):
+        raise HTTPException(status_code=400, detail="System lists cannot be deleted")
+
+    lst = await lists_service.get(session, id, user_id=current_user.id)
+    if not lst:
+        raise HTTPException(status_code=404, detail="List not found")
+
+    if lst.type == ListType.color:
+        raise HTTPException(status_code=400, detail="Color lists cannot be deleted")
+
+    await lists_service.delete(session, lst)
+    return None
+
+
 @router.put("/{id}/symbols", response_model=ListPublic)
 async def set_symbols(
     id: str,

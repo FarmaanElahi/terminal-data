@@ -6,6 +6,7 @@ import { TerminalDatafeed } from "@/lib/terminal-datafeed";
 import { ChartSession } from "@/lib/chart-session";
 import { ChartStorageAdapter } from "@/lib/chart-storage-adapter";
 import { getCustomIndicators } from "@/lib/custom-indicators";
+import { terminalWS } from "@/lib/ws";
 import { useAddSymbolMutation, useListsQuery } from "@/queries/use-lists";
 import {
   useAlerts,
@@ -16,7 +17,7 @@ import {
 import type { Alert } from "@/types/alert";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { List as ListIcon, X } from "lucide-react";
+import { List as ListIcon, X, RefreshCw } from "lucide-react";
 import { CreateAlertDialog } from "@/components/widgets/create-alert-dialog";
 
 const CONTAINER_PREFIX = "tv_chart_";
@@ -49,7 +50,25 @@ export function ChartWidget({
   const widgetRef = useRef<IChartingLibraryWidget | null>(null);
   const readyRef = useRef(false);
   const [chartReady, setChartReady] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
   const containerId = `${CONTAINER_PREFIX}${instanceId}`;
+
+  // Reload: ask TradingView to re-fetch all bars from scratch.
+  // This also runs automatically on WS reconnect so the chart heals
+  // after a connection drop without requiring a full page refresh.
+  const reloadChart = useCallback(() => {
+    const tvWidget = widgetRef.current;
+    if (!tvWidget || !readyRef.current) return;
+    setIsReloading(true);
+    try {
+      tvWidget.activeChart().resetData();
+    } catch {
+      /* chart may be in mid-transition */
+    } finally {
+      // Brief visual feedback even if resetData is sync
+      setTimeout(() => setIsReloading(false), 800);
+    }
+  }, []);
 
   const currentSymbolRef = useRef<string | null>(null);
 
@@ -196,6 +215,7 @@ export function ChartWidget({
       load_last_chart: true,
       saved_data: s.chartState ?? undefined,
       save_load_adapter: storageAdapter,
+      auto_save_delay: 5,
       custom_indicators_getter: getCustomIndicators,
       enabled_features: [
         "show_symbol_logos",
@@ -455,13 +475,6 @@ export function ChartWidget({
         );
       });
 
-      // Auto-save chart state
-      tvWidget.subscribe("onAutoSaveNeeded", () => {
-        tvWidget.save((state: object) => {
-          onSettingsChangeRef.current({ chartState: state });
-        });
-      });
-
       // Sync symbol changes
       tvWidget
         .activeChart()
@@ -539,6 +552,19 @@ export function ChartWidget({
       /* widget may not support changeTheme */
     }
   }, [theme]);
+
+  // ─── Auto-reload chart on WS reconnect ────────────────────────
+  // After a connection drop + reconnect the backend creates a new session,
+  // but the TV chart still holds stale bars. Calling resetData() makes TV
+  // re-invoke getBars() so the chart gets fresh data and live ticks resume.
+  useEffect(() => {
+    return terminalWS.on("ws_reconnected", () => {
+      if (readyRef.current) {
+        console.log("[ChartWidget] WS reconnected — reloading chart data");
+        reloadChart();
+      }
+    });
+  }, [reloadChart]);
 
   // ─── Alert drawing helpers ─────────────────────────────────────
   // Keep a stable ref to the draw function so it can be called
@@ -637,6 +663,19 @@ export function ChartWidget({
   return (
     <div ref={containerRef} className="h-full w-full relative">
       <div id={containerId} className="h-full w-full" />
+
+      {/* Reload button — fixed top-right overlay */}
+      {chartReady && (
+        <button
+          onClick={reloadChart}
+          title="Reload chart data"
+          className="absolute top-1.5 right-1.5 z-10 p-1 rounded bg-background/60 backdrop-blur-sm text-muted-foreground hover:text-foreground hover:bg-background/90 transition-all"
+        >
+          <RefreshCw
+            className={cn("w-3 h-3", isReloading && "animate-spin")}
+          />
+        </button>
+      )}
 
       {/* Floating list picker — shown when Option+W is pressed with no stored list */}
       {listPickerOpen && pendingSymbol && (

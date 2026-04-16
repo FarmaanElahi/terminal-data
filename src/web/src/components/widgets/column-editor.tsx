@@ -12,10 +12,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ColumnPropertiesDialog } from "./column-properties-dialog";
-import { Eye, EyeOff, X, Plus, Filter, ChevronRight } from "lucide-react";
+import { SaveColumnSetDialog } from "./save-column-set-dialog";
+import { useColumnSetsQuery, useCreateColumnSetMutation, useUpdateColumnSetMutation } from "@/queries/use-column-sets";
+import { Eye, EyeOff, X, Plus, Filter, ChevronRight, FolderOpen, Save } from "lucide-react";
+import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -83,6 +87,11 @@ export function ColumnEditor({ open, onClose, columns: columnsProp, onColumnsCha
   const [columns, setColumns] = useState<ColumnDef[]>([]);
   const [hasChanges, setHasChanges] = useState(false);
   const [editingColIdx, setEditingColIdx] = useState<number | null>(null);
+  const [saveSetOpen, setSaveSetOpen] = useState(false);
+
+  const { data: columnSets = [] } = useColumnSetsQuery();
+  const createColumnSet = useCreateColumnSetMutation();
+  const updateColumnSet = useUpdateColumnSetMutation();
 
   useEffect(() => {
     if (open) {
@@ -123,6 +132,42 @@ export function ColumnEditor({ open, onClose, columns: columnsProp, onColumnsCha
     onColumnsChange(columns);
     onClose();
   }, [columns, onColumnsChange, onClose]);
+
+  const handleLoadSet = useCallback((setColumns_: ColumnDef[]) => {
+    setColumns([...setColumns_]);
+    setHasChanges(true);
+  }, []);
+
+  const handleSaveSet = useCallback((name: string, isOverwrite: boolean) => {
+    if (isOverwrite) {
+      const existing = columnSets.find(
+        (s) => s.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (existing) {
+        updateColumnSet.mutate(
+          { id: existing.id, data: { name, columns } },
+          {
+            onSuccess: () => {
+              toast.success(`Column set "${name}" updated`);
+              setSaveSetOpen(false);
+            },
+            onError: () => toast.error("Failed to update column set"),
+          },
+        );
+        return;
+      }
+    }
+    createColumnSet.mutate(
+      { name, columns },
+      {
+        onSuccess: () => {
+          toast.success(`Column set "${name}" saved`);
+          setSaveSetOpen(false);
+        },
+        onError: () => toast.error("Failed to save column set"),
+      },
+    );
+  }, [columns, columnSets, createColumnSet, updateColumnSet]);
 
   return (
     <>
@@ -313,7 +358,55 @@ export function ColumnEditor({ open, onClose, columns: columnsProp, onColumnsCha
               </DropdownMenuContent>
             </DropdownMenu>
 
+            {/* Load from saved column set */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-1.5"
+                  disabled={columnSets.length === 0}
+                  title={columnSets.length === 0 ? "No saved column sets" : "Load a saved column set"}
+                >
+                  <FolderOpen className="w-3 h-3" />
+                  Load Set
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  Saved Column Sets
+                </div>
+                <DropdownMenuSeparator />
+                {columnSets.map((cs) => (
+                  <DropdownMenuItem
+                    key={cs.id}
+                    onClick={() => handleLoadSet(cs.columns)}
+                  >
+                    <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+                      <span className="text-xs font-medium truncate">{cs.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {cs.columns.length} column{cs.columns.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <div className="flex-1" />
+
+            {/* Save current columns as a named set */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setSaveSetOpen(true)}
+              disabled={columns.length === 0}
+              title="Save current columns as a reusable set"
+            >
+              <Save className="w-3 h-3" />
+              Save Set
+            </Button>
 
             {hasChanges ? (
               <div className="flex items-center gap-2">
@@ -358,6 +451,17 @@ export function ColumnEditor({ open, onClose, columns: columnsProp, onColumnsCha
             setEditingColIdx(null);
           }
         }}
+      />
+
+      {/* ─── Save Column Set Dialog ───────────────────────── */}
+      <SaveColumnSetDialog
+        open={saveSetOpen}
+        onClose={() => setSaveSetOpen(false)}
+        initialName=""
+        columns={columns}
+        existingSets={columnSets}
+        onSave={handleSaveSet}
+        isSaving={createColumnSet.isPending || updateColumnSet.isPending}
       />
     </>
   );

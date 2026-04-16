@@ -96,6 +96,7 @@ export class TerminalDatafeed {
         exchange: string;
         ticker: string;
         type: string;
+        logo_urls?: string[];
       }>,
     ) => void,
   ): Promise<void> {
@@ -119,6 +120,9 @@ export class TerminalDatafeed {
         exchange: s.ticker.split(":")[0],
         ticker: s.ticker,
         type: s.type || "stock",
+        logo_urls: s.logo
+          ? [`https://s3-symbol-logo.tradingview.com/${s.logo}.svg`]
+          : undefined,
       })),
     );
   }

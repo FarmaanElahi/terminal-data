@@ -587,9 +587,9 @@ export function ScreenerWidget({
   );
   const tableRef = useRef<HTMLTableElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [sortConfig, setSortConfig] = useState<SortConfig>({
-    key: "ticker",
-    direction: "asc",
+  const [sortConfig, setSortConfig] = useState<SortConfig>(() => {
+    const saved = s.sortConfig as SortConfig | undefined;
+    return saved ?? { key: "ticker", direction: "asc" };
   });
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const addSymbolMutation = useAddSymbolMutation();
@@ -687,11 +687,17 @@ export function ScreenerWidget({
 
   const handleSort = (key: string) => {
     setSortConfig((prev) => {
+      let next: SortConfig;
       if (prev.key === key) {
-        if (prev.direction === "asc") return { key, direction: "desc" };
-        if (prev.direction === "desc") return { key: null, direction: null };
+        if (prev.direction === "asc") next = { key, direction: "desc" };
+        else if (prev.direction === "desc") next = { key: null, direction: null };
+        else next = { key, direction: "asc" };
+      } else {
+        next = { key, direction: "asc" };
       }
-      return { key, direction: "asc" };
+      // Persist sort into widget settings so it survives layout reload
+      onSettingsChange({ sortConfig: next });
+      return next;
     });
   };
 
