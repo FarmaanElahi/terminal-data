@@ -12,14 +12,16 @@
 const IDX = {
   GREAT_EXPANSION: 0,
   DECENT_EXPANSION: 1,
-  EMA_BOUNCE: 2,
-  RMV_CONTRACTION: 3,
-  POOR_CONTRACTION: 4,
+  HIGH_DAILY_CHANGE: 2,
+  EMA_BOUNCE: 3,
+  RMV_CONTRACTION: 4,
+  POOR_CONTRACTION: 5,
 } as const;
 
 // ─── Default colors ─────────────────────────────────────────────────────────
 const DEF_COLOR_GREAT_EXPANSION = "#0000FF"; // color.rgb(0, 0, 255)
 const DEF_COLOR_DECENT_EXPANSION = "#2196F3"; // color.rgb(33, 150, 243)
+const DEF_COLOR_HIGH_DAILY_CHANGE = "#9333EA"; // Purple
 const DEF_COLOR_EMA_BOUNCE = "#4D9650"; // color.rgb(77, 150, 80)
 const DEF_COLOR_RMV_CONTRACTION = "#787B86"; // TradingView color.gray
 const DEF_COLOR_POOR_CONTRACTION = "#550E0E"; // color.rgb(85, 14, 14)
@@ -100,6 +102,7 @@ function buildCandleClassifier(PineJS: any): any {
           colors: [
             { name: "Great Expansion" },
             { name: "Decent Expansion" },
+            { name: "High Daily Change" },
             { name: "EMA Bounce" },
             { name: "RMV Contraction" },
             { name: "Poor Contraction" },
@@ -107,6 +110,7 @@ function buildCandleClassifier(PineJS: any): any {
           valToIndex: {
             [IDX.GREAT_EXPANSION]: IDX.GREAT_EXPANSION,
             [IDX.DECENT_EXPANSION]: IDX.DECENT_EXPANSION,
+            [IDX.HIGH_DAILY_CHANGE]: IDX.HIGH_DAILY_CHANGE,
             [IDX.EMA_BOUNCE]: IDX.EMA_BOUNCE,
             [IDX.RMV_CONTRACTION]: IDX.RMV_CONTRACTION,
             [IDX.POOR_CONTRACTION]: IDX.POOR_CONTRACTION,
@@ -120,6 +124,7 @@ function buildCandleClassifier(PineJS: any): any {
             colors: [
               { color: DEF_COLOR_GREAT_EXPANSION, width: 1, style: 0 },
               { color: DEF_COLOR_DECENT_EXPANSION, width: 1, style: 0 },
+              { color: DEF_COLOR_HIGH_DAILY_CHANGE, width: 1, style: 0 },
               { color: DEF_COLOR_EMA_BOUNCE, width: 1, style: 0 },
               { color: DEF_COLOR_RMV_CONTRACTION, width: 1, style: 0 },
               { color: DEF_COLOR_POOR_CONTRACTION, width: 1, style: 0 },
@@ -145,6 +150,8 @@ function buildCandleClassifier(PineJS: any): any {
           enable_contraction: true,
           enable_ema_bounce: true,
           enable_ema_cross_over: true,
+          enable_high_daily_change: true,
+          high_daily_change_threshold: 4.0,
         },
       },
 
@@ -219,6 +226,23 @@ function buildCandleClassifier(PineJS: any): any {
           type: "bool",
           group: "Price Volume Action Coloring",
         },
+        {
+          id: "enable_high_daily_change",
+          name: "High Daily Change",
+          defval: true,
+          type: "bool",
+          group: "Price Volume Action Coloring",
+        },
+        {
+          id: "high_daily_change_threshold",
+          name: "High Daily Change Threshold (%)",
+          defval: 4.0,
+          type: "float",
+          min: 0.0,
+          max: 100.0,
+          step: 0.1,
+          group: "Price Volume Action Coloring",
+        },
       ],
     },
 
@@ -235,6 +259,8 @@ function buildCandleClassifier(PineJS: any): any {
         const enableContraction: boolean = this._input(5);
         const enableEmaBounce: boolean = this._input(6);
         const enableEmaCrossOver: boolean = this._input(7);
+        const enableHighDailyChange: boolean = this._input(8);
+        const highDailyChangeThreshold: number = this._input(9);
 
         const close: number = PineJS.Std.close(this._context);
         const open: number = PineJS.Std.open(this._context);
@@ -321,11 +347,21 @@ function buildCandleClassifier(PineJS: any): any {
         const contractionAllowedForSymbol =
           symbolType === "index" ? rmvEnableIndices : true;
 
+        const period = String(this._context?.symbol?.period ?? "").toUpperCase();
+        const isDailyTimeframe = period === "D" || period === "1D";
+        const isHighDailyChange =
+          enableHighDailyChange &&
+          isDailyTimeframe &&
+          Number.isFinite(chg) &&
+          chg > highDailyChangeThreshold;
+
         let barColor = NaN;
         if (enableExpansion && isGreatExpansion) {
           barColor = IDX.GREAT_EXPANSION;
         } else if (enableExpansion && isDecentExpansion) {
           barColor = IDX.DECENT_EXPANSION;
+        } else if (isHighDailyChange) {
+          barColor = IDX.HIGH_DAILY_CHANGE;
         } else if (enableEmaBounce && (bounce10 || bounce20 || bounce50) && aboveAvgVol) {
           barColor = IDX.EMA_BOUNCE;
         } else if (
